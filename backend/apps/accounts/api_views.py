@@ -234,6 +234,11 @@ class SessionLoginAPIView(APIView):
     authentication_classes = []
 
     def get(self, request):
+        if settings.DEMO_MODE:
+            return Response(
+                {"detail": "CSRF cookie set.", "demo_mode": True},
+                headers={"Cache-Control": "no-store"},
+            )
         return Response({"detail": "CSRF cookie set."})
 
     def post(self, request):
@@ -1288,6 +1293,7 @@ class PersonalAuditLogListAPIView(APIView):
         logs_query = impactful_audit_logs(
             organization_id=organization.id,
             actor=request.user,
+            exclude_technical=True,
         )
         logs, has_more = paginate_audit_logs(
             logs_query.select_related("organization", "user", "edited_by"),

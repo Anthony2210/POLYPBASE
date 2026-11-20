@@ -412,14 +412,6 @@ function SpeciesDetail({
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isUpdated, setIsUpdated] = useState(false);
   const [isStrainCreateOpen, setIsStrainCreateOpen] = useState(false);
-  const [resolvingAction, setResolvingAction] = useState<'edit' | 'strain' | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const actionBusyRef = useRef(false);
-  const actionRequestRef = useRef(0);
-  const actionScope = `${organizationId}:${target.kind}:${target.id}`;
-  const actionScopeRef = useRef(actionScope);
-  actionScopeRef.current = actionScope;
-  useEffect(() => () => { actionRequestRef.current += 1; }, [actionScope]);
 
   const { confirmAction, confirmActionModal } = useConfirmAction();
   // A Strain just created here, waiting for its detail reread before "create a box?".
@@ -449,51 +441,15 @@ function SpeciesDetail({
   const readyProfile = state.status === 'ready' && state.data.kind === 'profile' ? state.data.data : null;
   // Readiness comes from verified server evidence, never from a displayed AAA.
   const canCreateStrain = state.status === 'ready' && state.data.data.can_create_strain === true;
-  // A missing assignment can now be prepared by an explicit click. Conflicting
-  // or malformed assignments still need a separate data correction.
-  const canPrepareStrain = canCreateStrain || (state.status === 'ready'
-    && state.data.data.strain_creation_issue === 'species_code_missing');
+  // Opening a dialog never persists anything: only an established institutional
+  // profile can be edited, and only a server-ready one can receive a Strain.
+  // Historical Species stay read-only here (the former implicit "resolve" is retired).
+  const isHistorical = state.status === 'ready' && state.data.kind === 'historical';
 
-  async function openSpeciesAction(action: 'edit' | 'strain') {
-    if (state.status !== 'ready' || actionBusyRef.current || (action === 'strain' && !canPrepareStrain)) return;
-    setActionError(null);
-    if (readyProfile && (action === 'edit' || canCreateStrain)) {
-      if (action === 'strain') setIsStrainCreateOpen(true);
-      else { setIsUpdated(false); setIsEditOpen(true); }
-      return;
-    }
-    const request = ++actionRequestRef.current;
-    const isCurrent = () => request === actionRequestRef.current && actionScopeRef.current === actionScope;
-    actionBusyRef.current = true;
-    setResolvingAction(action);
-    try {
-      const resolved = await apiPost<InstitutionSpeciesDetail>('/api/admin/institution-species/resolve/', {
-        species_id: state.data.data.species_id, action,
-      });
-      if (!isCurrent()) return;
-      setState({ status: 'ready', data: { kind: 'profile', data: resolved } });
-      if (action === 'strain') setIsStrainCreateOpen(true);
-      else { setIsUpdated(false); setIsEditOpen(true); }
-    } catch (error) {
-      if (!isCurrent()) return;
-      const failure = error instanceof ApiError ? getServiceFailure(error.data) : null;
-      const code = failure?.code;
-      const key: TranslationKey = error instanceof ApiError && error.status === 403 ? 'speciesCatalogActionForbidden'
-        : error instanceof ApiError && error.status === 404 ? 'speciesDetailNotFound'
-          : code === 'species_code_missing' ? 'speciesStrainSpeciesCodeMissing'
-            : code === 'species_code_unusable' ? 'speciesStrainSpeciesCodeUnusable'
-              : code === 'species_code_inconsistent' ? 'speciesCodeDataIssue'
-                : code && CODE_FAILURE_KEYS[code] ? CODE_FAILURE_KEYS[code]
-                : code === 'institution_species_name_exists' ? 'speciesEditNameExists'
-                  : code === 'institution_aphia_id_exists' ? 'speciesCreateAphiaExists'
-                    : action === 'edit' ? 'speciesEditError' : 'speciesStrainCreateError';
-      setActionError(t(key).replace('{name}', failure?.scientific_name ?? ''));
-    } finally {
-      if (isCurrent()) {
-        actionBusyRef.current = false;
-        setResolvingAction(null);
-      }
-    }
+  function openSpeciesAction(action: 'edit' | 'strain') {
+    if (!readyProfile || (action === 'strain' && !canCreateStrain)) return;
+    if (action === 'strain') setIsStrainCreateOpen(true);
+    else { setIsUpdated(false); setIsEditOpen(true); }
   }
 
   // Species -> Strain: asked once, on the new Species page. No creates nothing.
@@ -594,25 +550,25 @@ function SpeciesDetail({
           </ul>
         </div>
         <div className="entity-header__actions box-action-stack species-action-stack">
-          <button className="primary-button" type="button" disabled={!canPrepareStrain || resolvingAction !== null}
-            aria-describedby={!canPrepareStrain ? 'species-code-issue' : undefined}
-            aria-busy={resolvingAction === 'strain' || undefined}
-            onClick={() => { void openSpeciesAction('strain'); }}>
+          <button className="primary-button" type="button" disabled={!canCreateStrain || isHistorical}
+            aria-describedby={isHistorical ? 'species-historical-readonly' : !canCreateStrain ? 'species-code-issue' : undefined}
+            onClick={() => { openSpeciesAction('strain'); }}>
             <PolypbaseIcon name="plus" size={16} />
             {t('speciesStrainNew')}
           </button>
           {/* Editing is independent of AAA readiness and of any WoRMS link. */}
-          <button className="secondary-button" type="button" disabled={resolvingAction !== null}
-            aria-busy={resolvingAction === 'edit' || undefined}
-            onClick={() => { void openSpeciesAction('edit'); }}>
+          <button className="secondary-button" type="button" disabled={isHistorical}
+            aria-describedby={isHistorical ? 'species-historical-readonly' : undefined}
+            onClick={() => { openSpeciesAction('edit'); }}>
             {t('speciesDetailIdentification')}
           </button>
         </div>
       </header>
 
 
-      {!canPrepareStrain ? <p id="species-code-issue" className="species-code-issues" role="alert">{t(strainIssueKey)}</p> : null}
-      {actionError ? <p className="inline-error" role="alert">{actionError}</p> : null}
+      {isHistorical ? (
+        <p id="species-historical-readonly" className="species-admin-notice" role="status">{t('speciesDetailActionsUnavailable')}</p>
+      ) : !canCreateStrain ? <p id="species-code-issue" className="species-code-issues" role="alert">{t(strainIssueKey)}</p> : null}
       {createdCode !== undefined && !isUpdated ? (
         <p className="species-detail-message" role="status">
           {createdCode

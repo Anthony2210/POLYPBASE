@@ -34,9 +34,9 @@ Main independently published B32 (`T1460`–`T1469`, four-hour thermal monitorin
 - Eight existing keys lose their consumers when QuickStrainCreator/direct taxonomy strain creation is retired: four `quickStrain*` keys and `taxonomyCreateSpeciesFirst`, `taxonomyGoToSharedReferences`, `taxonomyNewStrain`, `taxonomyStrainMissingAAA`.
 - Sixty newly introduced keys are not displayed by the final simplified Species workflow: retained code-change preview explanations, historical-storage labels, old location-based strain labels, filtered WoRMS-rank explanations and the compact initial-count hint.
 
-The original labels are preserved through 68 exact-key, reasoned exceptions in `frontend/scripts/species-strains-retained-copy.mjs`. They do not claim runtime reachability or enable hidden controls. Unknown keys are not exempt; a returned production consumer or a removed catalog entry makes an exception stale and fails the checker. Tests cover these expiration rules. No meaningful code or translation was removed to silence the check.
+Of the 68 original exceptions, 67 remain in `frontend/scripts/species-strains-retained-copy.mjs`; `speciesDetailActionsUnavailable` now has a production consumer. They do not claim runtime reachability or enable hidden controls. Unknown keys are not exempt; a returned production consumer or a removed catalog entry makes an exception stale and fails the checker. Tests cover these expiration rules. No meaningful code or translation was removed to silence the check.
 
-The current scan has 1,719 FR/EN keys, 1,604 with exact production-source references, and 115 source-unreferenced keys: 47 earlier retention decisions plus the 68 explicitly reviewed here.
+The original integration scan had 1,719 FR/EN keys, 1,604 with exact production-source references, and 115 source-unreferenced keys: 47 earlier retention decisions plus the 68 explicitly reviewed here.
 
 ## Focused validation commands
 

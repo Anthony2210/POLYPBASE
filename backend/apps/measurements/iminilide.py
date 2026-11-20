@@ -183,6 +183,8 @@ class IminilideClient:
     """One authenticated browsing session on the iMinilide cloud."""
 
     def __init__(self, *, email=None, password=None, base_url=None, timeout=None, opener=None):
+        if settings.DEMO_MODE:
+            raise IminilideConfigurationError("Probe collection is disabled in demo mode.")
         self.email = settings.IMINILIDE_EMAIL if email is None else email
         self.password = settings.IMINILIDE_PASSWORD if password is None else password
         self.base_url = (base_url or settings.IMINILIDE_BASE_URL).rstrip("/")

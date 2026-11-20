@@ -1802,6 +1802,7 @@ export const fr = {
   probeSeriesToggle: 'Afficher ou masquer {probe}',
   probeAverage: 'Moyenne des sondes',
   probeAverageContributors: '{count} sondes contributrices',
+  demoModeBanner: 'Mode démonstration',
 } as const;
 
 export type TranslationKey = keyof typeof fr;

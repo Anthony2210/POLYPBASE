@@ -1802,4 +1802,5 @@ export const en: Record<TranslationKey, string> = {
   probeSeriesToggle: 'Show or hide {probe}',
   probeAverage: 'Probe average',
   probeAverageContributors: '{count} contributing probes',
+  demoModeBanner: 'Demonstration mode',
 };

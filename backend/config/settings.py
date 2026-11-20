@@ -17,11 +17,24 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+from .demo import demo_configuration
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load environment variables from backend/.env if present.
-load_dotenv(BASE_DIR / ".env")
+# Demo selection is process-only; never load the ordinary dotenv in demo mode.
+_demo_mode = os.getenv("POLYPBASE_DEMO", "0")
+if _demo_mode not in {"0", "1"}:
+    raise ImproperlyConfigured("POLYPBASE_DEMO must be 0 or 1.")
+DEMO_MODE = _demo_mode == "1"
+if DEMO_MODE:
+    _demo_origin, _demo_secret, _demo_databases = demo_configuration(os.environ)
+else:
+    if any(name in os.environ for name in (
+        "DEMO_PUBLIC_ORIGIN", "DEMO_SECRET_KEY", "DEMO_DB_NAME", "DEMO_DB_USER", "DEMO_DB_PASSWORD",
+    )):
+        raise ImproperlyConfigured("Demo settings require POLYPBASE_DEMO=1.")
+    load_dotenv(BASE_DIR / ".env")
 
 
 def env_flag(name, default=False):
@@ -40,13 +53,13 @@ RUNNING_TESTS = "test" in sys.argv
 # Defaults to False so that a forgotten environment variable in production is
 # safe (no debug pages, no source leak) rather than dangerous. Development sets
 # DJANGO_DEBUG=1 in backend/.env.
-DEBUG = env_flag("DJANGO_DEBUG", default=False)
+DEBUG = not DEMO_MODE and env_flag("DJANGO_DEBUG", default=False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # In production the key MUST come from the environment. There is deliberately no
 # fallback: a hardcoded key committed to the repository would let anyone forge
 # sessions. Startup fails loudly instead of running insecurely.
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+SECRET_KEY = _demo_secret if DEMO_MODE else os.getenv("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     if DEBUG or RUNNING_TESTS:
         SECRET_KEY = "django-insecure-development-only-key-do-not-use-in-production"
@@ -77,6 +90,11 @@ CSRF_TRUSTED_ORIGINS = [
 # the Vite dev server), not of the Django server. Pointing it at Django used to
 # make a scanned code land on a bare server-rendered page instead of the app.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:5173").rstrip("/")
+if DEMO_MODE:
+    PUBLIC_BASE_URL = _demo_origin
+    ALLOWED_HOSTS = [_demo_origin.removeprefix("https://")]
+    CSRF_TRUSTED_ORIGINS = [_demo_origin]
+    SESSION_COOKIE_NAME = "polypbase_demo_session"
 
 
 # -- Security -----------------------------------------------------------------
@@ -104,7 +122,7 @@ if not DEBUG and not RUNNING_TESTS:
     # forwards the original scheme in this header.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-    SECURE_SSL_REDIRECT = env_flag("DJANGO_SECURE_SSL_REDIRECT", default=True)
+    SECURE_SSL_REDIRECT = DEMO_MODE or env_flag("DJANGO_SECURE_SSL_REDIRECT", default=True)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
@@ -179,7 +197,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-if os.getenv("POSTGRES_DB"):
+if DEMO_MODE:
+    DATABASES = _demo_databases
+elif os.getenv("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -280,26 +300,31 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # In development, emails are printed in the terminal. Production should set a
 # real SMTP backend through environment variables.
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend",
-)
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Polypbase <noreply@polypbase.org>")
-EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = env_flag("EMAIL_USE_TLS", default=True)
-EMAIL_USE_SSL = env_flag("EMAIL_USE_SSL", default=False)
-EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
-EMAIL_DELIVERY_ENABLED = env_flag(
-    "EMAIL_DELIVERY_ENABLED",
-    default=EMAIL_BACKEND
-    not in {
+if DEMO_MODE:
+    EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
+    EMAIL_DELIVERY_ENABLED = False
+    DEFAULT_FROM_EMAIL = "Polypbase Demo <noreply@example.invalid>"
+else:
+    EMAIL_BACKEND = os.getenv(
+        "EMAIL_BACKEND",
         "django.core.mail.backends.console.EmailBackend",
-        "django.core.mail.backends.dummy.EmailBackend",
-    },
-)
+    )
+    DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Polypbase <noreply@polypbase.org>")
+    EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+    EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+    EMAIL_USE_TLS = env_flag("EMAIL_USE_TLS", default=True)
+    EMAIL_USE_SSL = env_flag("EMAIL_USE_SSL", default=False)
+    EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+    EMAIL_DELIVERY_ENABLED = env_flag(
+        "EMAIL_DELIVERY_ENABLED",
+        default=EMAIL_BACKEND
+        not in {
+            "django.core.mail.backends.console.EmailBackend",
+            "django.core.mail.backends.dummy.EmailBackend",
+        },
+    )
 
 
 def _optional_positive_seconds(name):
@@ -316,10 +341,10 @@ def _optional_positive_seconds(name):
 # External read-only Box sharing. No lifetime has a product-approved default:
 # both upper bounds must be configured explicitly. While either is unset, no
 # share can be created, extended or have its invitation reissued.
-BOX_SHARING_INVITATION_MAX_LIFETIME_SECONDS = _optional_positive_seconds(
+BOX_SHARING_INVITATION_MAX_LIFETIME_SECONDS = None if DEMO_MODE else _optional_positive_seconds(
     "BOX_SHARING_INVITATION_MAX_LIFETIME_SECONDS",
 )
-BOX_SHARING_ACCESS_MAX_LIFETIME_SECONDS = _optional_positive_seconds(
+BOX_SHARING_ACCESS_MAX_LIFETIME_SECONDS = None if DEMO_MODE else _optional_positive_seconds(
     "BOX_SHARING_ACCESS_MAX_LIFETIME_SECONDS",
 )
 # Frozen captures are only guaranteed consistent on PostgreSQL. SQLite is
@@ -350,9 +375,9 @@ REST_FRAMEWORK = {
 # iMinilide cloud collection. Credentials come only from the environment of the
 # collection service (never from the repository). Without them the collection
 # command refuses to run and the rest of the application is unaffected.
-IMINILIDE_BASE_URL = os.getenv("IMINILIDE_BASE_URL", "https://iminilide.com").rstrip("/")
-IMINILIDE_EMAIL = os.getenv("IMINILIDE_EMAIL", "")
-IMINILIDE_PASSWORD = os.getenv("IMINILIDE_PASSWORD", "")
+IMINILIDE_BASE_URL = "" if DEMO_MODE else os.getenv("IMINILIDE_BASE_URL", "https://iminilide.com").rstrip("/")
+IMINILIDE_EMAIL = "" if DEMO_MODE else os.getenv("IMINILIDE_EMAIL", "")
+IMINILIDE_PASSWORD = "" if DEMO_MODE else os.getenv("IMINILIDE_PASSWORD", "")
 # Local time zone of the timestamps returned by the cloud.
 IMINILIDE_TIME_ZONE = os.getenv("IMINILIDE_TIME_ZONE", "Europe/Paris")
 IMINILIDE_TIMEOUT_SECONDS = int(os.getenv("IMINILIDE_TIMEOUT_SECONDS", "20"))

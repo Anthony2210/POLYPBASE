@@ -40,6 +40,7 @@ type HistoryMeasurementPrefill = EditableMeasurement;
 import { useConfirmAction } from './components/ConfirmActionModal';
 import ApplicationErrorNotice from './components/ApplicationErrorNotice';
 import CreateBoxPanel from './components/CreateBoxPanel';
+import DemoModeBanner from './components/DemoModeBanner';
 import PilotageView from './components/PilotageView';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
@@ -240,6 +241,17 @@ const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'labels', 'profile'];
 const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'labels', 'profile'];
 
 export default function App() {
+  const [demoMode, setDemoMode] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiGet<{ demo_mode?: boolean }>('/api/auth/session/', {
+      skipOrganizationContext: true, cache: 'no-store', signal: controller.signal,
+    }).then((session) => {
+      if (!controller.signal.aborted) setDemoMode(session.demo_mode === true);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
   const [isLoginRoute, setIsLoginRoute] = useState(() => window.location.pathname === '/login');
   // Reached from the link emailed by the "forgot password" flow, so it has to
@@ -2197,34 +2209,42 @@ export default function App() {
     setIsLoginRoute(false);
   }
 
+  const demoBanner = <DemoModeBanner enabled={demoMode} t={t} />;
+
   if (passwordReset) {
     return (
-      <PasswordResetPage
-        uid={passwordReset.uid}
-        token={passwordReset.token}
-        t={t}
-        onDone={() => {
-          resetNavigation('/login', null);
-          setPasswordReset(null);
-          setIsLoginRoute(true);
-        }}
-      />
+      <>
+        {demoBanner}
+        <PasswordResetPage
+          uid={passwordReset.uid}
+          token={passwordReset.token}
+          t={t}
+          onDone={() => {
+            resetNavigation('/login', null);
+            setPasswordReset(null);
+            setIsLoginRoute(true);
+          }}
+        />
+      </>
     );
   }
 
   if (isLoginRoute) {
-    return <LoginPage onAuthenticated={handleAuthenticated} t={t} />;
+    return <>{demoBanner}<LoginPage onAuthenticated={handleAuthenticated} t={t} /></>;
   }
 
   if (needsOrganizationChoice && data.profile) {
     return (
-      <OrganizationChoiceScreen
-        isLoading={isLoading}
-        organizations={selectableOrganizations}
-        profile={data.profile}
-        t={t}
-        onSelect={(organizationId) => void chooseOrganization(organizationId)}
-      />
+      <>
+        {demoBanner}
+        <OrganizationChoiceScreen
+          isLoading={isLoading}
+          organizations={selectableOrganizations}
+          profile={data.profile}
+          t={t}
+          onSelect={(organizationId) => void chooseOrganization(organizationId)}
+        />
+      </>
     );
   }
 
@@ -2373,6 +2393,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
+        {demoBanner}
         {!isBoxRoute && !isZoneRoute && !(activeTab === 'admin' && route.adminSection === 'species' && route.adminSpecies) ? (
           <header className={activeTab === 'pilotage' ? 'page-heading pilotage-page-heading' : 'page-heading'}>
             <h1>{getTitle(activeTab, t)}</h1>
