@@ -24,6 +24,7 @@ from apps.taxonomy.scoping import eligible_strains
 
 from .box_codes import allocate_box_codes, lock_local_id_registry
 from .box_identity import USABLE, institution_species_codes, strain_box_identity, strain_display_name
+from .dna_validation import add_dna_validation_to_new_box, require_dna_validation_authority, validate_dna_evidence_url
 from .models import (
     AutomaticBoxCreationRequest, Box, BoxGlobalIdentity, BoxLocation, ThermalZone, new_box_global_identity,
 )
@@ -53,6 +54,14 @@ class AutomaticBoxCreateSerializer(AutomaticBoxRequestSerializer):
     # Recorded as the Box's initial measurement on entered_on. Required: an empty
     # value is never read as 0, and 0 itself is a real count.
     initial_polyp_count = serializers.IntegerField(min_value=0, max_value=2147483647)
+    # Optional DNA evidence for this new Box, under the Box page's URL rule.
+    # Absent or null means no evidence; it is never inferred from Strain or Species.
+    dna_evidence_url = serializers.CharField(
+        required=False, allow_null=True, default=None, allow_blank=True, trim_whitespace=False,
+    )
+
+    def validate_dna_evidence_url(self, value):
+        return None if value is None else validate_dna_evidence_url(value)
 
 
 class AutomaticBoxIntentKeySerializer(AutomaticBoxRequestSerializer):
@@ -71,6 +80,9 @@ def _normalized_intent(values):
         "volume_liters": None if volume is None else format(volume.copy_abs() if volume == 0 else volume, ".2f"),
         "notes": values["notes"],
         "initial_polyp_count": values["initial_polyp_count"],
+        # Only present when given, so intents without evidence keep their exact
+        # stored form and remain comparable with receipts registered before it.
+        **({"dna_evidence_url": values["dna_evidence_url"]} if values["dna_evidence_url"] is not None else {}),
     }
 
 
@@ -259,6 +271,9 @@ def create_automatic_box(*, organization, actor, data, _registered_receipt=None)
         # A registered intention has no Box until its first successful execution.
         if previous.box_id is not None:
             return _owned_receipt_box(previous, organization), False
+    if values["dna_evidence_url"] is not None:
+        # Same authority as a Box page addition, checked before any allocation.
+        require_dna_validation_authority(user=actor, organization=organization)
 
     # A new identifier must extend a verified AAA-BBB-X prefix; never invent one.
     identity = strain_box_identity(strain, organization)
@@ -314,6 +329,11 @@ def create_automatic_box(*, organization, actor, data, _registered_receipt=None)
             },
         },
     )
+    if values["dna_evidence_url"] is not None:
+        # Same transaction as the Box: evidence and its own audit commit with it or not at all.
+        add_dna_validation_to_new_box(
+            user=actor, organization=organization, box=box, evidence_url=values["dna_evidence_url"],
+        )
     if previous is None:
         AutomaticBoxCreationRequest.objects.create(
             organization=organization, actor=actor, request_id=values["request_id"],
@@ -367,6 +387,9 @@ def register_automatic_box_intent(*, organization, actor, data):
     failure = None
     if serializer.is_valid():
         intent = _normalized_intent(serializer.validated_data)
+        if "dna_evidence_url" in intent:
+            # Authorization failures never register an intention.
+            require_dna_validation_authority(user=actor, organization=organization)
         zone = _locked_intent_zone(organization, intent["thermal_zone"])
         if zone is None or not zone.is_active:
             # Same refusal as execution, made durable now; an id that names no

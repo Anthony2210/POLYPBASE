@@ -47,7 +47,8 @@ test('form asks only for strain, location, date and note; no preview or client-a
   await ready(h);
   assert.equal(h.boxCollectionRequests, 0);
   const controls = h.panel.nodes.filter(n => ['select', 'input', 'textarea'].includes(n.type));
-  assert.deepEqual(controls.map(n => n.props.type ?? n.type), ['search', 'select', 'date', 'number', 'textarea']);
+  // The optional DNA evidence link is the only addition, right after the initial count.
+  assert.deepEqual(controls.map(n => n.props.type ?? n.type), ['search', 'select', 'date', 'number', 'url', 'textarea']);
   assert.equal(h.panel.byClass('created-box-identifier'), undefined);
   assert.equal(h.env.requests.length, 1, 'Only the strain list is fetched');
   assert.doesNotMatch(panelText(h), /Identifiant prévu|Expected identifier|AUR-ATL-1\.\d/);
@@ -666,9 +667,9 @@ test('AST: automatic payload type excludes all client code fields and requires U
   const ast = sourceAst('../src/types.ts');
   const type = ast.statements.find(n => ts.isTypeAliasDeclaration(n) && n.name.text === 'BoxCreatePayload');
   const fields = new Map(type.type.members.map(n => [n.name.getText(ast), n]));
-  assert.deepEqual([...fields.keys()].sort(), ['entered_on', 'initial_polyp_count', 'notes', 'request_id', 'strain', 'thermal_zone', 'volume_liters']);
+  assert.deepEqual([...fields.keys()].sort(), ['dna_evidence_url', 'entered_on', 'initial_polyp_count', 'notes', 'request_id', 'strain', 'thermal_zone', 'volume_liters']);
   for (const name of ['entered_on', 'initial_polyp_count', 'request_id', 'strain', 'thermal_zone']) assert.equal(fields.get(name).questionToken, undefined);
-  for (const name of ['notes', 'volume_liters']) assert.ok(fields.get(name).questionToken);
+  for (const name of ['dna_evidence_url', 'notes', 'volume_liters']) assert.ok(fields.get(name).questionToken);
   const identity = ast.statements.find(n => ts.isTypeAliasDeclaration(n) && n.name.text === 'BoxStrainIdentity').getText(ast);
   assert.doesNotMatch(identity, /box_number|next|global_code/, 'The identity contract carries no Box number');
 });

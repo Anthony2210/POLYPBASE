@@ -26,6 +26,13 @@ def can_edit_dna_validation(*, user, organization):
     )
 
 
+def require_dna_validation_authority(*, user, organization):
+    if not can_edit_dna_validation(user=user, organization=organization):
+        raise PermissionDenied(_(
+            "This account cannot edit DNA validations. Please contact your administrator."
+        ))
+
+
 class DnaValidationConflict(APIException):
     status_code = 409
 
@@ -67,10 +74,7 @@ def mutate_dna_validation(*, user, organization, box_id, operation, data):
     organization = Organization.objects.select_for_update(no_key=True).filter(
         pk=organization.pk if organization else None, is_active=True,
     ).first()
-    if not can_edit_dna_validation(user=user, organization=organization):
-        raise PermissionDenied(_(
-            "This account cannot edit DNA validations. Please contact your administrator."
-        ))
+    require_dna_validation_authority(user=user, organization=organization)
     try:
         box = Box.objects.select_for_update().get(
             pk=box_id, organization=organization, merged_into__isnull=True,
@@ -97,27 +101,31 @@ def mutate_dna_validation(*, user, organization, box_id, operation, data):
             "code": "dna_validation_no_change", "detail": _("The evidence URL has not changed."),
         })
 
-    before = _snapshot(validation)
-    revision = (box.dna_validations.aggregate(value=Max("revision"))["value"] or 0) + 1
     if operation == "add":
-        validation = BoxDnaValidation.objects.create(
-            box=box, evidence_url=values["evidence_url"],
-            created_by=user, updated_by=user, revision=revision,
-        )
-    else:
-        validation.revision = revision
-        validation.updated_by = user
-        if operation == "revoke":
-            validation.revoked_at = timezone.now()
-            validation.revoked_by = user
-        else:
-            validation.evidence_url = values["evidence_url"]
-        validation.save()
+        return _add_validation(user=user, organization=organization, box=box, evidence_url=values["evidence_url"])
 
-    event = {"add": "added", "update": "updated", "revoke": "revoked"}[operation]
+    before = _snapshot(validation)
+    validation.revision = _next_revision(box)
+    validation.updated_by = user
+    if operation == "revoke":
+        validation.revoked_at = timezone.now()
+        validation.revoked_by = user
+    else:
+        validation.evidence_url = values["evidence_url"]
+    validation.save()
+    _audit(user=user, organization=organization, box=box, validation=validation,
+           event="revoked" if operation == "revoke" else "updated", before=before)
+    return validation
+
+
+def _next_revision(box):
+    return (box.dna_validations.aggregate(value=Max("revision"))["value"] or 0) + 1
+
+
+def _audit(*, user, organization, box, validation, event, before):
     AuditLog.objects.create(
         organization=organization, user=user,
-        action=AuditLog.Action.CREATION if operation == "add" else AuditLog.Action.UPDATE,
+        action=AuditLog.Action.CREATION if event == "added" else AuditLog.Action.UPDATE,
         object_type="box", object_id=box.global_code,
         description=f"Box DNA validation {event}",
         metadata={
@@ -127,4 +135,34 @@ def mutate_dna_validation(*, user, organization, box_id, operation, data):
             "before": before, "after": _snapshot(validation),
         },
     )
+
+
+def _add_validation(*, user, organization, box, evidence_url):
+    """Create the active evidence and its audit; the caller holds the Box lock."""
+    validation = BoxDnaValidation.objects.create(
+        box=box, evidence_url=evidence_url,
+        created_by=user, updated_by=user, revision=_next_revision(box),
+    )
+    _audit(user=user, organization=organization, box=box, validation=validation, event="added", before=None)
     return validation
+
+
+def validate_dna_evidence_url(value):
+    """Apply the DNA evidence URL rule shared with the Box page; return the stored value."""
+    from .serializers import BoxDnaValidationCreateSerializer
+
+    serializer = BoxDnaValidationCreateSerializer(data={"evidence_url": value})
+    if not serializer.is_valid():
+        raise ValidationError(serializer.errors["evidence_url"])
+    return serializer.validated_data["evidence_url"]
+
+
+def add_dna_validation_to_new_box(*, user, organization, box, evidence_url):
+    """Record evidence given when a Box is created, inside the creation transaction.
+
+    The creation service has already locked the institution and the actor's
+    membership, and the Box is new, so no existing evidence can conflict. The
+    write path, revision and audit event are the same as a Box page addition.
+    """
+    require_dna_validation_authority(user=user, organization=organization)
+    return _add_validation(user=user, organization=organization, box=box, evidence_url=evidence_url)

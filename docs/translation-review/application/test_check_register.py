@@ -537,6 +537,71 @@ SPECIES_EVIDENCE = json.loads(_evidence_bytes)
 
 SPECIES_TAIL = slice(1469, 1741)
 
+# B49 (DNA forms, appended after demo B48): New box optional DNA
+# evidence label, optional state moved into two strain labels, and four removed
+# helper texts. Applied first, so the species layer still sees its frozen lines.
+B49 = "B49-2026-11-18"
+B49_FIRST_ID = 1851
+B49_ROWS_SHA256 = "1ec1bfa14f7e53b9e3b0372000f5b807ced9880024a639ba977bf1fee758db76"
+# Restore removed lines at their original position, not at the start of the object.
+B49_NEXT_KEYS = {
+    "strainGpsHint": "strainGpsInvalid",
+    "strainNameHint": "speciesCodeNameNotDerivable",
+    "speciesSearchHint": "speciesSearchSelected",
+    "speciesCreateWormsTruncated": "speciesCreateAboveSpeciesRank",
+}
+B49_APPLIED_KEYS = ("strainGps", "strainName")
+B49_REMOVED_KEYS = ("strainGpsHint", "strainNameHint", "speciesSearchHint", "speciesCreateWormsTruncated")
+B49_ADDED_KEYS = ("createBoxDnaEvidence",)
+B49_EXPECTED = (
+    [(key, language, "APPLIED") for key in B49_APPLIED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "REMOVED") for key in B49_REMOVED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "ALREADY_MATCHING") for key in B49_ADDED_KEYS for language in ("FR", "EN")]
+)
+B49_SLICE = slice(B49_FIRST_ID - 1, B49_FIRST_ID - 1 + len(B49_EXPECTED))
+
+
+def b49_events(rows):
+    entry_ids = [f"T{n}" for n in range(B49_FIRST_ID, B49_FIRST_ID + len(B49_EXPECTED))]
+    events = [row for row in rows if row["batch"] == B49 or row["entry_id"] in entry_ids]
+    assert events == rows[B49_SLICE], "B49 events are not the contiguous rows after B48"
+    assert [row["entry_id"] for row in events] == entry_ids, "B49: identities changed"
+    assert [(row["key_or_msgid"], row["language"], row["status"]) for row in events] == B49_EXPECTED
+    assert all(list(row) == reg.COLUMNS for row in events), "B49: schema changed"
+    assert rows_digest(events) == B49_ROWS_SHA256, "B49: history was modified"
+    for row in events:
+        assert row["surface"] == "react" and row["source_file"] == f"frontend/src/i18n/{row['language'].lower()}.ts"
+        if row["status"] == "REMOVED":
+            assert row["initial_value"] and row["final_value"] == "", row["entry_id"]
+        elif row["status"] == "APPLIED":
+            assert row["initial_value"] and row["final_value"] and row["initial_value"] != row["final_value"]
+        else:
+            assert row["final_value"] and row["initial_value"] == row["final_value"], row["entry_id"]
+    return events
+
+
+def before_b49(source, rows, language="EN"):
+    """Undo the B49 catalog events exactly; a removed key must be absent first."""
+    language = language.upper()
+    assert " = {\n" in source, "catalog object start"
+    for row in b49_events(rows):
+        if row["language"] != language:
+            continue
+        key = row["key_or_msgid"]
+        if row["status"] == "REMOVED":
+            assert not any(line.startswith(f"  {key}: ") for line in source.split("\n")), key
+            anchor = f"  {B49_NEXT_KEYS[key]}: "
+            lines = source.splitlines(keepends=True)
+            matches = [index for index, line in enumerate(lines) if line.startswith(anchor)]
+            assert len(matches) == 1, anchor
+            lines.insert(matches[0], f"  {key}: '{row['initial_value']}',\n")
+            source = "".join(lines)
+            continue
+        line = f"  {key}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, key
+        source = source.replace(line, f"  {key}: '{row['initial_value']}',\n" if row["status"] == "APPLIED" else "")
+    return source
+
 
 def species_original_projection(rows):
     """Map reallocated feature events back to their original T1460-T1731/B32-B42 identities."""
@@ -570,6 +635,7 @@ def species_integration_errors(rows):
 
 def before_species_integration(source, rows, language="EN"):
     """Reverse exact feature lines only; unknown edits remain fingerprinted."""
+    source = before_b49(source, rows, language)
     assert rows_digest(rows[SPECIES_TAIL]) == SPECIES_EVIDENCE["reallocated_register_rows_sha256"], "Species integration history was modified"
     language = language.lower()
     for line in SPECIES_EVIDENCE["catalog_additions"][language]:
@@ -634,10 +700,22 @@ class IntegrationHistoryTests(unittest.TestCase):
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
-            for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]:
+            b49_keys = set(B49_REMOVED_KEYS) | set(B49_APPLIED_KEYS)
+            current_lines = [line for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]
+                             if line.strip().split(":", 1)[0] not in b49_keys]
+            self.assertEqual(len(current_lines), 266 - len(b49_keys))
+            # Lines B49 removed or reworded are probed through their current B49 form.
+            current_lines += [f"  {row['key_or_msgid']}: '{row['final_value']}',\n" for row in b49_events(rows)
+                              if row["language"] == language and row["status"] != "REMOVED"]
+            for line in current_lines:
+                self.assertEqual(source.count(line), 1, line)
                 for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
                     with self.assertRaises(AssertionError):
                         before_species_integration(source.replace(line, replacement), rows, language)
+            for key in B49_REMOVED_KEYS:
+                row = next(row for row in b49_events(rows) if row["key_or_msgid"] == key and row["language"] == language)
+                with self.assertRaises(AssertionError):
+                    before_species_integration(source + f"  {key}: '{row['initial_value']}',\n", rows, language)
             extra = "  unapprovedKey: 'Unapproved',\n"
             self.assertEqual(before_species_integration(source + extra, rows, language), restored + extra)
 
@@ -665,6 +743,8 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual(len(integrated), 1811)
         self.assertEqual(len(b44_events(rows)), 48)
         self.assertEqual(len(b45_events(rows)), 22)
+        self.assertEqual(len(b47_events(rows)), 36)
+        self.assertEqual(len(b49_events(rows)), 14)
         self.assertEqual(Counter(row["batch"] for row in integrated[1741:]), Counter({B44: 48, B45: 22}))
         self.assertEqual([row["entry_id"] for row in integrated], [f"T{n:03d}" for n in range(1, 1812)])
         self.assertEqual(species_integration_errors(rows), [])
@@ -1290,6 +1370,21 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b49_reconstruction_recovers_main_catalog_bytes(self):
+        rows = reg.load_register()
+        for language, digest in (
+            ("FR", "a98d5640e17baebbd122f06998487ae2bd05cf40f423fb3d805c0a20d6266ea4"),
+            ("EN", "da1b9f55106992e86b32eba66eea317797ead064ba933a7ed452dff670584153"),
+        ):
+            with self.subTest(language=language):
+                source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+                restored = before_b49(source, rows, language)
+                self.assertEqual(hashlib.sha256(restored.encode("utf-8")).hexdigest(), digest)
+        for event in b49_events(rows):
+            changed = [dict(row, reason=row["reason"] + " changed") if row is event else row for row in rows]
+            with self.assertRaisesRegex(AssertionError, "B49: history was modified"):
+                b49_events(changed)
+
     def test_h_b47_reconstruction_rejects_source_and_coordinated_mutations(self):
         rows = reg.load_register()
         events = b47_events(rows)
@@ -1331,7 +1426,8 @@ class RealRegisterTests(unittest.TestCase):
         }
         for entry in events:
             language = entry["language"]
-            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            source = before_b49((reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8"),
+                                rows, language)
             line = f"  demoModeBanner: '{entry['final_value']}',\n"
             altered = line.replace(": '", ": 'changed ")
             restored = before_b48(source, rows, language)
@@ -1740,7 +1836,9 @@ class RealRegisterTests(unittest.TestCase):
             # Reverse the frozen feature layer, then exactly 21 active DNA keys.
             # Also reverse the three merge separators. The English rewording adds no lines; B31 stays absent.
             self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
-            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21 + 3)
+            # B49 later removed four of those lines and added one, all restored by its own layer.
+            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()),
+                             266 + 21 + 3 - len(B49_REMOVED_KEYS) + len(B49_ADDED_KEYS))
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)
