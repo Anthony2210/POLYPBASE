@@ -1531,7 +1531,7 @@ test('original FR and EN source content remains frozen apart from the registered
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
-    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...B32_KEYS, ...currentSpeciesKeys, ...B47_ADDED_KEYS]
+    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...B32_KEYS, ...currentSpeciesKeys, ...B49_ADDED_KEYS]
     .filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
@@ -1555,7 +1555,8 @@ test('source fingerprints accept the scoped additions but reject every historica
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
           || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B44_ADDED_KEYS.includes(key) || B45_ADDED_KEYS.includes(key) || DNA_KEYS.includes(key)
-          || B47_ADDED_KEYS.includes(key) || key === DEMO_BANNER_KEY || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
+          || B47_ADDED_KEYS.includes(key) || key === DEMO_BANNER_KEY || B49_ADDED_KEYS.includes(key)
+                    || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
                     || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
