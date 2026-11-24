@@ -18,7 +18,7 @@ from .management.commands.seed_demo_data import DEMO_CREATION_STRAIN_CODE
 from .models import Box, BoxLocation, ThermalZone
 
 
-@override_settings(SECURE_SSL_REDIRECT=False)
+@override_settings(DEBUG=True, SECURE_SSL_REDIRECT=False)
 class DemoSeedBoxCreationTests(TestCase):
     def setUp(self):
         call_command("seed_demo_data", stdout=StringIO())

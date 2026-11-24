@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Repository = 'C:\Users\antoc\POLYPBASE'
+    [string]$Repository = (Join-Path $PSScriptRoot '..\..\..\..')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,18 +30,18 @@ function Invoke-Check {
     }
 }
 
-$previousPostgresDb = $env:POSTGRES_DB
-$hadPostgresDb = Test-Path Env:POSTGRES_DB
+$previousPostgresOptIn = $env:POLYPBASE_TEST_POSTGRES
+$hadPostgresOptIn = Test-Path Env:POLYPBASE_TEST_POSTGRES
 
 Push-Location $repositoryPath
 try {
-    # An explicit empty value prevents python-dotenv from loading the Neon value.
-    $env:POSTGRES_DB = ''
+    # A nonempty opt-out prevents dotenv from selecting PostgreSQL for ordinary tests.
+    $env:POLYPBASE_TEST_POSTGRES = '0'
 
-    Invoke-Check 'Git status' { git status --short }
-    Invoke-Check 'Git whitespace' { git diff --check }
-    Invoke-Check 'Django system check' { uv run python backend\manage.py check }
-    Invoke-Check 'Django migration drift' { uv run python backend\manage.py makemigrations --check --dry-run }
+    Invoke-Check 'Git status' { git --no-pager --no-optional-locks status --short }
+    Invoke-Check 'Git whitespace' { git --no-pager diff --check }
+    Invoke-Check 'Django system check' { uv run python backend\manage.py check --settings=config.preflight_settings }
+    Invoke-Check 'Django migration drift' { uv run python backend\manage.py makemigrations --check --dry-run --settings=config.preflight_settings }
     Invoke-Check 'Django test suite' {
         uv run python backend\manage.py test `
             apps.accounts `
@@ -50,7 +50,9 @@ try {
             apps.exports `
             apps.measurements `
             apps.organizations `
+            apps.sharing `
             apps.taxonomy `
+            config.test_api_defaults `
             --settings=config.test_settings
     }
     Invoke-Check 'Frontend production build' { npm --prefix frontend run build }
@@ -59,10 +61,10 @@ try {
 }
 finally {
     Pop-Location
-    if ($hadPostgresDb) {
-        $env:POSTGRES_DB = $previousPostgresDb
+    if ($hadPostgresOptIn) {
+        $env:POLYPBASE_TEST_POSTGRES = $previousPostgresOptIn
     }
     else {
-        Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue
+        Remove-Item Env:POLYPBASE_TEST_POSTGRES -ErrorAction SilentlyContinue
     }
 }

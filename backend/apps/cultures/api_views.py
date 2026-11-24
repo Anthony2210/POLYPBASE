@@ -103,7 +103,6 @@ from .serializers import (
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
     BoxTemperatureHistoryQuerySerializer,
-    BoxTransferCreateSerializer,
     ManualSalinityCreateSerializer,
     ManualSalinityUpdateSerializer,
     ManualTemperatureCreateSerializer,
@@ -156,12 +155,6 @@ from .services import (
     move_box_to_thermal_zone,
     qualify_pending_box,
     reactivate_box,
-)
-from .transfer_v1 import (
-    StrainOwnershipError,
-    TransferV1ValidationError,
-    import_transfer_v1,
-    prepare_transfer_v1,
 )
 
 
@@ -2307,77 +2300,23 @@ class ProbeCreateAPIView(generics.CreateAPIView):
         )
 
 
-class BoxTransferCreateAPIView(generics.CreateAPIView):
-    serializer_class = BoxTransferCreateSerializer
+class BoxTransferCreateAPIView(APIView):
+    """Keep the retired preparation route mounted without processing its payload."""
 
-    def perform_create(self, serializer):
-        # The source organization is the box owner; only its admins may record
-        # a transfer out of it. The box itself is not reassigned here.
-        box = serializer.validated_data["box"]
-        if box.organization_id not in get_active_admin_organization_ids(self.request):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not get_active_admin_organization_ids(request):
             raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
-        serializer.instance = prepare_transfer_v1(
-            **serializer.validated_data, user=self.request.user,
-        )
-
-
-class StrainOwnershipConflict(APIException):
-    status_code = status.HTTP_409_CONFLICT
-    default_detail = "Ce code de souche appartient déjà à une autre structure ou n'a pas de propriétaire."
-    default_code = "strain_ownership_conflict"
+        return Response({"code": "box_transfer_create_retired"}, status=status.HTTP_410_GONE)
 
 
 class BoxTransferImportAPIView(APIView):
-    """Validate one Polypbase transfer CSV row and create a destination box."""
+    """Keep the retired import route mounted without processing its payload."""
 
-    REQUIRED_SOURCE_FIELDS = {
-        "format",
-        "transfer_id",
-        "source_organization_name",
-        "source_global_code",
-        "species_scientific_name",
-        "strain_code",
-        "transferred_polyp_count",
-    }
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        source = request.data.get("source_data")
-        if not isinstance(source, dict):
-            raise DRFValidationError({"source_data": "Le contenu CSV est invalide."})
-        missing = sorted(field for field in self.REQUIRED_SOURCE_FIELDS if not str(source.get(field, "")).strip())
-        if missing:
-            raise DRFValidationError({"source_data": f"Colonnes obligatoires manquantes : {', '.join(missing)}"})
-        if source["format"] != "polypbase.box_transfer.v1":
-            raise DRFValidationError({"source_data": "Version de transfert Polypbase non reconnue."})
-
-        organization = get_object_or_404(
-            get_authorized_organizations(request.user).filter(id__in=get_active_organization_ids(request)),
-            pk=request.data.get("organization"),
-        )
-        if organization.id not in get_active_admin_organization_ids(request):
+        if not get_active_admin_organization_ids(request):
             raise PermissionDenied("Ce compte ne peut pas importer dans cette structure.")
-        zone = get_object_or_404(
-            ThermalZone,
-            pk=request.data.get("thermal_zone"),
-            organization=organization,
-            is_active=True,
-        )
-        try:
-            box = import_transfer_v1(
-                source=source, organization=organization, zone=zone,
-                user=request.user, global_code=request.data.get("global_code", ""),
-            )
-        except TransferV1ValidationError as error:
-            raise DRFValidationError(error.detail) from error
-        except StrainOwnershipError as error:
-            raise StrainOwnershipConflict() from error
-        return Response(
-            BoxDetailSerializer(
-                box_queryset_for_user(
-                    request.user,
-                    organization_ids=get_active_organization_ids(request),
-                ).get(pk=box.pk),
-                context={"request": request},
-            ).data,
-            status=201,
-        )
+        return Response({"code": "box_transfer_import_retired"}, status=status.HTTP_410_GONE)

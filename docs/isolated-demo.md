@@ -48,4 +48,6 @@ Avant d'admettre un instantané dans la démo puis d'ouvrir l'accès, vérifier 
 
 ## Essai technique du socle sans instantané
 
+La procédure ne lance pas `seed_demo_data` automatiquement. Pour un essai avec des données fictives uniquement, sur une base démo vide, migrée et vérifiée comme jetable, l’option explicite `--allow-non-debug` autorise cette commande avec `--settings=config.demo_settings` sans activer `DEBUG`. Ne jamais l’utiliser sur un instantané, une base partagée ou une base de production.
+
 Après revue et autorisation de l'environnement d'essai, vérifier l'identité du socket d'un cluster PostgreSQL vide dans un périmètre jetable sans accès réseau sortant. Avec une base vide migrée et, si nécessaire, un compte jetable, vérifier la connexion, le bandeau FR/EN, le refus des effets sortants et la redirection tablette `/administration…` vers `/`. Cet essai ne valide ni l'admissibilité d'un instantané ni l'ouverture de la démo.

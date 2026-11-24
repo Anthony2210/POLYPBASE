@@ -79,7 +79,7 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "DJANGO_CSRF_TRUSTED_ORIGINS",
-        "http://127.0.0.1:5173,http://localhost:5173,https://*.trycloudflare.com",
+        "http://127.0.0.1:5173,http://localhost:5173",
     ).split(",")
     if origin.strip()
 ]
@@ -357,6 +357,10 @@ LOGIN_URL = "/login"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login"
 
+_api_renderers = ["rest_framework.renderers.JSONRenderer"]
+if DEBUG:
+    _api_renderers.append("rest_framework.renderers.BrowsableAPIRenderer")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -364,11 +368,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-    "DEFAULT_RENDERER_CLASSES": [
-        "rest_framework.renderers.JSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "DEFAULT_RENDERER_CLASSES": _api_renderers,
+    "DEFAULT_PAGINATION_CLASS": "config.pagination.CappedLimitOffsetPagination",
     "PAGE_SIZE": 50,
 }
 

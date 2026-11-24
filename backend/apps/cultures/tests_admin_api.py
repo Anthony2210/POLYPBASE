@@ -19,6 +19,7 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
 from .models import Box, BoxTransfer, ThermalZone
+from .transfer_v1 import prepare_transfer_v1
 
 
 class AdminResourceCreationApiTests(TestCase):
@@ -993,56 +994,27 @@ class AdminResourceCreationApiTests(TestCase):
 
     # -- box transfers -----------------------------------------------------
 
-    def test_admin_records_a_planned_transfer_without_reassigning_the_box(self):
+    def test_admin_can_still_read_historical_transfer_audit(self):
+        transfer = prepare_transfer_v1(
+            box=self.box, to_organization=self.other_organization, user=self.admin,
+            polyp_count=50, notes="Transfer history",
+        )
         self.client.login(username="org_admin", password="secret")
 
-        response = self.post(
-            "api_box_transfer_create",
-            {
-                "box": self.box.id,
-                "to_organization": self.other_organization.id,
-                "polyp_count": 50,
-                "notes": "Envoi convenu par mail",
-            },
-        )
+        response = self.client.get(reverse("api_account_audit_log"))
 
-        self.assertEqual(response.status_code, 201)
-        transfer = BoxTransfer.objects.get(box=self.box)
-        self.assertEqual(transfer.from_organization, self.organization)
-        self.assertEqual(transfer.to_organization, self.other_organization)
-        self.assertEqual(transfer.status, BoxTransfer.Status.PLANNED)
-        self.assertEqual(transfer.user, self.admin)
-        log = AuditLog.objects.get(
-            action=AuditLog.Action.TRANSFER,
-            object_type="box",
-            object_id=self.box.global_code,
-        )
-        self.assertEqual(log.organization, self.organization)
-        self.assertEqual(log.user, self.admin)
-        self.assertEqual(log.metadata["to_organization"], self.other_organization.name)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any(
+            entry["object_id"] == self.box.global_code
+            and entry["metadata"].get("transfer_id") == transfer.pk
+            for entry in response.json()["results"]
+        ))
 
-        # A transfer only records the intent: the box must not change owner.
-        self.box.refresh_from_db()
-        self.assertEqual(self.box.organization, self.organization)
-
-    def test_transfer_to_the_same_organization_is_rejected(self):
-        self.client.login(username="org_admin", password="secret")
-
-        response = self.post(
-            "api_box_transfer_create",
-            {"box": self.box.id, "to_organization": self.organization.id, "polyp_count": 50},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(BoxTransfer.objects.filter(box=self.box).exists())
-
-    def test_lab_technician_cannot_transfer_a_box(self):
-        self.client.login(username="tech", password="secret")
-
-        response = self.post(
-            "api_box_transfer_create",
-            {"box": self.box.id, "to_organization": self.other_organization.id, "polyp_count": 50},
-        )
-
-        self.assertEqual(response.status_code, 403)
+    def test_retired_transfer_posts_keep_admin_authorization(self):
+        for url_name in ("api_box_transfer_create", "api_box_transfer_import"):
+            with self.subTest(url_name=url_name):
+                self.client.logout()
+                self.assertIn(self.post(url_name, {}).status_code, (401, 403))
+                self.client.login(username="tech", password="secret")
+                self.assertEqual(self.post(url_name, {}).status_code, 403)
         self.assertFalse(BoxTransfer.objects.filter(box=self.box).exists())

@@ -1,6 +1,7 @@
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -47,8 +48,20 @@ DEMO_CREATION_STRAIN_NOTES = (
 class Command(BaseCommand):
     help = "Create a small, idempotent demo dataset for local development."
 
-    @transaction.atomic
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--allow-non-debug",
+            action="store_true",
+            help="Allow seeding a disposable demo database with DEBUG disabled.",
+        )
+
     def handle(self, *args, **options):
+        if not settings.DEBUG and not options["allow_non_debug"]:
+            raise CommandError("Demo seeding requires DEBUG or --allow-non-debug on a disposable database.")
+        self._seed()
+
+    @transaction.atomic
+    def _seed(self):
         admin_user, lab_user, viewer_user = self._create_users()
         paris, partner = self._create_organizations()
         self._create_memberships(paris, partner, admin_user, lab_user, viewer_user)
