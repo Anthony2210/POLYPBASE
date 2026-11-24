@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polypbase QA"
+  short_description: "Valider Polypbase avant livraison"
+  default_prompt: "Utilise $polypbase-qa pour verifier completement Polypbase en local."

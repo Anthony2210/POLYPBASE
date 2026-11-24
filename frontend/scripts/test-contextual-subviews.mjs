@@ -72,11 +72,9 @@ function views(isDesktopApp, { zoneImports = {}, historyImports = {} } = {}) {
     '../api/client': {},
     '../hooks/useProbeMonitoring': { default: (zone) => ({ monitoring: zone.probe_monitoring, error: null, revalidate() {} }) },
     // Shallow page renders keep TemperatureControlPanel as an element; fail if its hook runs.
-    '../hooks/useThermalControl': { default: () => assert.fail('Shallow page renders must not run thermal control') },
     './ZoneProbeCharts': { ZoneProbeChart: Placeholder, ZoneThermalTrend: Placeholder, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': { formatProbeReadingTime: (value) => value, getProbeElapsedTime: () => null },
-    '../utils/temperatureScale': {},
     './ModalPortal': { default: Placeholder },
     './PolypbaseIcon': { default: Placeholder },
     './ZoneMovementHistory': { ZoneRecentMovements: Placeholder },
@@ -193,10 +191,6 @@ for (const failure of [null, 'chart', 'history']) {
     const RecentMovements = (props) => loaded.ZoneRecentMovements(props);
     loaded = views(true, {
       zoneImports: {
-        '../hooks/useThermalControl': { default: () => ({ summary: {
-          temperature_c: '0', oldest_measured_at: measuredAt, newest_measured_at: measuredAt, included_probe_count: 1,
-        }, error: null }) },
-        '../utils/temperatureScale': { buildTemperatureScale: () => null },
         './ZoneProbeCharts': {
           ZoneThermalTrend: Trend, ZoneProbeChart: CombinedChart,
           useZoneChartReadings(actualZone, enabled) {

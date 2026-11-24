@@ -1,5 +1,3 @@
 @./AGENTS.md
 
-# Adaptateur Gemini CLI
-
-`AGENTS.md` est la source commune. Utiliser `docs/PROJECT_CONTEXT.md` comme routeur, ne lire que les contextes utiles, puis inspecter code et tests. Une revue reste en lecture seule tant qu'une correction n'est pas demandée.
+Les règles communes sont dans [AGENTS.md](AGENTS.md).

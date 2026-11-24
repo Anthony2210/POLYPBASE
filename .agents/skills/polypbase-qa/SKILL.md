@@ -9,12 +9,12 @@ Verify the requested behavior without risking shared or production data.
 
 ## Establish scope
 
-1. Locate the repository and read its `AGENTS.md`.
+1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
 2. Inspect `git status --short`, the relevant diff, and the files involved in the
    changed workflow. Read additional documentation only when that workflow needs it.
 3. Preserve every pre-existing change. Never reset, clean, restore, or overwrite
    unrelated work.
-4. Never read or print secrets from `backend/.env`.
+4. Never read or print a real `.env` file.
 
 Scale verification to the change. A local text or spacing edit does not need the same
 browser matrix as a shared data-flow or permissions change.
@@ -28,12 +28,14 @@ browser matrix as a shared data-flow or permissions change.
 - Use `config.preflight_settings` for configuration and migration-drift checks:
   its final database override is unconditionally in-memory SQLite, even if the
   PostgreSQL test opt-in is inherited. Both settings modules import application
-  settings, which load dotenv; neither promises that `.env` is not read.
+  settings, which load dotenv unless disabled. Set `PYTHON_DOTENV_DISABLED=1`
+  in the disposable process and start with a verified local environment without
+  inherited demo variables, service credentials, or test harness opt-ins.
 - An empty `POSTGRES_DB` alone is not an isolation boundary. In Windows PowerShell
   5.1 it can remove the environment variable, allowing dotenv to restore a
   configured PostgreSQL value. Do not use default settings for unverified QA.
 - Follow the explicit SQLite commands and child-process boundary in
-  [the development guide](../../../docs/context/development-deployment.md#backend-isolé).
+  [the development and QA guide](../../../docs/operations/developpement-qa.md).
   In-memory settings are for checks/tests, not persistent visual-QA data.
 - Never run `migrate`, `loaddata`, `flush`, or `seed_demo_data` against the default
   environment unless the user has explicitly identified an isolated database.
@@ -41,15 +43,20 @@ browser matrix as a shared data-flow or permissions change.
 
 ## Run deterministic checks
 
-**Do not run the current `scripts/run_checks.ps1` in an unverified environment.**
-It only empties `POSTGRES_DB`, runs Django configuration and migration-drift
-checks without explicit settings, and leaves the PostgreSQL test opt-in inherited.
-It therefore does not establish the isolation required above.
+Prefer targeted checks first. For broader local QA, run
+[`scripts/run_checks.ps1`](scripts/run_checks.ps1) from the repository root as
+`./.agents/skills/polypbase-qa/scripts/run_checks.ps1` in the verified child
+session above. It selects `config.preflight_settings` for `check` and
+`makemigrations --check --dry-run`, and `config.test_settings` for selected Django
+labels, including `apps.sharing` and `config.test_api_defaults`. It sets
+`POLYPBASE_TEST_POSTGRES=0` and restores the previous value on exit. Set
+`PYTHON_DOTENV_DISABLED=1` before invoking it: the script does not set it itself.
 
-A separate code correction must select unconditional SQLite settings for those
-checks and explicitly neutralize the PostgreSQL opt-in for ordinary SQLite tests.
-Until reviewed, use the explicit commands in the development guide instead.
-Frontend checks can be selected separately from `frontend/package.json`.
+The runner also checks Git whitespace and builds the frontend. It is not the
+full CI workflow: CI discovers Django tests without labels, has separate
+PostgreSQL jobs, and runs frontend `test:all`. See the
+[development and QA guide](../../../docs/operations/developpement-qa.md) for discovery
+and isolation. Select frontend checks from [`frontend/package.json`](../../../frontend/package.json).
 Stop and report the exact failing command when a check fails.
 
 ## Perform visual QA

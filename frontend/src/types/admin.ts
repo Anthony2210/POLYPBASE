@@ -53,25 +53,6 @@ export type OrganizationPayload = {
   notes: string;
 };
 
-export type BoxTransferPayload = {
-  box: number;
-  to_organization: number;
-  polyp_count: number;
-  notes: string;
-};
-
-export type BoxTransferResult = BoxTransferPayload & {
-  id: number;
-  transfer_date: string;
-  prepared_by: string | null;
-  parent_box_codes: string[];
-  origin: {
-    source_type: string;
-    institution: string;
-    description: string;
-  } | null;
-};
-
 export type ReferenceLanguage = {
   code: string;
   label: string;

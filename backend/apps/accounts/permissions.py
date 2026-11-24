@@ -84,10 +84,6 @@ def get_admin_organizations(user):
     ).distinct()
 
 
-def get_admin_organization_ids(user):
-    """Return IDs of the organizations the user administers."""
-    return list(get_admin_organizations(user).values_list("id", flat=True))
-
 
 def user_can_administer_organization(user, organization):
     """Return whether the user actively administers this organization."""

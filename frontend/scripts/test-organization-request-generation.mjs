@@ -45,8 +45,8 @@ const operationCases = [
   ['reactivateBox', [7, {}]], ['qualifyBox', [7, {}]], ['assignBoxInitialLocation', [7, {}]],
   ['qualifyBoxesBatch', [{}]], ['createThermalZone', [{}]], ['updateThermalZone', [7, {}]],
   ['recordManualTemperature', [7, {}]], ['recordManualSalinity', [7, {}]],
-  ['updateManualSalinity', [7, 8, {}]], ['createProbe', [{}]], ['createOrganization', [{}]],
-  ['updateOrganization', [7, {}]], ['deleteOrganization', [7]], ['createBoxTransfer', [{}]],
+  ['updateManualSalinity', [7, 8, {}]], ['createOrganization', [{}]],
+  ['updateOrganization', [7, {}]], ['deleteOrganization', [7]],
   ['refreshBoxAfterMeasurement', [7]], ['refreshZoneSalinityCapability', [7]], ['loadLineageGraph', [7]],
 ];
 for (const [name, args] of operationCases) {
@@ -80,7 +80,7 @@ for (const [name, args] of operationCases) {
     });
   }
 }
-for (const [name, args] of [['createThermalZone', [{}]], ['updateThermalZone', [7, {}]], ['createProbe', [{}]],
+for (const [name, args] of [['createThermalZone', [{}]], ['updateThermalZone', [7, {}]],
   ['assignBoxInitialLocation', [7, {}]], ['createOrganization', [{}]], ['updateOrganization', [7, {}]], ['deleteOrganization', [7]]]) {
   test(`${name}: replacement during follow-up refresh prevents writes and any later request`, async () => {
     const h = appHarness();

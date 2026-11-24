@@ -187,16 +187,6 @@ export async function apiPost<T>(path: string, payload: unknown, options: Reques
   return result;
 }
 
-export async function apiPostForm<T>(path: string, body: FormData, signal?: AbortSignal): Promise<T> {
-  return apiRequest<T>(path, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'X-CSRFToken': getCookie('csrftoken') },
-    body,
-    signal,
-  });
-}
-
 export async function apiPatch<T>(path: string, payload: unknown, options: RequestOptions = {}): Promise<T> {
   return apiRequest<T>(path, {
     ...options,

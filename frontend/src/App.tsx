@@ -44,7 +44,6 @@ import DemoModeBanner from './components/DemoModeBanner';
 import PilotageView from './components/PilotageView';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
-import ModalPortal from './components/ModalPortal';
 import PageLoader from './components/PageLoader';
 import PolypbaseIcon, { type PolypbaseIconName } from './components/PolypbaseIcon';
 import ProfileView from './components/ProfileView';
@@ -77,7 +76,6 @@ import type {
   OverviewBox,
   OverviewResponse,
   PaginatedResponse,
-  Probe,
   SubculturePayload,
   SubcultureResult,
   ThermalZone,
@@ -85,13 +83,10 @@ import type {
   ZoneSalinityMeasurement,
 } from './types';
 import type {
-  BoxTransferPayload,
-  BoxTransferResult,
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
   ManualTemperaturePayload,
   OrganizationPayload,
-  ProbePayload,
   ThermalZoneDeletionEligibility,
   ThermalZonePayload,
   ThermalZoneUpdatePayload,
@@ -2135,20 +2130,6 @@ export default function App() {
     return zone;
   }
 
-  async function createProbe(payload: ProbePayload) {
-    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiPost<Probe>('/api/probes/', payload);
-    assertCurrent();
-    // Probes are nested inside the zone payload, so refresh the zones list.
-    zoneCollectionRevisionRef.current += 1;
-    await refreshAfterMutation(async () => {
-      assertCurrent();
-      await refreshZones();
-      assertCurrent();
-    }, assertCurrent);
-    assertCurrent();
-  }
-
   async function createOrganization(payload: OrganizationPayload) {
     const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<Organization>('/api/organizations/', payload);
@@ -2184,13 +2165,6 @@ export default function App() {
     assertCurrent();
     setData((current) => ({ ...current, exportOptions, profile }));
     assertCurrent();
-  }
-
-  async function createBoxTransfer(payload: BoxTransferPayload) {
-    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const result = await apiPost<BoxTransferResult>('/api/box-transfers/', payload);
-    assertCurrent();
-    return result;
   }
 
   function handleAuthenticated() {
@@ -2608,7 +2582,6 @@ export default function App() {
                 onCreateOrganization={createOrganization}
                 onUpdateOrganization={updateOrganization}
                 onDeleteOrganization={deleteOrganization}
-                onCreateTransfer={createBoxTransfer}
                 onAssignBoxLocation={assignBoxInitialLocation}
                 onOpenBox={openBox}
                 onOpenZone={openZone}

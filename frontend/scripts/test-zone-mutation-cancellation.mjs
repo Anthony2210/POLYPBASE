@@ -25,32 +25,25 @@ function loadHandler(name, context) {
   return exports.handler;
 }
 
-for (const operation of ['create-zone', 'edit-zone', 'create-probe', 'temperature']) {
-  for (const outcome of ['cancelled', 'failure', 'success']) {
-    test(`delayed ${operation} ${outcome} preserves error and close semantics`, async () => {
+for (const outcome of ['cancelled', 'failure', 'success']) {
+    test(`delayed temperature ${outcome} preserves editor state`, async () => {
       let resolve, reject;
       const pending = new Promise((res, rej) => { resolve = res; reject = rej; });
       const calls = [];
       const state = { saving: false, error: null, editing: true, value: '0' };
       const context = {
-        mode: operation === 'edit-zone' ? 'edit' : 'create', selectedZone: { id: 7 },
-        isSaving: false, zoneForm: { organization: '1', name: 'Zone', zoneType: 'cabinet', targetTemperature: '0', capacity: '0', salinity: '0' },
-        probeForm: { thermalZone: '7', code: 'Probe', probeType: 'temperature', location: '' },
+
         zone: { id: 7 }, isSavingTemperature: false, temperatureDate: '2026-10-03', manualTemperature: '0',
-        onCreateZone: () => pending, onUpdateZone: () => pending,
-        onCreateProbe: () => pending, onRecordManualTemperature: () => pending,
-        onClose: () => calls.push('close'),
+        onRecordManualTemperature: () => pending,
         getErrorMessage: (error) => { calls.push('format-error'); return error.message; },
-        setIsSaving: (value) => { state.saving = value; },
+
         setIsSavingTemperature: (value) => { state.saving = value; },
-        setFormError: (value) => { state.error = value; },
+
         setTemperatureError: (value) => { state.error = value; },
         setManualTemperature: (value) => { state.value = value; },
         setIsEditingTemperature: (value) => { state.editing = value; },
       };
-      const handlerName = operation === 'temperature' ? 'handleManualTemperatureSubmit'
-        : operation === 'create-probe' ? 'handleProbeSubmit' : 'handleZoneSubmit';
-      const completion = loadHandler(handlerName, context)({ preventDefault() {} });
+      const completion = loadHandler('handleManualTemperatureSubmit', context)({ preventDefault() {} });
       assert.equal(state.saving, true);
       assert.deepEqual(calls, []);
       if (outcome === 'cancelled') reject(new ApiResourceCancelledError('stale organization'));
@@ -59,12 +52,10 @@ for (const operation of ['create-zone', 'edit-zone', 'create-probe', 'temperatur
       await completion;
       assert.equal(state.saving, false);
       assert.equal(state.error, outcome === 'failure' ? 'ordinary failure' : null);
-      assert.deepEqual(calls, outcome === 'failure' ? ['format-error']
-        : outcome === 'success' && operation !== 'temperature' ? ['close'] : []);
-      assert.equal(state.editing, !(outcome === 'success' && operation === 'temperature'));
-      assert.equal(state.value, outcome === 'success' && operation === 'temperature' ? '' : '0');
+      assert.deepEqual(calls, outcome === 'failure' ? ['format-error'] : []);
+      assert.equal(state.editing, outcome !== 'success');
+      assert.equal(state.value, outcome === 'success' ? '' : '0');
     });
-  }
 }
 
 test('organization and zone route remount keys isolate pending zone editor state', () => {

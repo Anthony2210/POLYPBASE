@@ -13,7 +13,7 @@ from apps.cultures.pca_identity_unification import json_value, snapshot
 from apps.organizations.models import Organization
 from apps.taxonomy.models import (
     BiologicalProvenance, LocalStrainIdentity, OrganizationProvenanceCode,
-    OrganizationSpeciesCode, Species, Strain,
+    OrganizationSpeciesCode, Species,
 )
 from apps.taxonomy.scoping import eligible_strains
 

@@ -36,33 +36,24 @@ test('audit values show an unmeasured strobila count differently from zero', () 
 });
 
 function hasStrobilaReference(path, source) {
-  // Exempt only the CSV translation entry, never numerical readers in the same file.
-  if (path === 'api/measurementImport.ts') {
-    source = source.replace(/\bstrobila_count:\s*'csvFieldStrobila'(?=\s*[,}])/, '');
-  }
   if (path === 'utils/boxSharing.ts') {
     source = source.replace(/'observation\.strobila_count':\s*'shareStrobilae'(?=\s*[,}])/, '');
   }
   return /strobila_count|strobiles/.test(source);
 }
 
-test('the CSV field label is metadata but numerical strobila readers remain detectable', () => {
-  const path = 'api/measurementImport.ts';
-  const source = readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
-  assert.equal(hasStrobilaReference(path, source), false);
+test('sharing labels are metadata but numerical strobila readers remain detectable', () => {
+  const path = 'utils/boxSharing.ts';
+  const label = "'observation.strobila_count': 'shareStrobilae',";
+  assert.equal(hasStrobilaReference(path, label), false);
+  assert.equal(hasStrobilaReference('other.ts', label), true);
   for (const expression of [
-    'Number(row.strobila_count)',
-    '+row.strobila_count',
-    'row.strobila_count ?? 0',
-    'row.strobila_count || 0',
-    'Number(row.strobiles)',
+    'Number(row.strobila_count)', '+row.strobila_count', 'row.strobila_count ?? 0',
+    'row.strobila_count || 0', 'Number(row.strobiles)',
   ]) {
-    assert.equal(hasStrobilaReference(path, `${source}\nconst count = ${expression};`), true, expression);
+    assert.equal(hasStrobilaReference(path, `${label}
+const count = ${expression};`), true, expression);
   }
-  assert.equal(hasStrobilaReference('other.ts', "strobila_count: 'csvFieldStrobila',"), true);
-  assert.equal(hasStrobilaReference(path, 'strobila_count: Number(null),'), true);
-  assert.equal(hasStrobilaReference('utils/boxSharing.ts', "'observation.strobila_count': 'shareStrobilae',"), false);
-  assert.equal(hasStrobilaReference('utils/boxSharing.ts', "'observation.strobila_count': 'shareStrobilae',\nconst value = row.strobila_count ?? 0;"), true);
 });
 
 test('no unreviewed numerical strobila references exist outside the typed API and audit presentation', () => {
@@ -78,6 +69,6 @@ test('no unreviewed numerical strobila references exist outside the typed API an
     }
   };
   walk(root);
-  // CSV metadata labels name the field without coercing its scientific value.
+  // Sharing metadata labels name the field without coercing its scientific value.
   assert.deepEqual(offenders.sort(), ['types.ts', 'utils/auditPresentation.ts']);
 });

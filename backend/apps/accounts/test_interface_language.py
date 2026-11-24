@@ -61,7 +61,7 @@ class JapaneseGettextTests(SimpleTestCase):
             return translation.gettext(msgid)
 
     def test_every_active_msgid_shows_validated_japanese_else_english_else_source(self):
-        self.assertEqual(len(JA), 81)
+        self.assertEqual(len(JA), 77)
         self.assertTrue(set(JA) <= set(SOURCES))
         for msgid in SOURCES:
             for language in ("ja", "en", "fr"):

@@ -202,8 +202,8 @@ export function appHarness() {
     'refreshBoxAfterMeasurement', 'createMeasurement', 'updateMeasurement', 'createBox', 'resolveBoxCreation', 'createSubculture', 'moveBox',
     'deactivateBox', 'reactivateBox', 'qualifyBox', 'assignBoxInitialLocation', 'qualifyBoxesBatch', 'loadLineageGraph',
     'createThermalZone', 'updateThermalZone', 'recordManualTemperature', 'refreshZoneSalinityCapability',
-    'recordManualSalinity', 'updateManualSalinity', 'createProbe', 'createOrganization', 'updateOrganization',
-    'deleteOrganization', 'createBoxTransfer']) {
+    'recordManualSalinity', 'updateManualSalinity', 'createOrganization', 'updateOrganization',
+    'deleteOrganization']) {
     const node = functionNode(name);
     assert.equal(node.getSourceFile(), ast, `Expected App-owned installation: ${name}`);
     evaluate(node.getText());

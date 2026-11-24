@@ -30,7 +30,7 @@ const page = (results, next = null) => ({ results, next });
 const zone = (id, value) => ({ id, name: `Zone ${id}`, latest_temperature: value, latest_salinity: null });
 
 async function startRefresh(h) {
-  const pending = h.context.createProbe({ thermal_zone: 1 });
+  const pending = h.context.createThermalZone({ name: 'New zone' });
   h.requests.at(-1).resolve({ id: 10 });
   await tick();
   return { pending, first: h.requests.at(-1) };
@@ -221,7 +221,6 @@ test('unrelated Box detail boundaries do not cancel movement zone pagination', a
 for (const operation of [
   { name: 'zone creation', run: h => h.context.createThermalZone({}) },
   { name: 'zone update', run: h => h.context.updateThermalZone(1, {}) },
-  { name: 'probe creation', run: h => h.context.createProbe({ thermal_zone: 1 }) },
   { name: 'movement', run: h => h.context.moveBox(7, {}) },
   { name: 'initial location', run: h => h.context.assignBoxInitialLocation(7, {}) },
 ]) {
