@@ -371,7 +371,7 @@ test('generic post-action feedback is removed while meaningful errors remain', (
   assert.match(appSource, /setSubcultureError\(getSubcultureSaveError\(requestError, t\)\)/);
   assert.match(appSource, /setMoveError\(getMoveSaveError\(requestError, t\)\)/);
   assert.match(appSource, /setStatusError\(getErrorMessage\(requestError\)\)/);
-  assert.match(adminSource, /setError\(getErrorMessage\(requestError\)\)/);
+  assert.match(adminSource, /setInvitationsError\(getAccountErrorMessage\(requestError, tRef\.current\)\)/);
   assert.match(inventorySource, /setLifecycleError\(getErrorMessage\(requestError\)\)/);
   assert.match(inventorySource, /setBatchError\(getErrorMessage\(requestError\)\)/);
 });

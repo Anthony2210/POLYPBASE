@@ -861,7 +861,7 @@ class IntegrationHistoryTests(unittest.TestCase):
         row = next(entry for entry in reversed(original) if entry["status"] != "REMOVED")
         next_id = max(int(entry["entry_id"][1:]) for entry in original) + 1
         next_batch = max(int(entry["batch"].split("-", 1)[0][1:]) for entry in original) + 1
-        correction = dict(row, entry_id=f"T{next_id}", batch=f"B{next_batch}-2026-11-19", status="APPLIED",
+        correction = dict(row, entry_id=f"T{next_id}", batch=f"B{next_batch}-{original[-1]['batch'].split('-', 1)[1]}", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]

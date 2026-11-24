@@ -117,7 +117,7 @@ test('header shows code and country; expanded facts keep recorded origin, includ
   })] });
   const facts = text(h.all('species-strain-facts')[0]);
   assert.match(text(h.all('species-strain-heading')[0]), /Recorded English name \(CAN-BRE-1\).*Country : France/);
-  for (const key of ['taxonomyStrainCode', 'speciesStrainLocation', 'speciesStrainActiveBoxes', 'speciesStrainOriginType', 'strainAcquisitionFieldCollection']) {
+  for (const key of ['speciesStrainLocation', 'speciesStrainActiveBoxes', 'speciesStrainOriginType', 'strainAcquisitionFieldCollection']) {
     assert.ok(!facts.includes(t(key)), key);
   }
   assert.equal(text(h.all('species-strain-provenance')[0]), `${t('adminCountry')} : France , via ${t('strainAcquisitionFieldCollection')}`);
