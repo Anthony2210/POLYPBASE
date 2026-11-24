@@ -8,7 +8,7 @@ dependencies = [
     "djangorestframework==3.16.1",
     "gunicorn==26.0.0",
     "psycopg[binary]==3.3.2",
-    "python-dotenv==1.2.2",
+    "python-dotenv==1.2.4",
     "qrcode>=8.2",
     "sqlparse==0.6.0",
     "tzdata==2026.2",
