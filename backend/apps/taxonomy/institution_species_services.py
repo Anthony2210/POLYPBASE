@@ -24,7 +24,6 @@ from apps.cultures.models import Box
 from apps.organizations.models import Organization
 
 from . import worms
-from .institution_species import resolve_institution_species_codes, strain_creation_issue
 from .models import InstitutionSpecies, OrganizationSpeciesCode, Species, Strain
 from .species_codes import allocate_species_code, lock_species_code_allocation
 from .species_names import SCIENTIFIC_NAME_PATTERN, ScientificNameKey, normalize_scientific_name
@@ -333,110 +332,6 @@ def species_action_transaction():
         lock_local_id_registry()
         lock_species_code_allocation()
         yield
-
-
-def _prepare_species_code(*, user, organization, species):
-    """Explicitly persist a missing AAA, preserving verified current evidence.
-
-    Call inside species_action_transaction after the organization/Species locks.
-    Existing assignments are never replaced, even when malformed or inconsistent.
-    """
-    if not OrganizationSpeciesCode.objects.filter(organization=organization, species=species).exists():
-        codes, issues = resolve_institution_species_codes(organization, [species.pk])
-        if species.pk in issues:
-            raise InstitutionSpeciesConflict(issues[species.pk])
-        recorded_code = codes.get(species.pk)
-        assignment, created = allocate_species_code(
-            organization=organization, species=species, recorded_code=recorded_code,
-        )
-        if created:
-            _audit(
-                organization=organization, user=user, action=AuditLog.Action.CREATION,
-                object_type="organization_species_code", object_id=assignment.pk,
-                description=f"Species code assigned for species {species.pk}",
-                metadata={
-                    "source": "institution_species_resolution", "species_id": species.pk,
-                    "code": assignment.code, "recorded_code_preserved": recorded_code is not None,
-                },
-            )
-    issue = strain_creation_issue(organization, species.pk)
-    if issue is not None:
-        raise InstitutionSpeciesConflict(issue)
-
-
-def resolve_institution_species(*, user, organization, data):
-    """Explicitly enable an action on an already used Species, without recoding.
-
-    No HTTP route calls this any more (the resolve endpoint is retired): any
-    future caller must sit behind a distinct, explicit user confirmation.
-
-    The association and, for strain preparation only, a missing code assignment
-    may be created with their required audits. The allocation gate and Species
-    lock serialize attachment with legacy shared-reference edits; the institution
-    lock serializes local name checks and concurrent retries.
-    """
-    require_institution_admin(user, organization)
-    fields = {"species_id", "action"}
-    _check_fields(data, fields, fields)
-    errors = {}
-    species_id = data["species_id"]
-    if type(species_id) is not int or species_id < 1:
-        errors["species_id"] = ["invalid_species_id"]
-    if data["action"] not in ("edit", "strain"):
-        errors["action"] = ["invalid_action"]
-    if errors:
-        raise InstitutionSpeciesInvalid(errors)
-
-    with species_action_transaction():
-        locked = Organization.objects.select_for_update().get(pk=organization.pk)
-        species = Species.objects.select_for_update().filter(pk=species_id).first()
-        require_institution_admin(user, locked)
-        profiles = InstitutionSpecies.objects.for_organization(locked)
-        profile = profiles.filter(species_id=species_id).first()
-        if species is None or (profile is None and not _has_history(locked, species)):
-            raise InstitutionSpeciesNotFound()
-        if data["action"] == "strain":
-            _prepare_species_code(user=user, organization=locked, species=species)
-        if profile is not None:
-            return profile, False
-
-        clash = _name_matches(profiles, species.scientific_name).first()
-        if clash is not None:
-            raise InstitutionSpeciesConflict(
-                "institution_species_name_exists",
-                institution_species_id=clash.pk, scientific_name=clash.scientific_name,
-            )
-        if species.worms_aphia_id is not None:
-            clash = profiles.filter(worms_aphia_id=species.worms_aphia_id).first()
-            if clash is not None:
-                raise InstitutionSpeciesConflict(
-                    "institution_aphia_id_exists",
-                    institution_species_id=clash.pk, scientific_name=clash.scientific_name,
-                )
-        try:
-            with transaction.atomic():
-                profile = InstitutionSpecies.objects.create(
-                    organization=locked, species=species,
-                    scientific_name=species.scientific_name, worms_aphia_id=species.worms_aphia_id,
-                )
-        except IntegrityError:
-            # A concurrent writer must not turn a successful retry into a duplicate.
-            profile = profiles.filter(species=species).first()
-            if profile is not None:
-                return profile, False
-            raise InstitutionSpeciesConflict("institution_species_name_exists") from None
-        _audit(
-            organization=locked, user=user, action=AuditLog.Action.CREATION,
-            object_type="institution_species", object_id=profile.pk,
-            description=f"Institution species information enabled: {profile.scientific_name}",
-            metadata={
-                "source": "institution_species_resolution", "action": data["action"],
-                "species_id": species.pk, "scientific_name": profile.scientific_name,
-                "worms_aphia_id": profile.worms_aphia_id, "revision": profile.revision,
-                "shared_reference_created": False,
-            },
-        )
-    return profile, True
 
 
 # Modification ---------------------------------------------------------------

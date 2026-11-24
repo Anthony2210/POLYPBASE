@@ -64,9 +64,7 @@ test('unknown raw compatibility fields cannot supply a readable identity', () =>
   assert.equal(identity.formatReadableUserIdentity({ first_name: '', last_name: '', email: '', username: raw, full_name: 'Untrusted Name' }), '');
 });
 
-const members = functions('../src/components/AdminView.tsx', ['getMemberDisplayName', 'buildTransferExportData'], {
-  ...identity, URL, window: { location: { origin: 'https://polypbase.test' } },
-});
+const members = functions('../src/components/AdminView.tsx', ['getMemberDisplayName'], identity);
 const profile = functions('../src/components/ProfileView.tsx', ['formatProfileName'], identity);
 test('member and profile display share the structured formatter, never full_name guessing', () => {
   for (const [value, expected] of cases.filter(([value]) => value)) {
@@ -76,14 +74,6 @@ test('member and profile display share the structured formatter, never full_name
   }
   assert.doesNotMatch(read('../src/components/AdminView.tsx'), /\.full_name|displayName\.split/);
 });
-test('transfer export preserves the readable prepared_by field verbatim', () => {
-  for (const prepared_by of [readable, 'person@example.org', null]) {
-    const result = members.buildTransferExportData({ prepared_by }, { id: 7 }, { id: 2, name: 'Partner' });
-    assert.equal(result.transfer.prepared_by, prepared_by);
-  }
-  assert.match(read('../src/components/AdminView.tsx'), /\['prepared_by', 'Préparateur', transfer\.prepared_by\]/);
-});
-
 const chart = functions('../src/components/BiologicalTrendChart.tsx', ['buildMeasurementDetailLines'], {
   ...identity,
   findChartLocationAtDate: () => null,
@@ -101,10 +91,6 @@ const rowGlobals = {
 };
 const admin = functions('../src/components/AdminAuditSection.tsx', ['AdminAuditRow'], rowGlobals);
 const personal = functions('../src/components/ProfileActionsSection.tsx', ['ProfileActionRow'], rowGlobals);
-const lineage = functions('../src/components/LineageModal.tsx', ['LineageGroup', 'formatEventDate'], {
-  ...identity, createTranslator, getBoxStatusPresentation: () => ({ tone: 'active', label: 'Active' }),
-  getLanguageLocale: (language) => ({ fr: 'fr-FR', en: 'en-GB', ja: 'ja-JP' })[language],
-});
 for (const language of ['fr', 'en']) {
   const t = createTranslator(language);
   test(`${language}: measurement and subculture chart details ignore raw enteredBy and preserve zero`, () => {
@@ -286,18 +272,6 @@ for (const language of ['fr', 'en']) {
     assert.equal(audit.getAuditDescriptionLabel(nonAccount, t), nonAccount.description);
     assert.equal(audit.getAuditBusinessNote({ type: 'box', values: { note: 'Preserved note' } }), 'Preserved note');
   });
-  test(`${language}: lineage renders structured and historical authors even when the legacy event is absent`, () => {
-    for (const user_identity of [current, null, undefined]) {
-      for (const event of [{ event_date: '2026-10-01', user: raw, user_identity }, null]) {
-        const html = renderToStaticMarkup(React.createElement(lineage.LineageGroup, {
-          title: 'Lineage', language, labels: { by: 'by', historicalLink: 'Historical link', noReason: 'No reason' },
-          relations: [{ id: 1, box: { id: 2, status: 'active', global_code: 'SF.002', species_name: 'Aurelia' }, event }],
-        }));
-        assert.ok(html.includes(event && user_identity ? readable : t('historicalUser')));
-        assert.equal(html.includes(raw), false);
-      }
-    }
-  });
 }
 
 for (const language of ['fr', 'en']) {
@@ -318,7 +292,7 @@ for (const language of ['fr', 'en']) {
 }
 
 test('all confirmed author consumers use structured identities without directory resolution', () => {
-  for (const path of ['BoxInsights', 'BiologicalTrendChart', 'ExportsView', 'LineageModal', 'AdminAuditSection', 'AuditLinkedActionsPopover']) {
+  for (const path of ['BoxInsights', 'BiologicalTrendChart', 'ExportsView', 'AdminAuditSection', 'AuditLinkedActionsPopover']) {
     const source = read(`../src/components/${path}.tsx`);
     assert.match(source, /user_identity/);
     assert.doesNotMatch(source, /(?:measurement|movement|event|linkedEntry|entry)\??\.(?:user|user_display)\b|author\?\.username/);

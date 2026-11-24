@@ -20,7 +20,6 @@ from apps.measurements.scientific_snapshot import (
     OBSERVATION_PROVENANCE_SELECTORS,
     OBSERVATION_TIME,
     OBSERVATION_VALUE_SELECTORS,
-    SOURCE_SELECTORS,
     Diagnostic,
     FieldValue,
     ObservationRecord,

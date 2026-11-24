@@ -38,7 +38,6 @@ from apps.measurements.models import (
 )
 from apps.taxonomy.models import OrganizationSpeciesCode, Species, Strain
 
-from .historical_2026 import cca_eob_production as cca
 from .historical_2026 import cla_box_1902 as correction
 from .test_cla_box_1902 import ClaBox1902Fixture, ClaBox1902Tests
 from .test_cla_box_1902_postgres import ClaBox1902PostgreSQLTests
@@ -944,21 +943,6 @@ class Box1902CorrectionV2PostgreSQLTests(
         self.assertEqual(calls, 2)
         self.assertTrue(writer_observed, "The protected SQL writer must run before the fault")
         self.assertEqual(self.snapshot(), before)
-
-    def test_cca_schema_attests_new_guards_then_rejects_absent_cca_helpers(self):
-        self.assertEqual(contract.attest(connection), {"operation": contract.OPERATION, "retired": False})
-        self.assertFalse(cca._qa())
-        for signature, _body, _result, _names in cca.role_contract.helper_specs(cca.role_contract.ROLE):
-            self.assertEqual(self.execute("SELECT to_regprocedure(%s)", [signature]), [(None,)])
-        with self.assertRaisesRegex(ValueError, r"^CCA-EOB helper is missing or differs from the reviewed contract\.$"):
-            cca._schema_state()
-
-    def test_cca_schema_rejects_historical_guard_drift(self):
-        self.assertFalse(contract.attest(connection)["retired"])
-        self.execute("ALTER FUNCTION public.historical_temperature_box_guard() SET search_path=public")
-        with self.assertRaisesRegex(contract.ContractError,
-                                    r"^Function definition drift: public\.historical_temperature_box_guard$"):
-            cca._schema_state()
 
     def test_guard_attestation_rejects_drift_instead_of_accepting_cca_schema_shortcut(self):
         self.assertFalse(contract.attest(connection)["retired"])

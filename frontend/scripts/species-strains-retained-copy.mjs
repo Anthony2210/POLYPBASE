@@ -15,7 +15,7 @@ export const retainedSpeciesCopy = Object.freeze({
     'speciesCodeChangeImpossibleNote', 'speciesCodeChangeInvariant', 'speciesCodeChangeLabelsNote',
     'speciesCodeChangeLabelsToReview', 'speciesCodeChangeMissingGlobalId', 'speciesCodeChangeNoImpact',
     'speciesCodeChangeNothingApplied', 'speciesCodeChangeOpen', 'speciesCodeChangeReady', 'speciesCodeChangeSimulation',
-  ].map(key => [key, 'Species integration (2026-11-17): retain the original code-change preview copy. The preview component/service remain intentionally retained and read-only; the current Species sheet hides its entry and simplified presentation omits these labels. Retention does not enable a mutation or claim this copy is displayed.'])),
+  ].map(key => [key, 'Species integration (2026-11-17): retain the original code-change preview copy. The Species sheet hid the preview entry before PR2 removed the standalone preview. Preserve existing catalog and Japanese provenance pending an explicit removal batch.'])),
   ...Object.fromEntries([
     'speciesCatalogHistorical', 'speciesDetailCode', 'speciesDetailHistoricalLabel',
     'speciesDetailHistoricalNote', 'speciesDetailNoCode', 'speciesDetailNoWorms', 'speciesDetailUpdated',

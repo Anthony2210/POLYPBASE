@@ -13,7 +13,6 @@ const strainOption = (id = 1, overrides = {}) => ({
 const references = (id = 1, code = 'AUR-ATL-1', species = 'Aurelia aurita') => [
   strainOption(id, { code, species: { id: 100 + id, scientific_name: species }, identity: complete(code) }),
 ];
-const box = (code, organization = 1, strain = 1) => ({ global_code: code, organization: { id: organization }, strain: { id: strain } });
 const field = (h, name) => h.panel.field(`create-box-${name}-field`);
 const options = h => h.panel.nodes.filter(node => node.props.role === 'option');
 const option = (h, id) => options(h).find(node => node.props.id === `create-box-strain-option-${id}`);
@@ -653,33 +652,7 @@ describe('Contextual locked New Box', () => {
   });
 });
 
-describe('Actual extracted code/profile utilities', () => {
-  test('next code scopes boxes, ignores nonnumeric codes and preserves highest-number padding', () => {
-    const { buildNextBoxCode } = createBoxEnvironment().load('../src/utils/boxCode.ts');
-    assert.deepEqual(plain(buildNextBoxCode([], { id: 1, code: 'AUR' }, 1)), { globalCode: 'AUR.001', boxNumber: '001' });
-    assert.deepEqual(plain(buildNextBoxCode([
-      box('AUR.0009'), box('AUR.002'), box('AUR.bad'), box('AUR.999', 2), box('OTHER.999', 1, 2),
-    ], { id: 1, code: 'AUR' }, 1)), { globalCode: 'AUR.0010', boxNumber: '0010' });
-    assert.deepEqual(plain(buildNextBoxCode([box('AUR.999')], { id: 1, code: 'AUR' }, 1)), { globalCode: 'AUR.1000', boxNumber: '1000' });
-  });
-  test('box-number matching normalizes zeros/whitespace and preserves permissive nonnumeric-code behavior', () => {
-    const { boxCodeMatchesBoxNumber: matches } = createBoxEnvironment().load('../src/utils/boxCode.ts');
-    for (const [code, number, expected] of [
-      [' AUR.001 ', ' 1 ', true], ['AUR.000', '0', true], ['AUR.002', '001', false],
-      ['AUR.001suffix', '1', true], ['AUR', 'anything', true], ['AUR.001', '', false],
-    ]) assert.equal(matches(code, number), expected, `${code} / ${number}`);
-  });
-  test('extract and normalize preserve zero, distinguish missing numbers and trim nonnumeric values', () => {
-    const { extractBoxNumberFromCode: extract, normalizeBoxNumber: normalize } = createBoxEnvironment().load('../src/utils/boxCode.ts');
-    for (const [code, expected] of [[' AUR.000 ', '000'], ['AUR.001suffix', '001'], ['AUR', null], ['AUR.bad', null], ['', null]]) {
-      assert.equal(extract(code), expected, code);
-    }
-    for (const [number, expected] of [['000', '0'], [' 0 ', '0'], [' 001 ', '1'], ['', ''], ['  ', ''], [' custom ', 'custom']]) {
-      assert.equal(normalize(number), expected, number);
-    }
-    assert.notEqual(normalize('000'), normalize(''));
-  });
-
+describe('Actual profile utilities', () => {
   test('admin role is active-organization scoped; superuser and explicit organization override are preserved', () => {
     const { userHasAdminRole } = createBoxEnvironment().load('../src/utils/profilePermissions.ts');
     const profile = { active_organization: { id: 1 }, memberships: [

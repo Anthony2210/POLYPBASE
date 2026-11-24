@@ -5,7 +5,6 @@ Cluster identity is an administrator attestation, verified with the read-only pg
 """
 
 import os
-import re
 import threading
 from time import monotonic
 from contextlib import contextmanager
