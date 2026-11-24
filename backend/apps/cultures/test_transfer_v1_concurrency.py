@@ -5,7 +5,7 @@ from unittest import skipUnless
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection, connections
 from django.test import TransactionTestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
+
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
@@ -13,8 +13,8 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
-from .api_views import BoxTransferImportAPIView
 from .models import Box, BoxLocation, BoxTransferImport, ThermalZone
+from .transfer_v1 import TransferV1ValidationError, import_transfer_v1
 
 
 @skipUnless(
@@ -54,7 +54,7 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
             "transferred_polyp_count": "12",
         }
 
-    def _post_import(self, user, source, barrier):
+    def _import(self, user, source, barrier):
         close_old_connections()
         observations = {
             "replay_selects": 0,
@@ -102,20 +102,13 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
 
                 return result
 
-            request = APIRequestFactory().post(
-                "/api/box-transfer-imports/",
-                {
-                    "source_data": source,
-                    "organization": self.organization.pk,
-                    "thermal_zone": self.zone.pk,
-                },
-                format="json",
-                HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
-            )
-            force_authenticate(request, user=user)
             with connection.execute_wrapper(synchronize_queries):
-                response = BoxTransferImportAPIView.as_view()(request)
-            response.render()
+                try:
+                    outcome = import_transfer_v1(
+                        source=source, organization=self.organization, zone=self.zone, user=user,
+                    )
+                except TransferV1ValidationError as error:
+                    outcome = error
 
             # A translated conflict must leave the worker outside the failed
             # transaction, with its existing connection still usable.
@@ -127,7 +120,7 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
             self.assertEqual(usable, 1)
             self.assertEqual(backend_pid, observations["backend_pid"])
             self.assertEqual(BoxTransferImport.objects.count(), 1)
-            return response, observations
+            return outcome, observations
         finally:
             connections.close_all()
 
@@ -136,30 +129,26 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [
                 executor.submit(
-                    self._post_import, user, source, barrier
+                    self._import, user, source, barrier
                 )
                 for user, source in zip(self.users, sources)
             ]
             results = [future.result(timeout=45) for future in futures]
-        self.assertEqual(
-            sorted(response.status_code for response, _ in results),
-            [201, 400],
-            [(response.status_code, response.data) for response, _ in results],
-        )
+        self.assertCountEqual([type(outcome) for outcome, _ in results], [Box, TransferV1ValidationError])
         self.assertEqual(
             len({observations["backend_pid"] for _, observations in results}), 2
         )
         loser_index = next(
             index
-            for index, (response, _) in enumerate(results)
-            if response.status_code == 400
+            for index, (outcome, _) in enumerate(results)
+            if isinstance(outcome, TransferV1ValidationError)
         )
         self.assertEqual(
-            results[loser_index][0].data, ["Ce transfert a déjà été importé."]
+            results[loser_index][0].detail, "Ce transfert a déjà été importé."
         )
         return results, loser_index
 
-    def _assert_single_import(self, response, source, user):
+    def _assert_single_import(self, created_box, source, user):
         for model in (
             Species,
             Strain,
@@ -187,7 +176,7 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
         self.assertEqual(box.strain_id, strain.pk)
         self.assertEqual(box.organization_id, self.organization.pk)
         self.assertEqual(box.thermal_zone_id, self.zone.pk)
-        self.assertEqual(response.data["id"], box.pk)
+        self.assertEqual(created_box.pk, box.pk)
         self.assertEqual(location.box_id, box.pk)
         self.assertEqual(location.thermal_zone_id, self.zone.pk)
         self.assertIsNone(location.ends_at)

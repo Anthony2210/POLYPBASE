@@ -5,7 +5,7 @@ from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -18,6 +18,18 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
 from .models import DataExport
+from .services import _sanitize_csv_cell
+
+
+class CsvCellTests(SimpleTestCase):
+    def test_sanitizes_only_leading_prefixes_in_text(self):
+        for prefix in ("=", "+", "-", "@", "\t", "\r"):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(_sanitize_csv_cell(prefix), "'" + prefix)
+                self.assertEqual(_sanitize_csv_cell("box" + prefix), "box" + prefix)
+        self.assertEqual(_sanitize_csv_cell("'@"), "'@")
+        self.assertEqual(_sanitize_csv_cell(0), 0)
+        self.assertIsNone(_sanitize_csv_cell(None))
 
 
 class MeasurementExportApiTests(TestCase):
@@ -143,6 +155,38 @@ class MeasurementExportApiTests(TestCase):
             AuditLog.objects.filter(action=AuditLog.Action.EXPORT).count(),
             1,
         )
+
+    def test_weekly_csv_sanitizes_dynamic_headers_and_data_without_losing_measurements(self):
+        # Force the global-code fallback for legacy text labels.
+        boxes = Box.objects.filter(pk=self.box.pk)
+        boxes.update(local_code="", box_number="box")
+        DailyTemperature.objects.filter(thermal_zone=self.zone).update(average_temperature_c=Decimal("-1.25"))
+        ThermalZone.objects.filter(pk=self.zone.pk).update(target_temperature_c=Decimal("0"))
+        self.client.force_login(self.user)
+        filters = {"boxes": str(self.box.id), "date_from": "2026-05-01", "date_to": "2026-05-17"}
+
+        for code in ('@Box, "sample"\nline', "\rBox"):
+            with self.subTest(code=code):
+                boxes.update(global_code=code)
+                response = self.client.get(reverse("api_export_measurements_csv"), filters)
+
+                self.assertEqual(response.status_code, 200)
+                content = StringIO(response.content.decode("utf-8-sig"), newline="")
+                rows = list(csv.reader(content, strict=True))
+                safe_code = "'" + code
+                self.assertEqual(len(rows), 4)
+                self.assertEqual(rows[0][4:], [
+                    "numéro de boite", f"{safe_code}_polypes", f"{safe_code}_ephyrules", f"{safe_code}_temperature",
+                ])
+                self.assertEqual(rows[1][4:], [safe_code, "", "", ""])
+                self.assertEqual(rows[2][4:], [safe_code, "100", "5", "-1.25"])
+                self.assertEqual(rows[3][4:], [safe_code, "0", "0", "0"])
+
+        preview = self.client.get(reverse("api_export_measurements_preview"), filters)
+        self.assertEqual(preview.status_code, 200)
+        points = preview.json()["points"]
+        self.assertEqual([point["average_temperature_c"] for point in points], [None, -1.25, 0])
+        self.assertEqual([point["measurement_count"] for point in points], [0, 1, 1])
 
     def test_box_trend_returns_only_period_chart_data(self):
         BoxLocation.objects.create(

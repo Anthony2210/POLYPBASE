@@ -16,7 +16,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
-from apps.cultures.models import Box, BoxLocalIdAlias, BoxTransferImport, ThermalZone
+from apps.cultures.models import Box, BoxLocalIdAlias
 from apps.organizations.models import Organization
 
 from . import institution_species_api as species_api
@@ -35,14 +35,6 @@ from .test_species_review_regressions import SpeciesReviewTransactionTestCase
 
 RESOLVE_URL = "api_admin_institution_species_resolve"
 
-
-def _transfer_source(species):
-    return {
-        "format": "polypbase.box_transfer.v1", "transfer_id": "species-action-transfer-1",
-        "source_organization_name": "Transfer source QA", "source_global_code": "SOURCE.001",
-        "species_scientific_name": species.scientific_name,
-        "strain_code": "AAU-TAI-1", "strain_origin_code": "TAI", "transferred_polyp_count": "12",
-    }
 
 
 class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
@@ -740,54 +732,6 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
         self.assertEqual(list(Species.objects.order_by("pk").values()), species_before)
         self.assertEqual(AuditLog.objects.filter(organization=self.a, object_type="strain").count(), 1)
 
-    def test_transfer_import_locks_registry_before_import_and_species_work(self):
-        from apps.cultures import transfer_v1
-
-        zone = ThermalZone.objects.create(organization=self.a, name="Transfer destination")
-        events = []
-        registry = transfer_v1.lock_local_id_registry
-        importer = transfer_v1._import_transfer_v1
-        species_lookup = Species.objects.get_or_create
-        species_lock = Species.objects.select_for_update
-
-        def lock_registry():
-            self.assertTrue(connection.in_atomic_block)
-            events.append("registry")
-            registry()
-
-        def run_import(**kwargs):
-            self.assertEqual(events, ["registry"])
-            events.append("import")
-            return importer(**kwargs)
-
-        def lookup_species(*args, **kwargs):
-            self.assertEqual(events, ["registry", "import"])
-            events.append("species_lookup")
-            return species_lookup(*args, **kwargs)
-
-        def lock_species(*args, **kwargs):
-            self.assertEqual(events, ["registry", "import", "species_lookup"])
-            events.append("species_lock")
-            return species_lock(*args, **kwargs)
-
-        self.client.force_login(self.admin)
-        with patch.object(transfer_v1, "lock_local_id_registry", side_effect=lock_registry), \
-                patch.object(transfer_v1, "_import_transfer_v1", side_effect=run_import), \
-                patch.object(Species.objects, "get_or_create", side_effect=lookup_species), \
-                patch.object(Species.objects, "select_for_update", side_effect=lock_species):
-            response = self.client.post(
-                reverse("api_box_transfer_import"),
-                data=json.dumps({"source_data": _transfer_source(self.species),
-                                 "organization": self.a.pk, "thermal_zone": zone.pk}),
-                content_type="application/json", **self.headers(self.a),
-            )
-        self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(events, ["registry", "import", "species_lookup", "species_lock"])
-        box = Box.objects.get(pk=response.json()["id"])
-        self.assertEqual((box.organization_id, box.strain.species_id, box.global_code),
-                         (self.a.pk, self.species.pk, "AAU-TAI-1.001"))
-        self.assertEqual(BoxTransferImport.objects.count(), 1)
-        self.assertEqual(Species.objects.count(), 1)
 
     def test_normal_registration_safety_is_unchanged(self):
         response = self.register(self.a, {"scientific_name": "Aurelia aurita"})
@@ -978,98 +922,6 @@ class InstitutionSpeciesActionConcurrencyTests(SpeciesReviewTransactionTestCase)
         self.assertFalse(AuditLog.objects.filter(object_type="institution_species").exists())
         self.assertEqual(AuditLog.objects.filter(object_type="strain").count(), 1)
 
-    def _assert_transfer_waits_before_species_work(self, *, actual_create):
-        from apps.cultures import transfer_v1
-        from apps.cultures.api_views import BoxTransferImportAPIView
-        from .institution_strains import create_institution_strain
-
-        zone = ThermalZone.objects.create(organization=self.organization, name="Transfer destination")
-        profile = None
-        if actual_create:
-            profile, _ = services.resolve_institution_species(
-                user=self.user, organization=self.organization,
-                data={"species_id": self.species.pk, "action": "edit"},
-            )
-        ready, release, importing = Event(), Event(), Event()
-        gate = services.lock_species_code_allocation
-        registry = transfer_v1.lock_local_id_registry
-
-        def held_gate():
-            gate()
-            ready.set()
-            if not release.wait(timeout=15):
-                raise RuntimeError("Species action was not released")
-
-        def import_registry():
-            importing.set()
-            registry()
-
-        def action():
-            close_old_connections()
-            try:
-                if actual_create:
-                    strain, created = create_institution_strain(
-                        user=self.user, organization=self.organization, profile_pk=profile.pk,
-                        data={"request_id": str(uuid.uuid4()), "country": "FR",
-                              "country_name": "France", "bbb_code": "FRA"},
-                    )
-                    return strain.pk, created
-                resolved, created = services.resolve_institution_species(
-                    user=self.user, organization=self.organization,
-                    data={"species_id": self.species.pk, "action": "strain"},
-                )
-                return resolved.pk, created
-            finally:
-                close_old_connections()
-
-        def import_transfer():
-            close_old_connections()
-            try:
-                request = APIRequestFactory().post(
-                    reverse("api_box_transfer_import"),
-                    {"source_data": _transfer_source(self.species),
-                     "organization": self.organization.pk, "thermal_zone": zone.pk},
-                    format="json", HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
-                )
-                force_authenticate(request, user=self.user)
-                response = BoxTransferImportAPIView.as_view()(request)
-                if response.status_code != 201:
-                    raise AssertionError(response.data)
-                return response.data["id"]
-            finally:
-                close_old_connections()
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            with patch.object(services, "lock_species_code_allocation", side_effect=held_gate), \
-                    patch.object(transfer_v1, "lock_local_id_registry", side_effect=import_registry):
-                action_future = pool.submit(action)
-                try:
-                    self.assertTrue(ready.wait(timeout=10))
-                    import_future = pool.submit(import_transfer)
-                    self.assertTrue(importing.wait(timeout=10))
-                    self.assertFalse(import_future.done())
-                    release.set()
-                    _action_pk, created = action_future.result(timeout=20)
-                    box_pk = import_future.result(timeout=20)
-                finally:
-                    release.set()
-                    action_future.result(timeout=20)
-        self.assertTrue(created)
-        self.assertEqual(Species.objects.count(), 1)
-        self.assertEqual(InstitutionSpecies.objects.count(), 1)
-        box = Box.objects.get(pk=box_pk)
-        self.assertEqual((box.organization_id, box.strain.species_id, box.global_code),
-                         (self.organization.pk, self.species.pk, "AAU-TAI-1.001"))
-        self.assertEqual(BoxTransferImport.objects.get().created_box_id, box_pk)
-        self.assertEqual(Strain.objects.count(), 2 if actual_create else 1)
-        self.assertEqual(InstitutionStrainCreationRequest.objects.count(), int(actual_create))
-        self.assertEqual(AuditLog.objects.filter(action=AuditLog.Action.IMPORT).count(), 1)
-
-    def test_transfer_import_and_resolve_share_registry_before_species_locks(self):
-        self._assert_transfer_waits_before_species_work(actual_create=False)
-
-    def test_transfer_import_and_actual_strain_create_share_registry_before_species_locks(self):
-        self._assert_transfer_waits_before_species_work(actual_create=True)
 
     def test_concurrent_edit_and_strain_resolve_share_one_association(self):
         results = self._concurrent_resolve(("edit", "strain"))

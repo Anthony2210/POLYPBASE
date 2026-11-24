@@ -1,14 +1,16 @@
 from io import StringIO
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.cultures.models import Box
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
 
+@override_settings(DEBUG=True)
 class DemoStrainOwnershipTests(TestCase):
     def seed(self):
         call_command("seed_demo_data", stdout=StringIO())
@@ -50,6 +52,19 @@ class DemoStrainOwnershipTests(TestCase):
         self.assertEqual(box.notes, "Keep")
         self.assertEqual(Strain.objects.count(), 1)
         self.assertFalse(Organization.objects.filter(slug="aquarium-de-paris").exists())
+
+    @override_settings(DEBUG=False)
+    def test_non_debug_requires_explicit_opt_in_before_writes(self):
+        output = StringIO()
+        with self.assertRaisesMessage(CommandError, "requires DEBUG or --allow-non-debug"):
+            call_command("seed_demo_data", stdout=output)
+        self.assertEqual(output.getvalue(), "")
+        self.assertFalse(get_user_model().objects.filter(username="demo_admin").exists())
+        self.assertFalse(Organization.objects.exists())
+        self.assertFalse(Box.objects.exists())
+
+        call_command("seed_demo_data", "--allow-non-debug", stdout=output)
+        self.assertTrue(Box.objects.exists())
 
     def test_unowned_strain_collision_is_not_claimed(self):
         species = Species.objects.create(scientific_name="Aurelia aurita")

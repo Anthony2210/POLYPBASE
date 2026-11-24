@@ -1,6 +1,7 @@
 import csv
 from collections import Counter
 from datetime import timedelta
+from decimal import Decimal
 from io import StringIO
 
 from django.db.models import (
@@ -152,7 +153,8 @@ def build_weekly_measurement_csv(
     }
 
     output = StringIO(newline="")
-    writer = csv.writer(output, lineterminator="\n")
+    # Include both CR and LF so csv.writer quotes fields containing either.
+    writer = csv.writer(output, lineterminator="\r\n")
     header = ["Date", "année", "semaines cumulées", "semaines"]
     for box in selected_boxes:
         code = export_codes[box.id]
@@ -164,7 +166,7 @@ def build_weekly_measurement_csv(
                 f"{code}_temperature",
             ]
         )
-    writer.writerow(header)
+    writer.writerow(map(_sanitize_csv_cell, header))
 
     for cumulative_week, week_key in enumerate(week_keys, start=1):
         row = [
@@ -190,10 +192,10 @@ def build_weekly_measurement_csv(
                     code,
                     measurement.polyp_count,
                     measurement.ephyrae_count,
-                    _format_decimal(temperature),
+                    temperature,
                 ]
             )
-        writer.writerow(row)
+        writer.writerow(map(_sanitize_csv_cell, row))
 
     return output.getvalue(), {
         "box_count": len(selected_boxes),
@@ -443,11 +445,14 @@ def _local_date(value):
     return value.date()
 
 
-def _format_decimal(value):
-    if value is None:
-        return ""
-    text = format(value, "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
+def _sanitize_csv_cell(value):
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    if isinstance(value, Decimal):
+        # Format typed measurements without treating negative numbers as text.
+        text = format(value, "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
+    return value
 
 
 def _parse_int(row, index):
