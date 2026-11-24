@@ -106,8 +106,7 @@ si son contenu ne correspond pas au résolveur.
 | `/api/measurement-import/preview/` | `POST` | `apps.measurements.import_api.MeasurementImportPreviewAPIView` |
 | `/api/measurement-import/receipts/<uuid:receipt_id>/` | `GET` | `apps.measurements.import_api.MeasurementImportReceiptAPIView` |
 | `/api/measurement-import/receipts/<uuid:receipt_id>/source/` | `GET` | `apps.measurements.import_api.MeasurementImportSourceAPIView` |
-| `/api/organizations/` | `POST` | `apps.organizations.api_views.OrganizationCreateAPIView` |
-| `/api/organizations/<int:pk>/` | `DELETE`, `GET`, `PATCH`, `PUT` | `apps.organizations.api_views.OrganizationDetailAPIView` |
+| `/api/organizations/<int:pk>/` | `GET` | `apps.organizations.api_views.OrganizationDetailAPIView` |
 | `/api/overview/active-boxes/` | `GET` | `apps.cultures.api_views.OverviewActiveBoxesAPIView` |
 | `/api/probes/` | `POST` | `apps.cultures.api_views.ProbeCreateAPIView` |
 | `/api/profile/` | `GET`, `PATCH` | `apps.accounts.api_views.UserProfileAPIView` |
@@ -119,10 +118,8 @@ si son contenu ne correspond pas au résolveur.
 | `/api/taxonomy/biological-provenances/` | `GET` | `apps.taxonomy.api_views.BiologicalProvenanceListAPIView` |
 | `/api/taxonomy/provenance-codes/` | `GET` | `apps.taxonomy.api_views.ProvenanceCodeListAPIView` |
 | `/api/taxonomy/references/` | `GET` | `apps.taxonomy.api_views.TaxonomyReferenceListAPIView` |
-| `/api/taxonomy/species-codes/` | `GET`, `POST` | `apps.taxonomy.api_views.SpeciesCodeListCreateAPIView` |
-| `/api/taxonomy/species-codes/<int:pk>/` | `GET`, `PATCH` | `apps.taxonomy.api_views.SpeciesCodeDetailAPIView` |
-| `/api/taxonomy/species/` | `POST` | `apps.taxonomy.api_views.SpeciesReferenceListCreateAPIView` |
-| `/api/taxonomy/species/<int:pk>/` | `PATCH` | `apps.taxonomy.api_views.SpeciesReferenceDetailAPIView` |
+| `/api/taxonomy/species-codes/` | `GET` | `apps.taxonomy.api_views.SpeciesCodeListAPIView` |
+| `/api/taxonomy/species-codes/<int:pk>/` | `GET` | `apps.taxonomy.api_views.SpeciesCodeDetailAPIView` |
 | `/api/taxonomy/strains/` | `POST` | `apps.taxonomy.api_views.StrainReferenceListCreateAPIView` |
 | `/api/taxonomy/strains/<int:pk>/` | `PATCH` | `apps.taxonomy.api_views.StrainReferenceDetailAPIView` |
 | `/api/thermal-zones/` | `GET`, `POST` | `apps.cultures.api_views.ThermalZoneListCreateAPIView` |

@@ -16,5 +16,8 @@ Une entrée consigne un arbitrage et sa portée. Elle ne prouve ni une mise en p
 | PR #24, 19/11/2026 | Pas de résolution implicite d'une espèce historique. Gérer explicitement le profil institutionnel sans réécriture des données historiques. | [Taxonomie](reference/taxonomie-especes.md) |
 | Jalon proposition de don | Proposer n'est pas transférer : ni accès à l'historique source ni propriété accordée au destinataire. | [Dons](reference/imports-exports-transferts.md) |
 | Jalon démo isolée | Instance indépendante envisagée; pas d'instantané réel ni d'ouverture avant autorisation et contrôles. | [Démo isolée](operations/demo-isolee.md) |
+| 24/11/2026 | Retirer les sections d’administration Organisations, Références et Taxonomie. | Conserver le parcours Espèces et les modèles ; retirer uniquement les API propres aux sections supprimées. |
+| 24/11/2026 | Anthony confirme l’application en production des opérations ponctuelles : CCA-EOB V3 et réaffectation des cinq mesures, Box 1902, PCA, CLA-SME, espèces urgentes et variantes, nettoyage des données d’essai, désactivation HS, lots de températures historiques, import 2026 et réconciliation des mouvements. | Confirmation opérateur ; archiver l’outillage ponctuel, pas les protections des données ni les dépendances vivantes. |
+| 24/11/2026 | Retirer `'unsafe-inline'` de `script-src` uniquement si l’absence de scripts inline est vérifiée. | Vérifier le build frontend et les gabarits HTML servis ; ne pas changer `style-src`. |
 
 Voir [l'état du projet](ETAT.md) pour les questions ouvertes et les [archives](archive/README.md) pour les preuves datées.

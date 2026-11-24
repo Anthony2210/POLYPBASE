@@ -9,7 +9,7 @@ from django.db import IntegrityError, connection, transaction
 from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.forms import modelform_factory
 from django.test import TestCase, TransactionTestCase
-from django.urls import reverse
+from django.urls import Resolver404, resolve, reverse
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -102,52 +102,33 @@ class OrganizationPortableIdentityApiTests(TestCase):
             role=OrganizationMembership.Role.ADMIN,
         )
 
-    def test_create_does_not_require_or_accept_caller_identity(self):
-        self.client.force_authenticate(self.superuser)
-        for name, extra in (
-            ("Automatic institution", {}),
-            ("Caller institution", {"portable_id": str(uuid.uuid4())}),
-        ):
-            with self.subTest(name=name):
-                response = self.client.post(
-                    reverse("api_organization_create"), {"name": name, **extra}, format="json"
-                )
-                self.assertEqual(response.status_code, 201, response.data)
-                self.assertEqual(set(response.data), {
-                    "id", "name", "city", "country", "contact_email", "notes"
-                })
-                organization = Organization.objects.get(pk=response.data["id"])
-                self.assertIsInstance(organization.portable_id, uuid.UUID)
-                if extra:
-                    self.assertNotEqual(str(organization.portable_id), extra["portable_id"])
+    def test_legacy_organization_create_route_is_unregistered(self):
+        with self.assertRaises(Resolver404):
+            resolve("/api/organizations/")
 
-    def test_patch_and_put_cannot_replace_identity(self):
+    def test_organization_detail_is_read_only_for_superusers(self):
         self.client.force_authenticate(self.superuser)
-        portable_id = self.organization.portable_id
         url = reverse("api_organization_detail", args=[self.organization.pk])
-        for method in (self.client.patch, self.client.put):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(set(response.data), {
+            "id", "name", "city", "country", "contact_email", "notes",
+        })
+        self.assertEqual(response.data["id"], self.organization.pk)
+        portable_id = self.organization.portable_id
+        for method in (self.client.post, self.client.patch, self.client.put, self.client.delete):
             with self.subTest(method=method.__name__):
-                response = method(url, {
-                    "name": "Renamed institution", "portable_id": str(uuid.uuid4())
-                }, format="json")
-                self.assertEqual(response.status_code, 200, response.data)
-                self.assertNotIn("portable_id", response.data)
-                self.organization.refresh_from_db()
-                self.assertEqual(self.organization.portable_id, portable_id)
+                response = method(url, {"name": "Renamed institution"}, format="json")
+                self.assertEqual(response.status_code, 405)
+        self.organization.refresh_from_db()
+        self.assertEqual((self.organization.name, self.organization.portable_id), ("Institution", portable_id))
 
-    def test_membership_admin_still_cannot_manage_organizations(self):
+    def test_membership_admin_cannot_read_organization_detail(self):
         self.client.force_authenticate(self.member)
-        response = self.client.post(
-            reverse("api_organization_create"), {"name": "Unauthorized"}, format="json"
-        )
-        self.assertEqual(response.status_code, 403)
         for organization in (self.organization, self.other):
-            response = self.client.patch(
-                reverse("api_organization_detail", args=[organization.pk]),
-                {"name": "Unauthorized", "portable_id": str(uuid.uuid4())}, format="json"
-            )
-            self.assertEqual(response.status_code, 403)
-        self.assertFalse(Organization.objects.filter(name="Unauthorized").exists())
+            with self.subTest(organization=organization.pk):
+                response = self.client.get(reverse("api_organization_detail", args=[organization.pk]))
+                self.assertEqual(response.status_code, 403)
 
     def test_active_context_remains_integer_and_membership_scoped(self):
         self.assertEqual(get_authorized_organization_ids(self.member), [self.organization.pk])

@@ -33,8 +33,9 @@ import check_i18n  # noqa: E402
 import check_register  # noqa: E402
 import compile_django_messages  # noqa: E402
 from test_check_register import (  # noqa: E402
-    B13_POSITION, B26_KEYS, B27_KEYS, LAB_POSITION, b13_integrity_errors, b24_events, b26_events, b27_events,
-    before_b26, before_b27, lab_integrity_errors, rows_digest,
+    ADMIN_RETIRED_KEYS, B13_POSITION, B26_KEYS, B27_KEYS, LAB_POSITION, b13_integrity_errors, b24_events,
+    b26_events, b27_events, b44_events, b45_events, b47_events, b48_events, before_b26, before_b27,
+    lab_integrity_errors, pre_b50_catalog_source, rows_digest,
 )
 
 
@@ -348,7 +349,11 @@ class JapaneseManifestTests(unittest.TestCase):
     def test_manifest_covers_every_current_identity_once(self):
         identities = [r["identity"] for r in self.manifest]
         self.assertEqual(len(identities), len(set(identities)))
-        self.assertEqual([r["identity"] for r in self.by("react")], list(self.fr))
+        register = check_register.load_register()
+        unmanifested = {row["key_or_msgid"] for events in (b44_events, b45_events, b47_events, b48_events)
+                        for row in events(register) if row["status"] != "REMOVED"}
+        self.assertEqual([r["identity"] for r in self.by("react") if r["identity"] not in ADMIN_RETIRED_KEYS],
+                         [key for key in self.fr if key not in unmanifested])
         self.assertEqual({r["identity"] for r in self.by("django")},
                          {f"django:gettext:{msgid}" for msgid in self.sources})
 
@@ -414,7 +419,7 @@ class JapaneseManifestTests(unittest.TestCase):
         original = check_register.load_register()
         events = b25_events(original)
         for language in ("FR", "EN"):
-            source = (ROOT / check_register.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            source = pre_b50_catalog_source(language)
             before_b25(source, original, language)
             for event in events:
                 with self.subTest(entry=event["entry_id"], language=language):
@@ -451,7 +456,8 @@ class JapaneseManifestTests(unittest.TestCase):
 
     def test_catalogs_equal_their_authorized_provenance_rows(self):
         self.assertEqual(self.ja_ts, {r["identity"]: r["ja_validated"] if r["status"] == "REUSED" else r["ja_ai_reviewed"]
-                                             for r in self.by("react") if r["status"] in {"REUSED", "AI_REVIEWED"}})
+                                     for r in self.by("react") if r["status"] in {"REUSED", "AI_REVIEWED"}
+                                     and r["identity"] not in ADMIN_RETIRED_KEYS})
         self.assertEqual(self.ja_po, {r["identity"].removeprefix("django:gettext:"): r["ja_validated"]
                                       for r in self.by("django") if r["status"] == "REUSED"})
         self.assertTrue(set(self.ja_po) <= set(self.sources))

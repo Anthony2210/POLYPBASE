@@ -1,17 +1,14 @@
 import json
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
-from apps.cultures.models import Box
 from apps.organizations.models import Organization
 
-from .models import LocalStrainIdentity, OrganizationSpeciesCode, Species, Strain
+from .models import OrganizationSpeciesCode, Species
 
 
 class SpeciesCodesApiTests(TestCase):
@@ -30,7 +27,6 @@ class SpeciesCodesApiTests(TestCase):
         ):
             OrganizationMembership.objects.create(user=user, organization=organization, role=role)
         self.species = Species.objects.create(scientific_name="Shared species", genus_species_code="OLD")
-        self.other_species = Species.objects.create(scientific_name="Other species")
         self.a_code = OrganizationSpeciesCode.objects.create(organization=self.a, species=self.species, code="AAA")
         self.b_code = OrganizationSpeciesCode.objects.create(organization=self.b, species=self.species, code="BBB")
         self.list_url = reverse("api_taxonomy_species_codes")
@@ -40,12 +36,6 @@ class SpeciesCodesApiTests(TestCase):
 
     def detail(self, assignment):
         return reverse("api_taxonomy_species_codes_detail", args=[assignment.pk])
-
-    def post(self, organization, data):
-        return self.client.post(self.list_url, data=json.dumps(data), content_type="application/json", **self.headers(organization))
-
-    def patch_code(self, organization, assignment, data):
-        return self.client.patch(self.detail(assignment), data=json.dumps(data), content_type="application/json", **self.headers(organization))
 
     def test_read_is_scoped_and_requires_laboratory_role(self):
         self.client.force_login(self.admin)
@@ -75,113 +65,20 @@ class SpeciesCodesApiTests(TestCase):
         self.assertNotIn("BBB", json.dumps(response.json()))
         self.assertNotIn("local_code_assignments", response.json()["species"][0])
 
-    def test_create_binds_active_organization_and_rejects_spoofing(self):
-        self.client.force_login(self.admin)
-        response = self.post(self.a, {"species": self.other_species.pk, "code": "abc"})
-        self.assertEqual(response.status_code, 201)
-        assignment = OrganizationSpeciesCode.objects.get(pk=response.json()["id"])
-        self.assertEqual(assignment.organization_id, self.a.pk)
-        self.assertEqual(assignment.code, "abc")
-        self.assertNotIn("organization", response.json())
-        self.assertFalse(LocalStrainIdentity.objects.exists())
-        self.assertEqual(AuditLog.objects.get(object_id=str(assignment.pk)).organization_id, self.a.pk)
-        self.assertEqual(self.post(self.a, {
-            "species": self.other_species.pk, "code": "DEF", "organization": self.b.pk,
-        }).status_code, 400)
-        self.assertFalse(OrganizationSpeciesCode.objects.filter(organization=self.b, species=self.other_species).exists())
-        self.assertEqual(self.post(self.a, {"species": 999999, "code": "XYZ"}).status_code, 400)
-        self.assertEqual(self.post(self.a, {"species": self.species.pk, "code": "AAAA"}).status_code, 400)
-
-    def test_duplicate_conflicts_are_local_and_distinct(self):
-        self.client.force_login(self.admin)
-        response = self.post(self.a, {"species": self.species.pk, "code": "CCC"})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("species", response.json())
-        response = self.post(self.a, {"species": self.other_species.pk, "code": "AAA"})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("code", response.json())
-        self.assertEqual(self.post(self.b, {"species": self.other_species.pk, "code": "AAA"}).status_code, 201)
-        self.assertEqual(self.post(self.b, {"species": self.other_species.pk, "code": "AAA"}).status_code, 400)
-        self.assertEqual(self.b_code.code, "BBB")
-        self.assertEqual(AuditLog.objects.count(), 1)
-
-    def test_technician_cannot_mutate_and_foreign_context_is_denied(self):
+    def test_foreign_context_is_denied(self):
         self.client.force_login(self.tech)
-        self.assertEqual(self.post(self.a, {"species": self.other_species.pk, "code": "CCC"}).status_code, 403)
-        self.assertEqual(self.patch_code(self.a, self.a_code, {"code": "CCC"}).status_code, 403)
         self.assertEqual(self.client.get(self.list_url, **self.headers(self.b)).status_code, 403)
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get(self.list_url, HTTP_X_ORGANIZATION_ID="999999").status_code, 403)
-        self.assertEqual(self.post(self.a, {"species": self.other_species.pk, "code": "CCC", "global_identity": 1}).status_code, 400)
-        self.assertFalse(OrganizationSpeciesCode.objects.filter(code="CCC").exists())
 
-    def test_assigned_code_is_immutable_and_issued_identifiers_are_preserved(self):
-        strain = Strain.objects.create(organization=self.a, species=self.species, code="OLD-1")
-        identity = LocalStrainIdentity.objects.create(strain=strain, species_code_assignment=self.a_code)
-        box = Box.objects.create(organization=self.a, strain=strain, global_code="OLD-1.001", box_number="001")
+    def test_species_code_routes_are_read_only(self):
         self.client.force_login(self.admin)
-        response = self.patch_code(self.a, self.a_code, {"code": "CCC"})
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["error"], "species_code_immutable")
-        # Resubmitting the assigned value is an unchanged read, without audit.
-        response = self.patch_code(self.a, self.a_code, {"code": "AAA"})
-        self.assertEqual((response.status_code, response.json()["code"]), (200, "AAA"))
-        self.a_code.refresh_from_db()
-        self.species.refresh_from_db()
-        strain.refresh_from_db()
-        box.refresh_from_db()
-        identity.refresh_from_db()
-        self.assertEqual(identity.species_code_assignment_id, self.a_code.pk)
-        self.assertEqual(self.a_code.code, "AAA")
-        self.assertEqual(self.species.genus_species_code, "OLD")
-        self.assertEqual(strain.code, "OLD-1")
-        self.assertEqual(box.global_code, "OLD-1.001")
-        self.assertFalse(AuditLog.objects.exists())
-        self.assertEqual(self.patch_code(self.a, self.a_code, {"species": self.other_species.pk, "code": "DDD"}).status_code, 400)
-        self.assertEqual(self.patch_code(self.a, self.a_code, {"organization": self.b.pk, "code": "DDD"}).status_code, 400)
-        self.assertEqual(self.patch_code(self.a, self.a_code, {"code": ""}).status_code, 400)
-        self.assertEqual(self.patch_code(self.a, self.a_code, {}).status_code, 400)
-        self.a_code.refresh_from_db()
-        self.assertEqual((self.a_code.species_id, self.a_code.code), (self.species.pk, "AAA"))
-
-    def test_foreign_pk_is_not_found_and_duplicate_update_is_rejected(self):
-        other = OrganizationSpeciesCode.objects.create(organization=self.a, species=self.other_species, code="CCC")
-        self.client.force_login(self.admin)
-        self.assertEqual(self.patch_code(self.a, self.b_code, {"code": "DDD"}).status_code, 404)
-        response = self.patch_code(self.a, other, {"code": "AAA"})
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["error"], "species_code_immutable")
-        other.refresh_from_db()
-        self.assertEqual(other.code, "CCC")
-        self.assertFalse(AuditLog.objects.exists())
-        self.assertEqual(self.client.delete(self.detail(self.a_code), **self.headers(self.a)).status_code, 405)
-        self.assertEqual(self.client.delete(self.list_url, **self.headers(self.a)).status_code, 405)
-
-    @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
-    def test_audit_failure_rolls_back_create_and_update_is_refused(self, create_audit):
-        self.client.force_login(self.admin)
-        with self.assertRaises(RuntimeError):
-            self.post(self.a, {"species": self.other_species.pk, "code": "CCC"})
-        self.assertFalse(OrganizationSpeciesCode.objects.filter(organization=self.a, species=self.other_species).exists())
-        self.assertEqual(self.patch_code(self.a, self.a_code, {"code": "DDD"}).status_code, 409)
+        for url in (self.list_url, self.detail(self.a_code)):
+            for method in (self.client.post, self.client.patch, self.client.put, self.client.delete):
+                with self.subTest(url=url, method=method.__name__):
+                    response = method(url, data='{"code": "CCC"}', content_type="application/json", **self.headers(self.a))
+                    self.assertEqual(response.status_code, 405)
         self.a_code.refresh_from_db()
         self.assertEqual(self.a_code.code, "AAA")
-
-    @patch("apps.taxonomy.api_views.SpeciesCodeWriteSerializer.save")
-    def test_known_constraint_race_is_reported_without_audit(self, save):
-        self.client.force_login(self.admin)
-        for detail, field in (
-            ("unique_species_code_per_organization_species", "species"),
-            ("unique_species_code_per_organization_code", "code"),
-        ):
-            cause = Exception()
-            cause.diag = type("Diag", (), {"constraint_name": detail})()
-            save.side_effect = IntegrityError("duplicate")
-            save.side_effect.__cause__ = cause
-            response = self.post(self.a, {"species": self.other_species.pk, "code": "CCC"})
-            self.assertEqual(response.status_code, 400)
-            self.assertIn(field, response.json())
-        save.side_effect = IntegrityError("unrelated constraint")
-        with self.assertRaises(IntegrityError):
-            self.post(self.a, {"species": self.other_species.pk, "code": "CCC"})
+        self.assertEqual(OrganizationSpeciesCode.objects.count(), 2)
         self.assertFalse(AuditLog.objects.exists())

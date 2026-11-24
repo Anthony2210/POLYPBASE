@@ -187,7 +187,7 @@ test('only list-dependent routes and interactions ask for the complete Box list'
   // Species pages group every Box by Strain, so they need the complete list too.
   assert.equal(need({ activeTab: 'admin', adminSection: 'species' }), true, 'Administration species');
   assert.equal(need({ activeTab: 'admin', adminSection: 'species', isAdminAvailable: false }), false, 'no Administration on tablet');
-  for (const section of ['accounts', 'inventory', 'references', 'environment', 'history', 'organizations']) {
+  for (const section of ['accounts', 'inventory', 'environment', 'history']) {
     assert.equal(need({ activeTab: 'admin', adminSection: section }), false, section);
   }
   assert.equal(need({ activeTab: 'admin', adminSection: 'transfers' }), false,

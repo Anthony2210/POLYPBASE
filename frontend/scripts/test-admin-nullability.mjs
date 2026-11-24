@@ -29,29 +29,6 @@ function evaluate(code, context) {
   return vm.runInNewContext(outputText, context);
 }
 
-for (const name of ['OrganizationCreateForm', 'OrganizationManagementList']) {
-  test(`${name} retains only present, nonempty city suggestions`, () => {
-    const declaration = findNode(functionNode(name), (node) =>
-      ts.isVariableDeclaration(node) && node.name.getText(ast) === 'existingCities');
-    const result = evaluate(declaration.initializer.getText(ast), {
-      useMemo: (callback) => callback(),
-      organizations: [{}, { city: undefined }, { city: '' }, { city: 'Paris' }, { city: '0' }, { city: ' ' }],
-    });
-    assert.deepEqual(Array.from(result), ['Paris', '0', ' ']);
-  });
-}
-
-test('organization country filters exclude absent and empty values, deduplicate and sort', () => {
-  const declaration = findNode(functionNode('OrganizationManagementList'), (node) =>
-    ts.isVariableDeclaration(node) && node.name.getText(ast) === 'countryOptions');
-  const result = evaluate(declaration.initializer.getText(ast), {
-    useMemo: (callback) => callback(),
-    organizations: [{}, { country: undefined }, { country: '' }, { country: 'France' },
-      { country: 'Canada' }, { country: 'France' }, { country: '0' }],
-  });
-  assert.deepEqual(Array.from(result), ['0', 'Canada', 'France']);
-});
-
 function memberHarness(overrides = {}) {
   const calls = [];
   const context = {

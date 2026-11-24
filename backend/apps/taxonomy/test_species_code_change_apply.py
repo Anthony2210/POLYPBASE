@@ -681,7 +681,7 @@ class SpeciesCodeChangeApplyTests(SpeciesCodeChangePreviewBase):
         endpoints = (
             (preview, (405, 405)),
             (reverse("api_admin_species_code", args=[self.species.pk]), (410, 405)),
-            (reverse("api_taxonomy_species_codes_detail", args=[self.aaa.pk]), (405, 409)),
+            (reverse("api_taxonomy_species_codes_detail", args=[self.aaa.pk]), (405, 405)),
             (reverse("api_admin_institution_species_detail", args=[self.profile.pk]), (405, 400)),
             (f"/api/admin/institution-species/{self.profile.pk}/code-change/", (404, 404)),
             (f"/api/admin/institution-species/{self.profile.pk}/code-change-apply/", (404, 404)),

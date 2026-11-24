@@ -50,16 +50,11 @@ function plain(value) {
 }
 
 test('Laboratory configuration is an enabled Administration section on its existing route', () => {
-  assert.match(adminView, /\{ key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', scope: 'aquarium' \}/);
-  const disabled = adminView.match(/const DISABLED_ADMIN_SECTIONS[\s\S]*?\n\]\);/)?.[0];
-  assert.ok(disabled);
-  assert.doesNotMatch(disabled, /'environment'/);
-  for (const key of ['references', 'organizations']) assert.match(disabled, new RegExp(`'${key}'`));
-  assert.doesNotMatch(disabled, /'transfers'/);
-  assert.match(adminView, /displayedSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
+  assert.match(adminView, /\{ key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations' \}/);
+  assert.match(adminView, /activeSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
   assert.doesNotMatch(adminView, /<(?:BoxSharingAdminSection|TransfersAdminSection)\b/);
   assert.match(app, /environment: '\/administration\/laboratory'/);
-  assert.match(adminView, /displayedSection === 'environment' && activeOrganizationId != null \? \(\s*<LabConfigurationAdminSection\s+key=\{activeOrganizationId\}/);
+  assert.match(adminView, /activeSection === 'environment' && activeOrganizationId != null \? \(\s*<LabConfigurationAdminSection\s+key=\{activeOrganizationId\}/);
   assert.equal(fr.adminTabLocations, 'Configuration du laboratoire');
   assert.equal(en.adminTabLocations, 'Laboratory configuration');
 });

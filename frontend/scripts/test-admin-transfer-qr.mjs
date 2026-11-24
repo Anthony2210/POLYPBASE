@@ -17,7 +17,7 @@ function administrationHarness(language = 'en', extraProps = {}) {
   const hooks = Object.fromEntries(Object.keys(hookRuntime().hooks).map((key) => [key, (...args) => current.hooks[key](...args)]));
   const overrides = { react: { ...React, ...hooks, useId: () => 'admin-donation-dialog' } };
   for (const name of ['AccountInvitationsPanel', 'AdminActionPanel', 'AdminAuditSection', 'BoxInventoryAdminSection',
-    'ConfirmActionModal', 'LabConfigurationAdminSection', 'PageLoader', 'SpeciesStrainsAdminSection', 'TaxonomyAdminSection',
+    'ConfirmActionModal', 'LabConfigurationAdminSection', 'PageLoader', 'SpeciesStrainsAdminSection',
     'BoxTrackingPreview', 'ModalPortal', 'PolypbaseIcon', 'SkeletonRows']) {
     overrides[`src/components/${name}.tsx`] = { default: () => null };
   }
@@ -64,7 +64,7 @@ function administrationHarness(language = 'en', extraProps = {}) {
   const root = mount(AdminView, {
     activeOrganizationId: 1, activeSection: 'transfers', speciesTarget: null,
     profile: { id: 9, is_superuser: true, active_organization: { id: 1, name: 'Source' }, organizations: [] },
-    language, t, boxes: [], zones: [], isLoading: false, isOptionsLoading: false,
+    language, t, boxes: [], zones: [], isLoading: false,
     onOpenBox() {}, onSelectSection() {},
     onRequestOptions() { assert.fail('donations do not need export options'); },
     ...extraProps,
