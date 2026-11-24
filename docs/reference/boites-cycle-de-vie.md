@@ -1,0 +1,154 @@
+# Boîtes, cycle de vie et emplacements
+
+## Identifiants : Local ID et Global ID
+
+Malgré son nom technique, `Box.global_code` est l'**ID local** institutionnel (code `AAA-BBB-X.YYY`); il n'est ni renommé ni modifié. Le **Global ID** est un UUID permanent qui identifie une même Box physique entre institutions : registre `BoxGlobalIdentity` (`global_id` unique) et FK nullable `Box.global_identity` (colonne `global_id`). Plusieurs enregistrements institutionnels peuvent référencer la même identité; la base impose au plus un enregistrement vivant (`merged_into IS NULL`) par institution et identité.
+
+- Allocation : uniquement `create_automatic_box` et `create_subculture` (chaque enfant reçoit une nouvelle identité). Réaffecter Species/Strain ne change pas le Global ID. Les imports historiques, Transfer v1 et les autres créations techniques laissent `NULL`.
+- Permanence : une fois posé, le Global ID ne change ni ne s'efface (`Box.save()` + triggers SQL); le registre est immuable.
+- `NULL` signifie « non initialisé », jamais « Box physique distincte ». La migration `cultures.0022_box_global_identity` n'initialise que les Boxes dont la création applicative est prouvée (reçu de création automatique, allocation de repiquage quantitatif), hors fusions et imports Transfer v1. Les Boxes historiques restent `NULL` tant que leur continuité physique (ex. candidats SME → SSP, fusions, transferts) n'est pas établie.
+- API : `global_id` en lecture seule dans la liste et la fiche; `GET /api/boxes/global/<uuid>/` résout uniquement dans l'institution active (`404` identique pour inconnu, non initialisé ou étranger). Frontend : `/boxes/global/<uuid>` résout puis remplace par `/boxes/<ID local>`. Les URL `/boxes/<code>` et les QR `/bac/<id>/` sont inchangés.
+- Transferts v1/v2 : hors périmètre; aucune propagation d'identité n'est implémentée.
+- Historique des Local IDs : `BoxLocalIdAlias` conserve plusieurs anciens codes confirmés, sans renommer les Box ni remplacer `previous_global_code`. Résolution exacte, recherche et liens d'audit suivent les fusions explicites dans l'institution active; les conflits échouent fermés. `local_code` reste une étiquette legacy/source non unique, pas le Local ID opérationnel. Contrat, migration `0023_box_local_id_alias`, rollback protégé et limites de validation : [`../box-local-id-history.md`](../archive/sources-fusion/box-local-id-history.md).
+
+## Boîte et statuts
+
+`Box` est l'unité centrale de culture. Son `global_code` est unique dans la base. Les règles ci-dessous sont mises en oeuvre côté Django, principalement par les services de `backend/apps/cultures/services.py`; une vue ou le frontend ne doit pas les réimplémenter.
+
+| Statut | Sens et transitions actuelles |
+|---|---|
+| `pending_review` | Boîte issue de l'historique, « À vérifier ». Elle peut être qualifiée `active` ou `inactive`; le flux normal ne la remet pas dans cet état. |
+| `active` | Boîte suivie. Une création manuelle normale exige une zone active de la même institution. |
+| `inactive` | Suivi arrêté. Aucun nouveau relevé n'est accepté; un relevé historique existant peut encore être corrigé par un utilisateur autorisé. |
+
+Le statut ne doit pas être déduit du seul emplacement ou de la date du dernier relevé. Les suggestions de l'Inventaire restent une aide, jamais une transition automatique.
+
+## Désactivation, qualification et réactivation
+
+La désactivation d'une boîte active exige le motif prévu par le modèle. Elle ferme les emplacements courants, libère le pointeur `Box.thermal_zone` et conserve l'historique. La qualification d'une boîte historique vers `inactive` peut indiquer explicitement que le motif et la date de fin n'étaient pas renseignés, sans inventer de commentaire, de motif ou de date.
+
+La réactivation d'une boîte inactive exige une zone active, choisie explicitement et appartenant à la même institution. Elle ouvre une nouvelle période d'emplacement : l'ancien emplacement n'est jamais restauré automatiquement.
+
+La qualification historique `pending_review -> active` autorise exceptionnellement une boîte sans emplacement. Cette exception ne s'applique pas à la création manuelle normale ni à la réactivation. Une boîte ainsi activée doit rester identifiable comme active sans emplacement jusqu'à une affectation explicite.
+
+## Emplacement courant et historique
+
+- `Box.thermal_zone` pointe vers l'emplacement courant.
+- `BoxLocation` conserve chaque période d'emplacement, avec une éventuelle fin historique inconnue.
+- `BoxMovement` représente un événement enregistré, sa nature/provenance et son auteur; une nature legacy non établie ne prouve pas un déplacement ordinaire.
+- Une boîte inactive n'a pas d'emplacement courant, mais peut conserver un dernier emplacement historique affichable.
+- Déplacer, désactiver ou réactiver une boîte ne doit jamais écraser les périodes précédentes.
+
+L'emplacement courant et le dernier emplacement historique sont deux notions distinctes. Les interfaces et exports doivent choisir celle qui correspond à la question posée, et ne pas présenter l'historique comme l'état actuel.
+
+## Déplacements concurrents
+
+Le déplacement d'une boîte est transactionnel. Le service verrouille la boîte et ses périodes ouvertes, puis met à jour pointeur courant, période, mouvement et audit de manière cohérente.
+
+Le contrat d'intention utilise `expected_thermal_zone_id` :
+
+- champ absent : requête invalide, car le client ne fournit pas l'état sur lequel repose son intention;
+- valeur `null` : affirmation explicite que la boîte n'a pas d'emplacement courant;
+- identifiant : zone que le client pense être l'emplacement courant.
+
+Si l'état a changé entre l'affichage et la confirmation, l'API répond `409` avec le code `box_location_changed`. Le frontend ne doit pas annoncer un succès : il recharge la boîte et les zones. Ce mécanisme complète le verrouillage et ne remplace ni la permission ni le contrôle d'organisation.
+
+## Nature des mouvements et limite hebdomadaire
+
+`BoxMovement.kind` distingue `ordinary` (transfert entre deux zones), `initial_location` (premier emplacement d'une boîte active sans emplacement, y compris via `move/` depuis `null`), `qualification`, `reactivation` et `unclassified`. `unclassified` signifie « provenance non établie » : toutes les lignes antérieures à la migration `0013`, et valeur par défaut des créations techniques sans nature explicite. Une écriture ORM/SQL peut fournir une nature; elle ne constitue pas à elle seule une preuve de provenance ni un workflow autorisé. Aucune nature n'est déduite après coup.
+
+Au plus un mouvement `ordinary` par boîte et semaine ISO Europe/Paris (lundi-dimanche). `iso_week_start` est dérivé de `moved_at` dans `save()`; depuis `0014`, un `CHECK` impose en base sa correspondance avec le lundi de `moved_at` en Europe/Paris. Une contrainte unique partielle protège l'état final et le verrou de boîte sérialise les écritures. Un second mouvement ordinaire répond `409 box_movement_week_conflict` sans mutation (`conflicting_movement_id`, `iso_week_start`, `iso_year`, `iso_week`); `box_location_changed` reste prioritaire. Création manuelle, repiquage, désactivation et les natures de cycle de vie ne consomment pas ce créneau. Les mouvements `unclassified` n'y participent pas non plus.
+
+`QuerySet.update()` et `bulk_update()` via le manager normal refusent les champs `moved_at`, `kind` et `iso_week_start`. `bulk_create()` ne calcule pas la clé : le caller doit fournir une clé cohérente pour `ordinary`, sinon la base refuse l'écriture. Le `CHECK` et l'unicité PostgreSQL couvrent aussi les upserts, fixtures (`save_base(raw=True)`), le manager de base et les écritures SQL directes. Ces chemins hors service ne garantissent pas permissions, liens de périodes ou audits; ils ne remplacent pas le service métier. `ignore_conflicts=True` peut ignorer une ligne invalide sur SQLite; sur PostgreSQL, il ne masque pas un échec de `CHECK`. `0014` ne répare aucune donnée et échoue si une ligne ordinaire incohérente existe déjà. L'expression `ParisMovementWeekStart` est conservée pour la sérialisation des migrations.
+
+Les nouveaux mouvements référencent les périodes qu'ils ont écrites (`origin_location`, `destination_location`); une origine ambiguë reste `NULL`. Les liens historiques ne sont jamais reconstruits.
+
+## Correction d'un mouvement
+
+`PATCH /api/boxes/<box_id>/movements/<id>/` (service `movement_corrections.correct_box_movement`) exige `expected_revision` et au moins un champ parmi `notes`, `moved_at`, `to_thermal_zone_id`. Administrateurs et techniciens actifs de l'institution, sans délai ni restriction d'auteur. L'identifiant, la nature et l'auteur d'origine sont conservés; chaque correction incrémente `revision` et ajoute un `AuditLog` (`event: box_movement_correction`) avec avant/après, périodes touchées et changement de zone courante. Aucun mouvement n'est créé, supprimé ou fusionné.
+
+- notes : toujours corrigeables, y compris `unclassified`; seule la copie prouvée dans la période de destination suit.
+- date : seulement `ordinary` avec liens cohérents, et uniquement dans la semaine ISO Europe/Paris d'origine du mouvement (lundi 00:00 à dimanche 23:59:59, `400 movement_date_outside_week`; jamais une autre semaine, même libre). Strictement entre le début de la période d'origine et la fin de la période de destination, jamais dans le futur, sans autre mouvement ou période chevauchante. `iso_week_start` reste cohérent.
+- destination : mouvement terminal uniquement (période de destination ouverte et courante, boîte active, aucun mouvement postérieur); met à jour période et pointeur courant. Autorisée pour `ordinary`, `initial_location`, `qualification`, `reactivation` et pour un `unclassified` dont le lien vers la période de destination est enregistré et cohérent. Un mouvement legacy sans lien (`has_destination_link` faux) reste limité aux notes : aucun lien n'est reconstruit.
+- L'API expose `has_origin_link` / `has_destination_link` (booléens, sans identifiants) pour que l'UI ne propose pas de champ qu'elle sait refusé.
+
+Refus `409` : `box_movement_changed`, `box_movement_week_conflict`, `movement_provenance_unresolved`, `movement_date_not_correctable`, `movement_period_link_missing`, `movement_period_mismatch`, `movement_period_overlap`, `movement_chronology_conflict`, `movement_not_terminal`. Refus `400` : validation, `movement_same_zone`, `movement_date_in_future`, `movement_correction_no_change`. L'admin Django générique est en lecture seule pour `BoxMovement` et `BoxLocation`, et `Box.thermal_zone` y est non modifiable pour une boîte existante.
+
+## Déplacements historiques d'Aquarium de Paris
+
+Décision produit limitée à l'organisation 1 et aux observations strictement antérieures au 2026-10-05 : la température du suivi historique identifie l'emplacement, et un changement entre deux observations fiables successives établit un déplacement. `historical_location_transitions.py` en fait une projection en lecture seule, sans `BoxMovement`, `BoxLocation`, reçu, audit ni horodatage. La zone n'est résolue que si une seule `ThermalZone` de l'organisation porte cette consigne; sinon seule la catégorie de température est conservée. Une transition sans représentation existante ajoute une sortie et une entrée partageant le même `transition_id` dans l'historique d'emplacement, hors des barres hebdomadaires; les deux côtés sont triés sur la semaine de l'observation de destination, simple convention de position jamais affichée comme date. Une requête de zone ne reconstruit que les Boxes dont la séquence contient cette consigne et une autre valeur. Mouvement, reçu ou paire de périodes correspondants évitent tout double comptage; toute contradiction reste conservée dans le backend. L'interface n'affiche comme nouvelles lignes historiques que les transitions établies sans blocage dont les deux emplacements sont résolus. Les changements de température sans correspondance d'emplacement, preuves insuffisantes, candidats du planificateur et frontières techniques de périodes ne produisent aucune ligne dans Box > Mouvements, ni bandeau générique d'incertitude. Les mouvements enregistrés et les reconstructions déjà acceptées sont conservés, avec leurs actions existantes; une preuve source non résolue ne les masque pas. Les listes, totaux et liens d'emplacement continuent à compter uniquement les côtés ajoutés par le read model, sans date exacte inventée.
+
+## Présentation de l'historique et correction inline
+
+Le graphique distingue `movement` (`BoxMovement` persisté) de `location_change` (frontière déduite de `BoxLocation`). L'historique Emplacement présente des entrées/sorties de périodes, sans prétendre à autant de mouvements physiques. Le bandeau « Dernier déplacement » de `BoxPage` sélectionne le dernier événement persisté par date puis ID, affiche origine → destination à noms complets et se transforme en éditeur inline. Il n'ouvre pas une modale. Sauvegarde masquée sans changement normalisé, annulation disponible, conflit de révision imposant un rechargement/réexamen explicite. Le backend reste autorité : les liens de périodes ne sont pas tous exposés à l'UI.
+
+L'éditeur utilise Paris et refuse un horaire modifié ambigu/inexistant pendant le DST; une valeur inchangée conserve l'instant original. Les détails graphiques UTC et filtres en jours locaux navigateur sont un autre contrat, pas une décision d'unifier tous les fuseaux. Le sujet du marqueur historique UTC/Paris a été mis en attente; aucun reclassement ni correction historique n'en découle.
+
+## Repiquages et lignées
+
+`SubcultureEvent` décrit un repiquage depuis une boîte parent. `BoxLineage` conserve la relation parent-enfant, notamment créée par ce flux. L'historique de lignée doit survivre aux changements de statut et d'emplacement.
+
+Les nouveaux repiquages sont saisis au moment réel de l'opération, avec horodatage serveur. Chaque allocation enfant est un entier explicite (y compris zéro), `null` ou omise. Si toutes sont connues, l'instantané avant/réparti/après est exact. Sinon, le total réparti et l'après sont `null` : aucun effet quantitatif parent n'est appliqué, et son état autoritaire précédent reste courant. Le parent doit toujours avoir un comptage connu; la somme des allocations connues ne peut pas le dépasser, même en saisie partielle. Les enfants connus reçoivent leur état initial individuel; les inconnus n'ont aucun état initial scientifique inventé. Le service verrouille le parent, vérifie puis incrémente sa révision même en saisie partielle (invalidation d'intention, pas transition), et conserve l'instantané avant, les allocations immuables ordonnées, les boîtes, les emplacements, les lignées et l'audit dans une seule transaction. Un état inconnu n'est jamais zéro. Les anciens événements restent inchangés; aucun historique n'est reconstruit.
+
+Les codes enfants sont imposés par le serveur : `BoxCodeNamespace` réserve les suffixes consécutifs au-dessus du maximum connu du préfixe réel, sans remplir les trous. Les autres écritures ordinaires de codes participent au même verrou via `Box.save()`; ce compteur est distinct de celui des souches.
+
+Le repiquage ne crée aucun relevé biologique artificiel et ne consomme aucun créneau hebdomadaire. Les corrections ultérieures restent autorisées sans recalcul des instantanés. Si le parent atteint zéro, l'interface propose seulement ensuite une désactivation facultative avec les permissions et le service de cycle de vie existants, dans une transaction indépendante.
+
+Le contrat détaillé, les consommateurs inspectés et la stratégie de concurrence sont dans [`../../backend/QUANTITATIVE_SUBCULTURE.md`](annexes/quantitative-subculture.md).
+
+Ne pas déduire une parenté d'une ressemblance de codes.
+
+### Transfert inter-institutions
+
+Voir les [identités et propositions dans Transfer v2](imports-exports-transferts.md#propositions-de-don-de-boîte-entière).
+
+## Règles de modification
+
+- Valider organisation, permission, statut et zone côté serveur.
+- Réutiliser les services de cycle de vie et de déplacement.
+- Préserver périodes d'emplacement, mouvements, auteurs et audits.
+- Ne pas rétablir implicitement une ancienne zone.
+- Tester les transitions autorisées et refusées, les objets de deux institutions et les erreurs en milieu d'opération.
+- Pour un changement concurrent, vérifier le comportement sur PostgreSQL QA isolé; SQLite ne suffit pas à conclure sur les verrous.
+
+## Création ordinaire automatique
+
+`POST /api/boxes/automatic/` conserve les droits Admin/technicien et exige institution active, souche éligible, zone active de la même institution et date d'entrée. Le client ne fournit aucun code ni numéro : `allocate_box_codes` réserve dans le namespace existant. Allocation, boîte active, période initiale, relevé initial, audits et reçu d'idempotence sont atomiques. `initial_polyp_count` (entier ≥ 0, obligatoire; vide n'est jamais 0) crée un unique relevé `origin=box_creation` daté de `entered_on`, avec éphyrules `0` (décision produit), strobiles et salinité `NULL`, observateur connu = acteur authentifié; il exige aussi le droit de saisie de relevés (Admin/technicien actif), donc un superutilisateur sans ce rôle est refusé (`403`, aucune écriture). Une contrainte unique partielle garantit au plus un relevé `box_creation` par boîte; le rejeu d'une clé ne crée aucun second relevé. Aucun mouvement, parentage ou identité biologique n'est inventé, et aucun relevé historique n'est requalifié. Les utilisateurs ne choisissent jamais le numéro ni le code complet d'une boîte : l'ancien `POST /api/boxes/` à code manuel est retiré (`405` pour tous les comptes) et `/api/boxes/` est en lecture seule. Les flux d'import, transfert, normalisation et repiquage restent distincts et inchangés.
+
+Le code suit `AAA-BBB-X.YYY` : une nouvelle allocation exige un `Strain.code` au format `AAA-BBB-X`, sans contradiction avec numéro, code d'origine, code espèce de l'institution ou identité locale enregistrés (`box_identity.py`); sinon `400` sans écriture. C'est une cohérence du code enregistré, pas une certification biologique. Une affectation locale d'une autre institution n'est jamais une preuve, même à code identique : elle rend le code non utilisable. Le préfixe reste `Strain.code`, partagé avec le repiquage; aucun code historique n'est réécrit. `GET /api/boxes/automatic/strains/` expose en lecture seule les souches éligibles et les composantes lues dans leur code, jamais le prochain numéro. Le sélecteur ne rend que les identités utilisables.
+
+Le formulaire inscrit durablement une intention via `/api/boxes/automatic/intents/`, puis l'exécute via `/intents/execute/`. UUID, acteur, institution, paramètres normalisés immuables et secret de reprise indépendant sont liés; le hash du secret est globalement unique. Une inscription identique est idempotente, une intention différente est refusée. L'exécution utilise uniquement les paramètres enregistrés et revalide droits et éligibilité sous les verrous existants; allocation, boîte, emplacement, audit et résultat sont atomiques. Un refus métier est durable, une panne inattendue laisse l'intention reprenable. Une enveloppe v2 intacte reprend la même inscription même si la première n'est jamais arrivée; des UUID nus ou divergents restent en inspection GET seule, sans mutation ni déverrouillage sur `unknown`/`pending`. La résolution historique ne peut pas annuler un reçu protégé. La migration `0017` introduit la persistance des intentions. Les limites du parcours d’interface sont décrites dans la [référence frontend](frontend.md#création-ordinaire-de-boîte).
+
+## Validation ADN de l'identité d'une boîte — V1
+
+La validation ADN est intégrée au code (PR #19, puis ajout à la création de boîte). Une preuve ADN est un fait déclaré sur l'identité de **cette boîte**, indépendant de son statut (`active`, `inactive`, `pending_review`). Il n'existe aucune déduction depuis l'espèce ou la souche, ni transmission aux enfants ou à la lignée. Le formulaire « Nouvelle boîte » accepte une preuve facultative (« Preuve ADN (facultatif) », à droite du nombre initial de polypes) : `dna_evidence_url` rejoint alors l'intention de création, validé par la même règle d'URL, et `add_dna_validation_to_new_box` écrit la ligne et son audit `box_dna_validation_added` dans la même transaction que la boîte, sous la même autorité Admin/Technicien. Sans preuve, la clé est absente et l'intention garde sa forme antérieure. Aucune incidence sur les relevés, alertes, exports, QR, inventaire ou graphiques.
+
+- `BoxDnaValidation` (`cultures.0019_box_dna_validation`, additive) conserve URL, auteurs, dates, révision et révocation. Une contrainte unique partielle autorise au plus une ligne active par boîte. Retirer révoque la ligne; ajouter ensuite crée une autre ligne. Les méthodes ORM de suppression sont bloquées et les FK protègent les auteurs et la boîte; cela n'est pas une protection contre du SQL technique privilégié.
+- URL obligatoire : espaces de bord retirés, maximum 2 000 caractères, schémas HTTP/HTTPS seulement. Le serveur conserve l'URL sans jamais la consulter. Le lien est une preuve fournie par l'utilisateur, pas une certification automatique de son contenu.
+- Le détail expose `dna_validation: null | {id, evidence_url, created_by, created_at, revision}` (`created_by` est un libellé d'identité lisible) et `can_edit_dna_validation`, capacité serveur. L'écriture exige un membership actif Admin/Technicien dans l'institution active, y compris pour un superutilisateur. Un Lecteur reçoit `403`; une boîte hors institution active est introuvable (`404`) pour un auteur autorisé.
+- `POST /api/boxes/<id>/dna-validation/` crée (`201`); doublon actif : `409 dna_validation_exists`. `PATCH` au même chemin exige URL et `expected_revision`; retrait par `POST /api/boxes/<id>/dna-validation/revoke/` avec `expected_revision` (`204`). État absent/remplacé ou révision périmée : `409 dna_validation_changed`; modification identique après normalisation : `400`. Les révisions croissent sur l'ensemble des lignes d'une boîte, révocations comprises, pour qu'une ancienne intention ne cible jamais une preuve de remplacement.
+- `dna_validation.mutate_dna_validation` verrouille l'institution en `FOR NO KEY UPDATE` puis la boîte, revalide le droit et écrit donnée et audit dans la même transaction. Le verrou institutionnel coordonne les changements de membership sans bloquer les vérifications FK des audits d'un déplacement concurrent. Un échec d'audit annule la mutation. Événements : `box_dna_validation_added`, `box_dna_validation_updated`, `box_dna_validation_revoked`, avec instantanés avant/après et attribution à l'institution et à l'acteur.
+- `DnaValidationBadge` est à droite du code dans `BoxPage`. Bouclier + hélice et `?` gris en l'absence de preuve; coche verte si active. Sans preuve, le Lecteur voit uniquement un indicateur accessible, sans invitation. Une preuve active ouvre un popover lisible par tous, au langage des popovers existants : en-tête titré sans chip ni étiquette d'état redondante, bloc libellé muted + valeur (Preuve, Ajoutée par, Date), séparateur puis action de retrait. Il n'a pas de bouton Fermer : Escape, clic extérieur ou nouveau clic sur l'icône ferment, avec retour du focus. Le crayon à côté du lien ouvre la modale d'édition; le retrait passe par `ConfirmActionModal` pour les auteurs autorisés. Le lien affiche son domaine avec une icône de lien externe, son URL complète en `title`, et s'ouvre avec `target="_blank" rel="noopener noreferrer"`. Sur petit téléphone, le code reste sur une seule ligne et le badge passe dessous plutôt que de couper le code.
+- La modale d'ajout/édition réutilise les classes partagées `box-dialog-backdrop`, `box-dialog`, `box-dialog-heading`, `box-dialog-form`, `box-dialog-body` et `box-dialog-actions`, avec fermeture par la croix, Annuler ou Escape hors requête en cours. Aucune erreur URL à l'ouverture ni pendant la saisie : elle apparaît au blur d'un champ modifié si l'URL est invalide, ou au submit invalide (avec retour du focus au champ). Une nouvelle saisie efface l'erreur. Si `relatedTarget` est le bouton submit, le blur laisse le submit valider et focaliser directement le champ, sans effet `focusRequest` ni délai : l'insertion de l'erreur au blur déplaçait auparavant Enregistrer entre `mousedown` et `mouseup` et empêchait le submit. Les résultats actuels frontend/navigateur communiqués par l'utilisateur sont consignés dans le README QA.
+- Les mutations restent orchestrées par `App.tsx` via le client API existant. Pas de badge optimiste : relecture après succès. Un `409` bloque les nouvelles tentatives jusqu'à une relecture explicite, sans rejouer l'écriture. `AuditTimeline` présente les résumés métier et les liens avant → après dans Actions et l'historique Administration.
+
+Résultats historiques et limites : [`../qa/box-dna-validation/README.md`](../archive/rapports/qa-box-dna-validation.md). Les captures et `report.json` restent hors dépôt. Les 382 contrôles historiques portent sur des fixtures du vrai `BoxPage` avec API simulée, pas sur une QA bout en bout Django.
+
+## Points d'entrée
+
+- Modèles : `backend/apps/cultures/models.py`.
+- Services : `backend/apps/cultures/services.py`.
+- API et serializers : `backend/apps/cultures/api_views.py`, `backend/apps/cultures/serializers.py`.
+- Déplacement UI : `frontend/src/components/MoveBoxModal.tsx`; correction inline : `LatestMovementBanner.tsx`, orchestration dans `App.tsx`.
+- Diagnostic en lecture seule de l'historique d'emplacement : commande `diagnose_box_location_history` (`backend/apps/cultures/location_history_diagnostics.py`). Il constate sans réparer ni déduire de mouvement.
+- Diagnostic en lecture seule par institution des candidats hebdomadaires, provenances non établies, liens mouvement-période, périodes ouvertes multiples, pointeurs et zones étrangères : commande `diagnose_box_movement_weeks` (`backend/apps/cultures/movement_week_diagnostics.py`).
+- Correction de mouvement : `backend/apps/cultures/movement_corrections.py`.
+- [Inventaire et qualification](#inventaire-et-qualification).
+- Mesures acceptées selon le statut : [`measurements-integrity.md`](mesures-temperatures-sondes.md).
+- [Imports, exports et échanges](imports-exports-transferts.md).
+
+## Inventaire et qualification
+
+L'inventaire administratif est borné à l'institution active. La liste paginée permet de rechercher et filtrer sans inférer de statut depuis l'absence d'un relevé. Une boîte à qualifier n'est pas prête au suivi normal : l'action explicite enregistre les champs nécessaires et préserve les faits historiques. Les actions groupées vérifient côté serveur chaque boîte et son éligibilité; une sélection ne donne aucun droit. Un chargement partiel n'est ni une liste vide ni un résultat complet. L'aperçu de suivi est chargé sur demande.
+
+Pour les créations ordinaires, Django choisit le code global dans une transaction; React ne prédit ni ne réserve le numéro. L'identité de souche et l'AAA institutionnel servent au parcours courant, sans réécriture des identifiants historiques. La route directe de compatibilité et le parcours d'intentions ne sont pas des protocoles interchangeables; ne pas contourner une intention en attente par une seconde création.

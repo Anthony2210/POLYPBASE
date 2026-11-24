@@ -1,0 +1,138 @@
+<!-- Document généré par scripts/gen_api_doc.py. Ne pas modifier à la main. -->
+
+# Référence des routes API
+
+Inventaire des routes `/api/` du résolveur Django. Les routes web hors API
+ne sont pas listées. Les chevrons indiquent les paramètres de route Django.
+
+Les méthodes indiquées correspondent aux gestionnaires déclarés par la vue.
+`HEAD` implicite (dérivé de `GET`) et `OPTIONS` fourni par Django ou DRF
+sont omis. Cet inventaire ne décrit ni les permissions, ni les corps des
+requêtes, ni les codes de réponse.
+
+Depuis la racine du dépôt, avec les dépendances backend installées :
+
+```sh
+python scripts/gen_api_doc.py
+python scripts/gen_api_doc.py --check
+```
+
+La génération utilise `config.preflight_settings` dans un environnement
+isolé, sans charger de fichier `.env` ni ouvrir de connexion à une base
+de données. `--check` ne modifie pas le fichier et échoue s'il manque ou
+si son contenu ne correspond pas au résolveur.
+
+| Route | Méthodes HTTP | Vue |
+| --- | --- | --- |
+| `/api/accounts/audit-log/` | `GET` | `apps.accounts.api_views.AdminAuditLogListAPIView` |
+| `/api/accounts/audit-log/<int:pk>/linked/` | `GET` | `apps.accounts.api_views.AdminAuditLogLinkedAPIView` |
+| `/api/accounts/invitations/` | `GET` | `apps.accounts.api_views.OrganizationInvitationListAPIView` |
+| `/api/accounts/invitations/<int:pk>/resend/` | `POST` | `apps.accounts.api_views.OrganizationInvitationResendAPIView` |
+| `/api/accounts/members/` | `GET`, `POST` | `apps.accounts.api_views.OrganizationMemberListCreateAPIView` |
+| `/api/accounts/members/<int:pk>/` | `PATCH` | `apps.accounts.api_views.OrganizationMembershipDetailAPIView` |
+| `/api/accounts/responsable/relinquish/` | `POST` | `apps.accounts.api_views.InstitutionResponsableRelinquishAPIView` |
+| `/api/admin/box-inventory/` | `GET` | `apps.cultures.api_views.AdminBoxInventoryListAPIView` |
+| `/api/admin/box-inventory/<int:box_id>/assign-location/` | `POST` | `apps.cultures.api_views.AdminBoxInitialLocationAPIView` |
+| `/api/admin/box-inventory/batch-qualify/` | `POST` | `apps.cultures.api_views.AdminBoxInventoryBatchQualifyAPIView` |
+| `/api/admin/box-inventory/selection/` | `GET` | `apps.cultures.api_views.AdminBoxInventorySelectionAPIView` |
+| `/api/admin/box-shares/` | `GET`, `POST` | `apps.sharing.api_views.BoxShareListCreateAPIView` |
+| `/api/admin/box-shares/<int:pk>/` | `GET`, `PATCH` | `apps.sharing.api_views.BoxShareDetailAPIView` |
+| `/api/admin/box-shares/<int:pk>/reissue-invitation/` | `POST` | `apps.sharing.api_views.BoxShareInvitationReissueAPIView` |
+| `/api/admin/box-shares/<int:pk>/revoke/` | `POST` | `apps.sharing.api_views.BoxShareRevokeAPIView` |
+| `/api/admin/box-shares/options/` | `GET` | `apps.sharing.api_views.BoxShareOptionsAPIView` |
+| `/api/admin/box-shares/preview/` | `POST` | `apps.sharing.api_views.BoxSharePreviewAPIView` |
+| `/api/admin/collection-locations/` | `GET` | `apps.taxonomy.institution_species_api.CollectionLocationListAPIView` |
+| `/api/admin/institution-species/` | `GET`, `POST` | `apps.taxonomy.institution_species_api.InstitutionSpeciesListCreateAPIView` |
+| `/api/admin/institution-species/<int:pk>/` | `GET`, `PATCH` | `apps.taxonomy.institution_species_api.InstitutionSpeciesDetailAPIView` |
+| `/api/admin/institution-species/<int:pk>/code-change-preview/` | `GET` | `apps.taxonomy.institution_species_api.InstitutionSpeciesCodeChangePreviewAPIView` |
+| `/api/admin/institution-species/<int:pk>/strains/` | `GET`, `POST` | `apps.taxonomy.institution_species_api.InstitutionSpeciesStrainsAPIView` |
+| `/api/admin/institution-species/historical/<int:species_id>/` | `GET` | `apps.taxonomy.institution_species_api.HistoricalSpeciesDetailAPIView` |
+| `/api/admin/institution-species/resolve/` | `POST` | `apps.taxonomy.institution_species_api.InstitutionSpeciesResolveAPIView` |
+| `/api/admin/species-catalog/` | `GET` | `apps.taxonomy.admin_api.SpeciesCatalogAPIView` |
+| `/api/admin/species-catalog/species/` | `POST` | `apps.taxonomy.admin_api.AdminSpeciesCreateAPIView` |
+| `/api/admin/species-catalog/species/<int:pk>/code/` | `POST` | `apps.taxonomy.admin_api.AdminSpeciesCodeAPIView` |
+| `/api/admin/species-catalog/worms-search/` | `GET` | `apps.taxonomy.admin_api.WormsSearchAPIView` |
+| `/api/auth/logout/` | `POST` | `apps.accounts.api_views.SessionLogoutAPIView` |
+| `/api/auth/password-reset/` | `GET`, `POST` | `apps.accounts.api_views.PasswordResetRequestAPIView` |
+| `/api/auth/password-reset/confirm/` | `GET`, `POST` | `apps.accounts.api_views.PasswordResetConfirmAPIView` |
+| `/api/auth/session/` | `GET`, `POST` | `apps.accounts.api_views.SessionLoginAPIView` |
+| `/api/box-donations/<uuid:proposal_id>/` | `GET` | `apps.cultures.box_donation_api.BoxDonationDetailAPIView` |
+| `/api/box-donations/<uuid:proposal_id>/cancel/` | `POST` | `apps.cultures.box_donation_api.BoxDonationCancelAPIView` |
+| `/api/box-donations/destinations/` | `GET` | `apps.cultures.box_donation_api.BoxDonationDestinationsAPIView` |
+| `/api/box-donations/incoming/` | `GET` | `apps.cultures.box_donation_api.BoxDonationIncomingAPIView` |
+| `/api/box-donations/outgoing/` | `GET`, `POST` | `apps.cultures.box_donation_api.BoxDonationOutgoingAPIView` |
+| `/api/box-donations/preflight/` | `POST` | `apps.cultures.box_donation_api.BoxDonationPreflightAPIView` |
+| `/api/box-transfer-imports/` | `POST` | `apps.cultures.api_views.BoxTransferImportAPIView` |
+| `/api/box-transfers/` | `POST` | `apps.cultures.api_views.BoxTransferCreateAPIView` |
+| `/api/boxes/` | `GET` | `apps.cultures.api_views.BoxListAPIView` |
+| `/api/boxes/<int:box_id>/access/` | `POST` | `apps.cultures.api_views.BoxAccessAPIView` |
+| `/api/boxes/<int:box_id>/activate/` | `POST` | `apps.cultures.api_views.BoxActivateAPIView` |
+| `/api/boxes/<int:box_id>/archive/` | `POST` | `apps.cultures.api_views.BoxDeactivateAPIView` |
+| `/api/boxes/<int:box_id>/deactivate/` | `POST` | `apps.cultures.api_views.BoxDeactivateAPIView` |
+| `/api/boxes/<int:box_id>/dna-validation/` | `PATCH`, `POST` | `apps.cultures.dna_validation_api.BoxDnaValidationAPIView` |
+| `/api/boxes/<int:box_id>/dna-validation/revoke/` | `POST` | `apps.cultures.dna_validation_api.BoxDnaValidationRevokeAPIView` |
+| `/api/boxes/<int:box_id>/historical-temperatures/` | `GET` | `apps.cultures.api_views.BoxHistoricalTemperatureAPIView` |
+| `/api/boxes/<int:box_id>/history/` | `GET` | `apps.cultures.history_api.BoxHistoryAPIView` |
+| `/api/boxes/<int:box_id>/history/preview/` | `GET`, `POST` | `apps.cultures.history_preview_api.BoxHistoryPreviewAPIView` |
+| `/api/boxes/<int:box_id>/lineage/` | `GET` | `apps.cultures.api_views.BoxLineageGraphAPIView` |
+| `/api/boxes/<int:box_id>/measurements/` | `GET`, `POST` | `apps.cultures.api_views.BoxMeasurementListCreateAPIView` |
+| `/api/boxes/<int:box_id>/measurements/<int:pk>/` | `PATCH` | `apps.cultures.api_views.BoxMeasurementDetailAPIView` |
+| `/api/boxes/<int:box_id>/move/` | `POST` | `apps.cultures.api_views.BoxMoveAPIView` |
+| `/api/boxes/<int:box_id>/movements/<int:pk>/` | `PATCH` | `apps.cultures.api_views.BoxMovementDetailAPIView` |
+| `/api/boxes/<int:box_id>/qualify/` | `POST` | `apps.cultures.api_views.BoxQualifyAPIView` |
+| `/api/boxes/<int:box_id>/scan/` | `POST` | `apps.cultures.api_views.BoxScanAPIView` |
+| `/api/boxes/<int:box_id>/subcultures/` | `POST` | `apps.cultures.api_views.BoxSubcultureCreateAPIView` |
+| `/api/boxes/<int:box_id>/subcultures/code-preview/` | `GET` | `apps.cultures.api_views.BoxSubcultureCodePreviewAPIView` |
+| `/api/boxes/<int:box_id>/temperatures/` | `GET` | `apps.cultures.api_views.BoxTemperatureHistoryAPIView` |
+| `/api/boxes/<int:pk>/` | `GET` | `apps.cultures.api_views.BoxDetailAPIView` |
+| `/api/boxes/automatic/` | `POST` | `apps.cultures.api_views.AutomaticBoxCreateAPIView` |
+| `/api/boxes/automatic/intents/` | `POST` | `apps.cultures.api_views.AutomaticBoxIntentAPIView` |
+| `/api/boxes/automatic/intents/cancel/` | `POST` | `apps.cultures.api_views.AutomaticBoxIntentCancelAPIView` |
+| `/api/boxes/automatic/intents/execute/` | `POST` | `apps.cultures.api_views.AutomaticBoxIntentExecuteAPIView` |
+| `/api/boxes/automatic/resolve/` | `GET`, `POST` | `apps.cultures.api_views.AutomaticBoxResolveAPIView` |
+| `/api/boxes/automatic/strains/` | `GET` | `apps.cultures.api_views.AutomaticBoxStrainOptionsAPIView` |
+| `/api/boxes/by-code/<path:code>/` | `GET` | `apps.cultures.api_views.BoxDetailByCodeAPIView` |
+| `/api/boxes/global/<uuid:global_id>/` | `GET` | `apps.cultures.api_views.BoxGlobalIdResolveAPIView` |
+| `/api/dashboard/` | `GET` | `apps.cultures.api_views.DashboardAPIView` |
+| `/api/exports/boxes/<int:box_id>/trend/` | `GET` | `apps.exports.views.BoxMeasurementTrendAPIView` |
+| `/api/exports/eligible-boxes/` | `GET` | `apps.exports.views.MeasurementExportEligibleBoxesAPIView` |
+| `/api/exports/measurements.csv` | `GET` | `apps.exports.views.WeeklyMeasurementCSVExportAPIView` |
+| `/api/exports/measurements/preview/` | `GET` | `apps.exports.views.WeeklyMeasurementPreviewAPIView` |
+| `/api/exports/options/` | `GET` | `apps.exports.views.MeasurementExportOptionsAPIView` |
+| `/api/health/` | `GET` | `apps.cultures.api_views.HealthAPIView` |
+| `/api/measurement-import/apply/` | `POST` | `apps.measurements.import_api.MeasurementImportApplyAPIView` |
+| `/api/measurement-import/inspect/` | `POST` | `apps.measurements.import_api.MeasurementImportInspectAPIView` |
+| `/api/measurement-import/preview/` | `POST` | `apps.measurements.import_api.MeasurementImportPreviewAPIView` |
+| `/api/measurement-import/receipts/<uuid:receipt_id>/` | `GET` | `apps.measurements.import_api.MeasurementImportReceiptAPIView` |
+| `/api/measurement-import/receipts/<uuid:receipt_id>/source/` | `GET` | `apps.measurements.import_api.MeasurementImportSourceAPIView` |
+| `/api/organizations/` | `POST` | `apps.organizations.api_views.OrganizationCreateAPIView` |
+| `/api/organizations/<int:pk>/` | `DELETE`, `GET`, `PATCH`, `PUT` | `apps.organizations.api_views.OrganizationDetailAPIView` |
+| `/api/overview/active-boxes/` | `GET` | `apps.cultures.api_views.OverviewActiveBoxesAPIView` |
+| `/api/probes/` | `POST` | `apps.cultures.api_views.ProbeCreateAPIView` |
+| `/api/profile/` | `GET`, `PATCH` | `apps.accounts.api_views.UserProfileAPIView` |
+| `/api/profile/actions/` | `GET` | `apps.accounts.api_views.PersonalAuditLogListAPIView` |
+| `/api/shared-boxes/` | `GET` | `apps.sharing.api_views.SharedBoxListAPIView` |
+| `/api/shared-boxes/<uuid:public_id>/` | `GET` | `apps.sharing.api_views.SharedBoxDetailAPIView` |
+| `/api/shared-boxes/invitations/accept/` | `POST` | `apps.sharing.api_views.SharedBoxInvitationAcceptAPIView` |
+| `/api/shared-boxes/invitations/inspect/` | `POST` | `apps.sharing.api_views.SharedBoxInvitationInspectAPIView` |
+| `/api/taxonomy/biological-provenances/` | `GET` | `apps.taxonomy.api_views.BiologicalProvenanceListAPIView` |
+| `/api/taxonomy/provenance-codes/` | `GET` | `apps.taxonomy.api_views.ProvenanceCodeListAPIView` |
+| `/api/taxonomy/references/` | `GET` | `apps.taxonomy.api_views.TaxonomyReferenceListAPIView` |
+| `/api/taxonomy/species-codes/` | `GET`, `POST` | `apps.taxonomy.api_views.SpeciesCodeListCreateAPIView` |
+| `/api/taxonomy/species-codes/<int:pk>/` | `GET`, `PATCH` | `apps.taxonomy.api_views.SpeciesCodeDetailAPIView` |
+| `/api/taxonomy/species/` | `POST` | `apps.taxonomy.api_views.SpeciesReferenceListCreateAPIView` |
+| `/api/taxonomy/species/<int:pk>/` | `PATCH` | `apps.taxonomy.api_views.SpeciesReferenceDetailAPIView` |
+| `/api/taxonomy/strains/` | `POST` | `apps.taxonomy.api_views.StrainReferenceListCreateAPIView` |
+| `/api/taxonomy/strains/<int:pk>/` | `PATCH` | `apps.taxonomy.api_views.StrainReferenceDetailAPIView` |
+| `/api/thermal-zones/` | `GET`, `POST` | `apps.cultures.api_views.ThermalZoneListCreateAPIView` |
+| `/api/thermal-zones/<int:pk>/` | `DELETE`, `GET`, `PATCH`, `PUT` | `apps.cultures.api_views.ThermalZoneDetailAPIView` |
+| `/api/thermal-zones/<int:pk>/deletion/` | `GET` | `apps.cultures.api_views.ThermalZoneDeletionAPIView` |
+| `/api/thermal-zones/<int:pk>/history/` | `GET` | `apps.cultures.api_views.ThermalZoneMovementHistoryAPIView` |
+| `/api/thermal-zones/<int:pk>/history/summary/` | `GET` | `apps.cultures.api_views.ThermalZoneMovementHistorySummaryAPIView` |
+| `/api/thermal-zones/<int:pk>/probe-readings/` | `GET` | `apps.measurements.probe_views.ThermalZoneProbeReadingsAPIView` |
+| `/api/thermal-zones/<int:pk>/salinity/` | `PATCH`, `POST` | `apps.cultures.api_views.ThermalZoneManualSalinityAPIView` |
+| `/api/thermal-zones/<int:pk>/salinity/<int:measurement_id>/` | `PATCH`, `POST` | `apps.cultures.api_views.ThermalZoneManualSalinityAPIView` |
+| `/api/thermal-zones/<int:pk>/salinity/history/` | `GET` | `apps.cultures.api_views.ThermalZoneSalinityHistoryAPIView` |
+| `/api/thermal-zones/<int:pk>/temperature/` | `POST` | `apps.cultures.api_views.ThermalZoneManualTemperatureAPIView` |
+| `/api/thermal-zones/<int:pk>/thermal-control/` | `GET` | `apps.measurements.probe_views.ThermalZoneThermalControlAPIView` |
+| `/api/thermal-zones/<int:pk>/thermal-monitoring/` | `GET` | `apps.measurements.probe_views.ThermalZoneThermalMonitoringAPIView` |

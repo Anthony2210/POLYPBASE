@@ -42,7 +42,7 @@ Statuts :
 
 ## Méthode pour un lot suivant
 
-1. Inspecter la clé, son usage et la décision exacte (`docs/context/terminology-i18n.md`).
+1. Inspecter la clé, son usage et la décision exacte (`docs/reference/terminologie-i18n.md`).
 2. Modifier la source si la décision est confirmée et sûre. Conserver les variables `{x}`. Après un `.po` : `cd backend; uv run python ../scripts/compile_django_messages.py`.
 3. Ajouter à la fin de `register.csv` une ligne par identité examinée, avec un nouveau `batch`, le `HEAD` de départ et `entry_id` à la suite.
 4. Lancer depuis la racine `python docs/translation-review/application/check_register.py`, puis les tests de non-régression `python -m unittest discover -s docs/translation-review/application -p "test_*.py"`. `--show <clé>` affiche l'historique d'une clé.
@@ -63,7 +63,7 @@ Règles vérifiées par `check_register.py` :
 
 ## ADN : ajout puis retrait du chip d'état (2026-11-16)
 
-La clé React `dnaStateValidated` a été ajoutée en FR (`Validée`) et EN (`Validated`) dans le lot local non committé B30, puis retirée avec le chip redondant du popover. Les événements d'ajout `T1452/T1453`, supprimés pendant la session précédente, sont rétablis dans leur position chronologique : leur suppression n'est pas une manière de tracer un retrait applicatif. Les événements suivants `T1454–T1457` ne sont pas renumérotés.
+La clé React `dnaStateValidated` a été ajoutée en FR (`Validée`) et EN (`Validated`) dans le lot B30 en préparation, puis retirée avec le chip redondant du popover. Les événements d'ajout `T1452/T1453`, supprimés pendant la session précédente, sont rétablis dans leur position chronologique : leur suppression n'est pas une manière de tracer un retrait applicatif. Les événements suivants `T1454–T1457` ne sont pas renumérotés.
 
 Le nouveau lot `B31-2026-11-16` ajoute la paire `REMOVED` `T1458/T1459`, avec les valeurs exactes avant retrait et une valeur finale vide. Les catalogues restent sans cette clé; aucune réintroduction ni modification du japonais n'est faite. L'historique baseline `T001–T1401` reste inchangé, y compris la représentation CSV de `T841/T842`; aucune empreinte ni règle du checker n'est modifiée. Cette traçabilité ne constitue pas un nouveau résultat QA frontend ou navigateur.
 
@@ -84,7 +84,7 @@ L'empreinte canonique de tous les champs des 32 événements renumérotés est `
 
 L'intégration locale conserve le registre de `5b1299b` (`T001–T1036`, dont les mouvements B20/B21) et ajoute les 26 événements thermiques de `ee492bd`, sans changement de formulation ni de provenance. Le lot thermique entrant `B20-2026-11-09` devient `B22-2026-11-09` ; `T1011–T1036` deviennent `T1037–T1062` (décalage exact de +26). Seuls `entry_id` et `batch` changent, conformément au précédent laboratoire ci-dessus.
 
-Les trois registres sources complets sont conservés indépendamment dans les nouveaux fichiers `integration-2026-11-09-{base,movements,thermal}.csv`. Les objets Git, empreintes, correspondances ligne par ligne et résultats de validation sont documentés dans [`integration-2026-11-09.md`](integration-2026-11-09.md). Les preuves antérieures restent inchangées. Les tests figent l'historique HEAD complet et la projection thermique, indépendamment des catalogues courants ; toute correction ultérieure doit être un événement ajouté.
+Les trois registres sources complets sont conservés indépendamment dans les nouveaux fichiers `integration-2026-11-09-{base,movements,thermal}.csv`. Les objets Git, empreintes, correspondances ligne par ligne et résultats de validation sont documentés dans [`integration-2026-11-09.md`](../../archive/2026-11-traductions/integration-2026-11-09.md). Les preuves antérieures restent inchangées. Les tests figent l'historique HEAD complet et la projection thermique, indépendamment des catalogues courants ; toute correction ultérieure doit être un événement ajouté.
 
 ## Lot B02 (2026-10-29)
 
@@ -117,7 +117,7 @@ Restent également hors correction : `movementErrorForbidden` partagé entre 401
 - Frontend : AST TypeScript sans exécution du catalogue, parité, doublons, clés/valeurs vides, espaces périphériques, point médian, variables simples `{name}` et multiplicité, formulations contextuelles protégées et neuf refus classés (sept B02, deux B01).
 - Aucun bannissement global de `Organization`, `Subculture` ou `Measurement`. Les recherches terminologiques générales et la classification de nouveaux refus restent consultatives.
 
-Les commandes de validation sont dans `docs/context/development-deployment.md`. Pour une modification future, vérifier aussi le diff FR/EN contre les nouveaux événements : le checker contrôle les identités enregistrées mais ne prouve pas à lui seul l'exhaustivité du diff. Aucune suppression ou restauration de clé, aucun statut `REMOVED`, aucune synchronisation de feuille ni modification japonaise dans B02.
+Les commandes de validation sont dans `docs/operations/developpement-qa.md`. Pour une modification future, vérifier aussi le diff FR/EN contre les nouveaux événements : le checker contrôle les identités enregistrées mais ne prouve pas à lui seul l'exhaustivité du diff. Aucune suppression ou restauration de clé, aucun statut `REMOVED`, aucune synchronisation de feuille ni modification japonaise dans B02.
 
 ## Lot B03 (2026-10-29)
 
@@ -130,7 +130,7 @@ Baseline Git : `f50765ee07a8e6add7db5b11652f4e141acc194d`. Les 120 événements 
 
 ## B03 final : trois lots indépendants (2026-10-29)
 
-Baseline vérifié : `dc69aceda71cbd6b802ef5b3090b2ccc4d8d9647`, branche `chore/i18n-b03-final`, worktree initialement propre et identique aux références locales `main` et `origin/main`. Pas de synchronisation réseau de ces références ni de modification d'un autre worktree.
+Baseline vérifié : `dc69aceda71cbd6b802ef5b3090b2ccc4d8d9647`, branche `chore/i18n-b03-final`, dossier de développement initialement sans modification et identique aux références locales `main` et `origin/main`. Pas de synchronisation réseau de ces références ni de modification d'un autre dossier de développement.
 
 Le schéma existant exige des numéros de lots strictement croissants (`Bnn-AAAA-MM-JJ`) : les noms de travail B03-2, B03-3 et B03-4 sont donc associés respectivement à **B04**, **B05** et **B06**, sans modifier le checker ni l'ancien lot B03.
 
