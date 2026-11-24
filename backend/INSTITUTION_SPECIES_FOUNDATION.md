@@ -1,4 +1,4 @@
-# Institutional Species foundation and backend services — UI inactive
+# Institutional Species foundation and backend services
 
 ## Scope
 
@@ -87,13 +87,14 @@ the evidence and collisions in its own transaction. No such applicator exists.
 |---|---|
 | `GET /api/admin/institution-species/` | Own profiles (`id`, shared `species_id`, local name/AphiaID, own code, revision, strain count) plus `historical_species` used here without a profile, labeled `requires_historical_adoption` |
 | `POST /api/admin/institution-species/` | `{scientific_name, worms_aphia_id?}` → 201 profile with its definitive generated code |
+| `POST /api/admin/institution-species/resolve/` | Retired: `410 institution_species_resolution_retired` after authorization; no profile, AAA assignment or audit is written |
 | `GET /api/admin/institution-species/<id>/` | Own profile and its eligible Strains (`is_owned` distinguishes unowned legacy Strains; `recorded_provenance_name` is the active institution's verified recorded biological provenance of a box-usable Strain, otherwise `null`) |
 | `PATCH /api/admin/institution-species/<id>/` | `{expected_revision, scientific_name, worms_aphia_id}` (all required; `null` removes the reference) |
 | `GET /api/admin/institution-species/<id>/strains/` | Eligible Strains only |
 | `POST /api/admin/institution-species/<id>/strains/` | `{request_id, collection_location: <id>}` or `{request_id, new_collection_location: {name, code}}` → 201 `{strain, strains}`; the server allocates X and builds `AAA-BBB-X` (see below). `request_id` is a required client idempotency key |
 | `GET /api/admin/institution-species/<id>/code-change-preview/?proposed_code=AAA` | Read-only impact plan of a Species code change (see "Species code change preview"); writes and reserves nothing |
 | `GET /api/admin/collection-locations/` | The active institution's coded collection locations `{id, code, name}` (BBB), never another institution's |
-| `GET /api/admin/institution-species/historical/<species_id>/` | Read-only view of a reference used here without a profile (shared name, own code, eligible Strains); 404 for profiled, unused or foreign references |
+| `GET /api/admin/institution-species/historical/<species_id>/` | Read-only view of a reference used here without a profile (shared name, own code, eligible Strains); also returns the profile id when one exists; 404 for unused or foreign references |
 
 Registration: WoRMS verification (if an AphiaID is sent) runs before any
 transaction; then allocation gate → Organization lock. The normalized name is
@@ -115,16 +116,16 @@ and Box identifiers are never modified.
 
 | Path | Current state |
 |---|---|
-| `POST /api/admin/species-catalog/species/`, `.../species/<id>/code/` | Closed: 410 `superseded_by_institution_species` (unapproved UI only) |
+| `POST /api/admin/species-catalog/species/`, `.../species/<id>/code/` | Closed: 410 `superseded_by_institution_species` (not used by the Species workspace) |
 | `PATCH /api/taxonomy/species-codes/<id>/` | Changing an assigned code → 409 `species_code_immutable`; same value is a no-op |
-| `PATCH /api/taxonomy/species/<id>/` | 409 when another institution uses the reference; name/AphiaID frozen once any profile exists; single-institution legacy edits otherwise unchanged. The guard runs after the allocation gate and a `FOR NO KEY UPDATE` Species row lock, so it cannot race registration, code assignment (gate) or Transfer v1 import (Species row lock) |
+| `PATCH /api/taxonomy/species/<id>/` | 409 when another institution uses the reference; name/AphiaID frozen once any profile exists; single-institution legacy edits otherwise unchanged. The guard runs after the allocation gate and a `FOR NO KEY UPDATE` Species row lock, to coordinate with registration, code assignment (gate) and the internal legacy Transfer v1 service (Species row lock) |
 | Django admin `SpeciesAdmin` + translation inline | Superuser-only writes; existing name/AphiaID read-only |
 | `POST /api/taxonomy/strains/` | Closed: 410 `superseded_by_institution_species_strains` (manual code/number no longer accepted). The legacy References UI no longer offers Strain creation (its Strains tab points to Species and strains) and the unmounted `QuickStrainCreator` was removed |
 | `PATCH /api/taxonomy/strains/<id>/` | Owned Strains only (foreign or unowned legacy → 404). Any requested `code`, `number` or `origin_code` that differs from the stored value after normalization (`0` ≠ `null`; unreadable value = change) → 409 `strain_identity_immutable` with `fields`, before any write or audit. Same values, notes, translations and the existing species rule are unchanged. The legacy edit form shows identity read-only and never sends it. Superuser Django admin `StrainAdmin` is not restricted |
 | `POST /api/taxonomy/species/`, `POST /api/taxonomy/species-codes/` | **Still open — activation blocker.** No mounted UI consumer: the References tab (`TaxonomyAdminSection`) is in `DISABLED_ADMIN_SECTIONS` on HEAD. Manual first code assignment remains possible through the API |
 | `GET /api/admin/species-catalog/`, `GET /api/taxonomy/references/` | Still shared-name views — activation blocker for the naming switch; no longer read by the Species workspace |
 | WoRMS search `local_species` | Institution-scoped: own profiles (local name/AphiaID) and historical references used here; never another institution's information |
-| `import_bdd_csv`, `seed_demo_data`, historical importers, Transfer v1 import | Technical writers of shared references, unchanged |
+| `import_bdd_csv`, `seed_demo_data`, historical importers | Technical writers of shared references; the public Transfer v1 prepare/import routes now return `410` |
 
 Existing codes remain unchanged. Historical references lacking an institution
 code still require an approved, reviewed adoption process; nothing assigns one.
@@ -140,8 +141,8 @@ No consumer is switched in this phase:
   presentation will need the institution context as well.
 - Audit previews currently resolve shared names; historical audit entries must
   not be rewritten. Future local corrections need explicit before/after values.
-- Transfer v1 export copies `box.species`; its importer matches by shared name
-  then Strain code. Do not silently inject local names into that protocol.
+- Historical Transfer v1 uses shared names; its public workflow is retired.
+  Do not silently inject local names into historical payloads.
 - Transfer v2 snapshots contain shared names and its resolver checks exact name
   agreement after UUID resolution. Preserve payloads, snapshots and acceptance
   semantics; any future protocol extension is a separate reviewed change.
@@ -181,15 +182,17 @@ Independent review should cover additive migration/rollback, normalized SQL
 constraints, conditional revision UPDATE, authorization/scoping, read-only
 manifest evidence, compatibility and the still-open activation gates above.
 
-## Local UI (pending visual approval)
+## Mounted desktop UI
 
-`SpeciesStrainsAdminSection` (Species catalog and dedicated Species page) consumes
-only the routes above, the server-side WoRMS search and the application's complete
-Box collection (`GET /api/boxes/`) to group Boxes by Strain. It has no Strain edit
-action. Country, acquisition, donor, GPS and optional name are collected at Strain
-creation only (see "Country, acquisition and name of a new Strain"); the initial
-polyp count belongs to Box creation. It is a local implementation awaiting Anthony's approval, not a
-release; see `docs/context/frontend-ux.md`.
+`AdminView` mounts `SpeciesStrainsAdminSection` for Species. It uses institutional
+routes, WoRMS search and the complete Box collection (`GET /api/boxes/`) to group
+Boxes by Strain. It never calls the retired resolution POST. Historical entries
+without a profile are read-only. A profiled Species can be edited without an AAA
+assignment, but creating a Strain requires a persisted usable AAA and server
+readiness. There is no Strain edit or code-change preview screen. Country,
+acquisition, donor, GPS and optional name belong to Strain creation; the initial
+polyp count and optional DNA evidence belong to Box creation. See
+[`frontend-ux.md`](../docs/context/frontend-ux.md).
 
 ## Collection-location visibility (M1)
 

@@ -1,7 +1,10 @@
 # Intégration de la sonde iMinilide-A dans Polypbase
 
 > Notes issues de l'analyse de la notice `iMinilide-A_NOTICE_UTILISATION_COMPLETE_Ed2.pdf`  
-> Date : 2026-05-27
+> Date : 2026-05-27. **Archive exploratoire**, pas une procédure actuelle.
+> Les pistes de développement HTTP/XML et la commande hypothétique `poll_probes`
+> ont été abandonnées. Pour le code et l’exploitation de l’intégration cloud,
+> voir [Collecte des sondes iMinilide](collecte_iminilide.md).
 
 ---
 

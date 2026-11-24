@@ -33,8 +33,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 Create the local environment and install the locked server dependencies:
 
 ```powershell
-uv venv
-uv sync
+uv sync --locked
 ```
 
 Install the additional analysis and notebook environment only on machines that
@@ -69,32 +68,21 @@ Run backend commands from the `backend/` directory:
 
 ```powershell
 cd backend
-uv run python manage.py check --settings=config.test_settings
-uv run python manage.py test --settings=config.test_settings
+uv run python manage.py check --settings=config.preflight_settings
+if ($LASTEXITCODE -ne 0) { throw 'Django check failed' }
+uv run python manage.py makemigrations --check --dry-run --settings=config.preflight_settings
 ```
 
-Create local demo data **only after verifying an isolated local database**,
-never Neon or production:
+Preflight settings always select in-memory SQLite, even if the PostgreSQL test
+opt-in is inherited. They are not persistent development settings. For targeted
+tests and for starting Django against a verified local database, follow the
+[development guide](docs/context/development-deployment.md).
 
-```powershell
-cd backend
-uv run python manage.py migrate
-uv run python manage.py seed_demo_data
-```
-
-Start the Django development server:
-
-```powershell
-cd backend
-uv run python manage.py runserver
-```
-
-The demo command is idempotent: it can be run again without creating duplicate
-boxes or measurements. It creates three local users for development only:
-
-- `demo_admin` / `polypbase-demo`
-- `demo_lab` / `polypbase-demo`
-- `demo_viewer` / `polypbase-demo`
+`seed_demo_data` is for a verified disposable database with synthetic data only,
+never a restored database, Neon, production, or any shared database. The command
+requires `DEBUG` or explicit `--allow-non-debug`; neither establishes isolation.
+The separate [isolated demo mode](docs/isolated-demo.md) has its own settings and
+database requirements and is not the ordinary Vite/Django development setup.
 
 ## Interface Languages
 
@@ -115,13 +103,10 @@ The React interface catalog is centralized in `frontend/src/i18n/`. French is
 the reference catalog, and TypeScript verifies that the English catalog has
 the same keys during `npm run typecheck`.
 
-Biological reference data is localized separately from interface text.
-Administrators can provide names and descriptions for species and strains in
-French, English, and Japanese. French is required, while the other languages
-are optional. The available reference languages are configured through
-`CONTENT_LANGUAGES` in `backend/config/settings.py`. Adding a language there
-automatically adds its fields to the administration form without a database
-migration.
+Biological reference translations are separate from interface text and use
+`CONTENT_LANGUAGES` in `backend/config/settings.py`. The active Species workspace
+manages institutional scientific names and WoRMS references, not the disabled
+shared References forms.
 
 Template texts use Django's official translation tags:
 
@@ -166,7 +151,8 @@ Target apps:
 - `taxonomy`: taxa, species, origins, and strains.
 - `cultures`: boxes, thermal zones, QR tags, subculture events, lineage, and transfers.
 - `measurements`: biological measurements, observations, temperature, salinity, and probes.
-- `exports`: Excel imports, import rows, and CSV/XLSX export records.
+- `exports`: imports and CSV/XLSX export records.
+- `sharing`: external read-only Box grants, invitations and frozen captures.
 - `audit`: action history (`AuditLog`); historical `Alert` storage retained dormant.
 
 Code identifiers and comments should use simple English. French is kept for
@@ -188,8 +174,8 @@ authorize data deletion or migration rewrites. See
 
 ## Backend API
 
-React should use the Django REST Framework endpoints under `/api/`. The first
-stable endpoints are:
+Django REST Framework routes are registered in `backend/config/api_urls.py`.
+Selected endpoints and their boundaries:
 
 - `GET /api/health/`: public health check.
 - `GET /api/dashboard/`: overview data for the first app screen.
@@ -203,8 +189,10 @@ stable endpoints are:
 - `PATCH /api/boxes/<id>/movements/<movement_id>/`: audited correction with required expected revision, not a new movement.
 - `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
-- `POST /api/box-transfers/`: prepare an inter-organization box transfer.
-- `POST /api/box-transfer-imports/`: import a Polypbase transfer CSV into a destination organization.
+- `POST/PATCH /api/boxes/<id>/dna-validation/` and `POST /api/boxes/<id>/dna-validation/revoke/`: record, edit or revoke a Box-specific evidence URL. Ordinary Box creation also accepts optional `dna_evidence_url`; no evidence is inferred or inherited.
+- `POST /api/box-transfers/` and `POST /api/box-transfer-imports/`: retired v1 routes (`410` after authorization; no mutation).
+- `/api/box-donations/…`: destination lookup, preflight, proposal creation, incoming/outgoing reads, details and source cancellation; no acceptance.
+- `/api/admin/box-shares/…` and `/api/shared-boxes/…`: external sharing APIs; no mounted React share administration or recipient reader.
 - `GET /api/exports/options/`: values available in the cumulative export filters.
 - `GET /api/exports/measurements.csv`: weekly biological tracking export in CSV format.
 - `GET /api/profile/`: current user profile, organizations, and interface language.
@@ -212,7 +200,7 @@ stable endpoints are:
 - `GET /api/taxonomy/references/`: localized species, strains, and configured content languages.
 - `POST /api/taxonomy/species/`: create a species and its localized names (administrator only).
 - `PATCH /api/taxonomy/species/<id>/`: update a species and its localized names (administrator only).
-- `POST /api/taxonomy/strains/`: create a strain and its localized names (administrator only).
+- `/api/admin/institution-species/…`: institution-scoped Species and Strain workflows. `POST …/resolve/` is retired (`410 institution_species_resolution_retired` after authorization); the legacy `POST /api/taxonomy/strains/` is also retired.
 - `PATCH /api/taxonomy/strains/<id>/`: update a strain and its localized names (administrator only).
 
 The CSV export uses one row per ISO week. Each selected box produces three
@@ -233,10 +221,8 @@ The current plan schema is **1.3**; its measurement baseline includes
 `duplicate_of_id` and `environment_source_box_id`. Versions 1.1/1.2 in dated
 milestones describe earlier contracts, not the current schema.
 
-A restricted, atomic exact-date import API and explicit-confirmation components
-are implemented, but the workflow is **not mounted in the active React UI**:
-`MeasurementImportPanel` is used only by `MeasurementImportEntry`, which has no
-consumer in `frontend/src/`; neither is wired into `App.tsx`.
+A restricted, atomic exact-date import API is implemented. The unmounted React
+import components were removed in PR2; there is no active React import workflow.
 The applicator accepts only unblocked `CREATE`, `ALREADY_MATCHES` and
 `IGNORED` rows, with source bytes, durable receipt, idempotent
 replay and locked plan revalidation. This is not a generic correction/onboarding
@@ -249,11 +235,11 @@ real `measured_on`; week-only persistence is not enabled. See
 contracts; older local-only status statements there are historical, not deployment
 evidence.
 
-Transfer v2 has internal foundations through Phase 5, not destination
-acceptance. References, Environment, Transfers and Organizations sections are
-currently disabled in React Administration; Accounts/Team, Inventory and History
-remain active. Backend endpoints still enforce their permissions. See the
-[current state](POLYPBASE_CURRENT_STATE.md) for remaining work.
+Desktop Administration mounts Team, Inventory, Species, Locations, Exchanges
+and History. Only shared References and Organizations are disabled. Exchanges
+shows outgoing and incoming whole-Box donation proposals; it does not support
+CSV v1 or donation acceptance. Transfer v2 package foundations are separate from
+these proposals. Backend endpoints enforce their own permissions.
 
 ## QR codes
 
@@ -290,7 +276,7 @@ Install frontend dependencies:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 ```
 
 Start the React development server:
@@ -312,7 +298,8 @@ endpoints.
 ### Test from a phone on the local network
 
 For a visual test on a phone, connect the computer and phone to the same Wi-Fi
-network. Start Django normally, then start the frontend with:
+network. Start Django against an isolated local database with synthetic data,
+then start the frontend with:
 
 ```powershell
 cd frontend
@@ -355,32 +342,30 @@ npm run build
 
 ## Production deployment
 
-From an up-to-date `main` branch on Anthony's workstation, run the guarded
-deployment command:
+With explicit authorization, use the guarded deployment workflow from a clean
+`main` aligned with `origin/main`:
 
 ```powershell
 .\deploy\deploy_vm.ps1
 ```
 
-It validates the release locally, creates and verifies a production database
-backup, performs a fast-forward-only update, builds the application, applies
-committed migrations, restarts the services, and checks the public HTTPS
-endpoints. Use `-PreflightOnly` to run the local release checks without changing
-the VM. The detailed fallback procedure is documented in
-`docs/deploiement_vm.md`.
+Use `-PreflightOnly` for local release checks without changing the VM. The release
+executor requests a verified backup from the independently installed trusted
+broker (`/usr/local/libexec/polypbase-deployment-backup`, as `polypbase_backup`),
+updates fast-forward only, builds the release and checks database readiness with
+`migrate --check`. Pending migrations stop the release; it does not apply them.
+After successful preparation the wrapper restarts the app, validates and reloads
+Nginx, and checks the HTTPS endpoints. See the guarded procedure in
+[`docs/deploiement_vm.md`](docs/deploiement_vm.md).
 
 ## Database updates
 
-Production migrations are applied by the guarded deployment workflow after
-explicit authorization, backup and release checks; do not reproduce its steps
-manually. Git integration/CI does not prove they have been applied. For an
+Production schema changes require separate explicit approval and the dedicated
+migrator (`deploy/scripts/run_dedicated_migrations.sh`), with its own backup and
+controls. Do not bypass a failed readiness check with an ad hoc `migrate`. Git
+integration/CI does not establish which migrations are applied anywhere. For an
 isolated local database, inspect the migration plan and follow
 [`docs/context/development-deployment.md`](docs/context/development-deployment.md).
-
-The transfer workflow uses `BoxTransfer.polyp_count` and
-`BoxTransferImport`; both are created by the cultures migrations. Transfer
-imports are uniquely identified by their format version, source organization,
-and source transfer identifier, so the same package cannot be imported twice.
 
 ## Internal documentation
 

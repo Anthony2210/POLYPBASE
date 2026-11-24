@@ -20,9 +20,13 @@ Préserver tout changement existant. Ne pas lancer automatiquement une migration
 Pour les tests SQLite ordinaires, ouvrir une **session PowerShell enfant jetable** avec `powershell -NoProfile`, puis exécuter depuis `backend/` dans cette session uniquement :
 
 ```powershell
-# Valeur non vide : dotenv ne peut pas réactiver l'opt-in PostgreSQL.
+# Empêcher la lecture de backend/.env et neutraliser l'opt-in PostgreSQL hérité.
+$env:PYTHON_DOTENV_DISABLED = '1'
 $env:POLYPBASE_TEST_POSTGRES = '0'
+$env:POLYPBASE_DEMO = '0'
 $env:DJANGO_DEBUG = '1'
+$env:EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+$env:EMAIL_DELIVERY_ENABLED = '0'
 
 # Remplacer le module par le test du domaine modifié.
 uv run python manage.py test apps.cultures.test_box_inventory_api --settings=config.test_settings
@@ -38,9 +42,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Migration drift check failed' }
 
 `config.preflight_settings` remplace explicitement `DATABASES` par SQLite en mémoire après l'import de `config.test_settings`. Cette garantie concerne la sélection de base Django; elle ne signifie pas que dotenv n'est pas lu, ni qu'un test lançant son propre harnais PostgreSQL est un test SQLite. Fermer la session enfant après les contrôles, et immédiatement après un échec; ne pas modifier les profils ou fichiers d'environnement.
 
-La découverte complète (`uv run python manage.py test --settings=config.test_settings`) n'est pas exclusivement SQLite : certains tests lancent leur propre harnais PostgreSQL jetable selon l'environnement. Par exemple, `test_cca_eob_role_provisioning.py` active ce harnais lorsque `POLYPBASE_PG18_BIN` est non vide, indépendamment de `POLYPBASE_TEST_POSTGRES`; une valeur `"0"` l'activerait aussi. Vérifier les opt-ins hérités ou fournis par dotenv et le périmètre des harnais avant cette découverte. Le harnais inspecté crée un cluster temporaire sur loopback; ce constat ne démontre aucun accès à la production ou à une base partagée.
+Pour la découverte complète comme en CI, voir [Tests backend](../tests_backend.md#découverte-et-ci). Partir d’un environnement local vérifié, sans variables `DEMO_*`, identifiants de services ni configuration de harnais hérités. Le choix SQLite régit la base Django : certains tests ont leurs propres prérequis ou opt-ins. Les jobs PostgreSQL spécialisés ont des procédures distinctes.
 
-**Runner QA à corriger séparément :** `.agents/skills/polypbase-qa/scripts/run_checks.ps1` vide seulement `POSTGRES_DB`, lance `check` et `makemigrations` sans settings explicites et hérite de l'opt-in PostgreSQL pour les tests. Ne pas le lancer dans un environnement non vérifié. Sa correction de code doit imposer les settings isolés et neutraliser explicitement cet opt-in; elle n'est pas réalisée par cette mise à jour documentaire. Les settings en mémoire ne sont pas une base persistante pour la QA navigateur.
+**Runner QA local (corrigé en PR1).** Depuis la racine, `./.agents/skills/polypbase-qa/scripts/run_checks.ps1` lance les contrôles Git, `check` et `makemigrations --check --dry-run` sous `config.preflight_settings`, puis sa sélection backend sous `config.test_settings` et le build frontend. Il force `POLYPBASE_TEST_POSTGRES=0` pendant son exécution et restaure sa valeur précédente, même en cas d’échec. La sélection comprend `apps.sharing` et `config.test_api_defaults`, mais n’est pas la découverte sans labels de la CI et ne lance pas les jobs PostgreSQL ni `npm run test:all`. Le script ne désactive pas dotenv lui-même : utiliser la session enfant configurée ci-dessus, revenir à la racine et vérifier les opt-ins avant de le lancer. Pour un changement limité, préférer des contrôles ciblés.
 
 Utiliser les tests ciblés en premier. Élargir à la suite complète lorsqu'une règle partagée, une permission, une transaction ou un contrat API transversal change. La liste détaillée des tests existants est dans [`../tests_backend.md`](../tests_backend.md).
 
@@ -312,14 +316,16 @@ Les régressions du déploiement se lancent localement avec `uv run python -m un
 Sans `-PreflightOnly`, la procédure :
 
 1. refuse les états locaux ou distants incohérents;
-2. crée et vérifie une sauvegarde PostgreSQL;
+2. exige `BACKUP_OK` du broker de sauvegarde installé par root, sous l’identité distincte `polypbase_backup`, pour le SHA cible;
 3. avance le dépôt de production en fast-forward vers le commit attendu;
 4. synchronise les dépendances;
 5. construit le frontend dans une zone intermédiaire;
-6. exécute les checks Django, affiche le plan et applique les migrations;
+6. exécute les checks Django, enregistre `migrate --plan` et vérifie le schéma avec `migrate --check --noinput`, sans appliquer de migration;
 7. collecte les statiques et publie le build;
 8. redémarre Polypbase, valide puis recharge Nginx;
 9. contrôle HTTPS, page React, commit et services.
+
+Une migration en attente bloque avant les statiques, la publication et le redémarrage. L’exécution passe séparément par `deploy/scripts/run_dedicated_migrations.sh`, sous l’identité de migration dédiée, avec revue du JSON exact, approbation liée au SHA cible et sauvegarde vérifiée. Vérifier `MIGRATION_COMPLETE` pour ce SHA avant de reprendre la release gardée du même commit. Voir la [procédure dédiée](../dedicated-migration-recovery.md).
 
 Ne pas reproduire manuellement ces étapes lorsqu'elles sont déjà orchestrées. Toute mutation de production demande une autorisation explicite immédiatement avant exécution. En cas d'échec d'une protection, arrêter au lieu de la contourner.
 

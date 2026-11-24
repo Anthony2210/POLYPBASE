@@ -76,17 +76,14 @@ d'un import ou sa validation scientifique, et ne valent aucune autorisation. Pro
 verrous globaux, limites de sauvegarde/replay et résultats de tests :
 [`historical-temperature-production.md`](../historical-temperature-production.md).
 
-## Correcteur local CCA-EOB / V2
+## CCA-EOB : historique uniquement
 
-`correct_cca_eob_v2` prépare une matrice exacte en lecture seule par défaut et peut réattribuer les relevés ISO 2026 documentés par V2, après revue indépendante. Il ne généralise pas l'import historique : correspondance au manifeste ancien, cellules V2 vérifiées sur les mêmes octets hashés, codes exacts, plan empreinté, administrateur actif, revalidation sous verrous, ordre de transferts compatible avec l'unicité et audits atomiques. Aucun changement de valeur biologique, date ou statut; les semaines hors source restent intactes.
-
-**Décision produit explicite d'Anthony, contrat V3 :** V2 fait autorité pour les identités biologiques 2026 concernées. Les relevés réattribués résolvent leur contexte environnemental via la boîte cible dans les exports/graphiques existants, même si la zone diffère ou reste non résolue. Tous les `BoxLocation`, `BoxMovement`, `ThermalZone`, les pointeurs `Box.thermal_zone` et les températures scientifiques existants restent inchangés. Aucun emplacement, mouvement, lien historique ou température n'est inféré depuis Excel. Le reçu atteste la correction d'attribution biologique et cette décision, pas une correction environnementale ni une équivalence de zones.
-
-La présence d'historiques, de fins inconnues, de liens legacy absents ou de zones différentes/manquantes ne bloque plus à elle seule une réattribution. Les références de zones étrangères, périodes mal formées/chevauchantes et liens mouvement-période persistés contradictoires restent bloquants, sans reconstruction. Les blocages indépendants de lignée/repiquage/transfert et les ambiguïtés d'appariement demeurent. Les snapshots complets de périodes/mouvements, le fingerprint, les verrous et tous les contrôles de péremption sont conservés, y compris pour les changements sans modification de `Box`.
-
-L'opération utilise `OPERATION = cca_eob_v2_20261016_v3`, la politique de baseline `target_box_context_preserve_location_history_v2` et la métadonnée explicite `product_decision` dans le plan et chaque audit individuel/de lot. **Toutes les anciennes empreintes de plan sont invalides.** L'empreinte V3 `2b08dddd35a5a85cac04b02c9dc7b241238444e348f9e37f8d96347175041571` a été appliquée sur la seule copie locale de test et ne vaut pas autorisation ailleurs. Les identifiants de source ne sont pas des empreintes de plan. La commande, ses options et la configuration dédiée restent inchangées, sauf son résumé précisant l'effet de contexte : local read-only par défaut; production, Neon et référence immuable refusés. Procédure, limites et historique de validation : [`../cca-eob-v2-correction.md`](../cca-eob-v2-correction.md). Tests synthétiques V3 validés sur SQLite et sur PostgreSQL 17.4 natif isolé (verrous, y compris l'ordre boîtes, organisation, membership face au PATCH des droits). Les 72 réattributions ont été appliquées uniquement sur la copie locale de test, après sauvegarde restaurée et comparaison exhaustive; aucune application sur la référence immuable, la production ou Neon. L'implémentation seule ne vaut pas autorisation d'application.
-
-**Runtime de production dédié retiré le 2026-11-04 (rapporté par l'opérateur)** : rôle PostgreSQL, table d'approbation et fonctions dédiées, compte Linux et manifeste actif retirés. Ce retrait des capacités d'exécution n'est pas une application scientifique et n'établit ni l'application en production de la correction V3, ni sa validation scientifique complète. État et limites : [`POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md).
+Les commandes dédiées CCA-EOB, leurs settings et leur garde de déploiement ont
+été supprimés du code. Le [dossier V2/V3](../cca-eob-v2-correction.md) documente
+une correction ponctuelle et des validations sur copie locale ; ce n’est pas
+une procédure exécutable. Ne pas rejouer les anciens plans, ni recréer le
+runtime dédié. Son retrait, rapporté par l’opérateur le 2026-11-04, ne prouve
+ni l’application de la correction V3 en production, ni sa validation scientifique.
 
 ## Précision temporelle : limite actuelle de persistance
 

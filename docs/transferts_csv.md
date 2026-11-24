@@ -1,26 +1,29 @@
 # Spécification des transferts CSV Polypbase
 
-## État au 2026-10-14
+## Contrat actuel : CSV v1 retiré
 
-Les API v1 restent implémentées mais la section Transferts de React Administration
-est désactivée. Transfer v2 fournit des services internes jusqu'à la Phase 5
-(projection/snapshot source 2.1 opt-in), **pas une acceptation destination**.
-Phase 6 (preflight, acceptation atomique/idempotente, matérialisation et fusion
-entrante) reste non implémentée. Statuts Git/revues :
-[`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+Les deux POST restent routés pour répondre explicitement après autorisation :
 
-## Transfert v1 actuel — compatibilité historique
+| Route | Réponse autorisée |
+|---|---|
+| `POST /api/box-transfers/` | `410 box_transfer_create_retired` |
+| `POST /api/box-transfer-imports/` | `410 box_transfer_import_retired` |
 
-La version courante est `polypbase.box_transfer.v1`. Le CSV est généré côté
-frontend et le parcours actuel lit une seule ligne de données. Préparation et
-import sont deux opérations distinctes : la préparation crée un `BoxTransfer`
-(planifié) et son audit obligatoire dans une transaction; elle ne déplace pas
-la boîte source. L'import crée une nouvelle culture/boîte locale à destination
-et n'affecte pas la boîte source.
+Ces routes ne traitent pas le payload et n'écrivent ni transfert, ni import,
+ni boîte, ni audit. Les modèles, données historiques et services internes v1
+restent distincts des propositions de don et des paquets Transfer v2.
 
-Le fichier actuel est encodé en UTF-8 avec marque BOM. Les intitulés et champs
-v1 décrits ci-dessous restent inchangés; cette documentation ne redéfinit pas
-le payload historique.
+Administration > Envois et réceptions affiche les propositions de don de boîte
+entière entrantes et sortantes. Aucun export/import de transfert CSV, partage
+externe, ni acceptation de don n'est proposé dans cet écran. L'export CSV des
+relevés est distinct. Voir le [contrat de proposition](../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md).
+
+## Archive : format et comportement historiques v1
+
+Les sections v1 suivantes documentent les artefacts `polypbase.box_transfer.v1`
+existants, pas un parcours utilisable. Le CSV était généré côté frontend en
+UTF-8 avec BOM. La préparation créait un `BoxTransfer` planifié et son audit;
+l'import d'une seule ligne créait une boîte locale sans affecter la boîte source.
 
 ## Colonnes obligatoires
 
@@ -74,20 +77,11 @@ ni désactivée par l'import.
   la date, la boîte créée et l'audit de destination sont enregistrés.
 - V1 n'embarque ni identité biologique globale ni graphe de lignée portable.
 
-## API
-
-- Préparation : `POST /api/box-transfers/`
-- Import : `POST /api/box-transfer-imports/`
-
-L'import reçoit l'unique ligne CSV dans `source_data`, ainsi que les
-identifiants locaux de l'organisation et de la zone et le code proposé.
-
 ## Transfer v2 — Phase 2B source — DONE et intégrée
 
 Intégrée à `main` au commit `20adf0a` (`feat: add transfer v2 protocol foundation`).
 La Phase 2B persiste `TransferEnvelope` / `TransferItem` avec des UUID stables,
-le discriminateur `polypbase.transfer` et la version exacte `2.0`. V1 demeure
-le chemin de compatibilité historique disponible, séparé et inchangé. V2 utilise
+le discriminateur `polypbase.transfer` et la version exacte `2.0`. Le parcours public v1 est retiré. V2 utilise
 des tables `TransferEnvelope` / `TransferItem` distinctes, sans réinterpréter
 `BoxTransfer` ou `BoxTransferImport`.
 
@@ -157,7 +151,7 @@ Aucune mutation de Box/Strain/emplacement/relevé ni finalisation de v1.
 **Instantané historique à `20adf0a`, pas la roadmap actuelle.** Cette section
 décrit l'état de Phase 2B, pas les capacités ajoutées ensuite (3A/3B/3C, 4 et 5
 sont désormais intégrées).
-Aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain
+Pour les paquets `2.0`/`2.1`, aucun endpoint/UI, receipt/acceptation destinataire, résolution de Strain
 destination, représentation locale canonique, diagnostic de namespace,
 allocation X, identité portable de Box, lignée portable, inbox de transfert
 direct ni adaptateur fichier. Aucune mutation du cycle de vie ou du stock source.
@@ -256,7 +250,7 @@ jamais rendu possible par suppression de la connaissance portable.
 Cette phase n'ajoute ni receipt/import de package, ni acceptation, ni mutation
 de stock/cycle de vie, ni allocation X ou création destination.
 
-## Transfer v2 — Phase 6, jalon 1 : identité globale de Box (non revu)
+## Transfer v2 — Phase 6, jalon 1 : identité globale de Box
 
 Fondation de persistance seulement : `GlobalBoxIdentity` et `BoxOwnershipEpisode`
 (migration `0019`, additive, sans backfill). Une même Box biologique a une
@@ -265,3 +259,11 @@ courant imposé en base. Aucun endpoint, acceptation, transition de propriété,
 matérialisation destination ni changement des protocoles `2.0`/`2.1`.
 Contrat et décisions ouvertes :
 [`../backend/TRANSFER_V2_BOX_IDENTITY.md`](../backend/TRANSFER_V2_BOX_IDENTITY.md).
+
+## Transfer v2 — Phase 6, jalon 2 : proposition de don
+
+`/api/box-donations/…` et Envois et réceptions permettent de proposer et consulter
+un don; l'annulation source est disponible par API seulement. La proposition ne
+matérialise pas de boîte côté destinataire, ne donne pas accès à l'historique
+source et ne change pas la propriété. Aucune acceptation n'est exposée. Ce flux
+n'importe pas de paquet `2.0`/`2.1` ni de CSV v1.

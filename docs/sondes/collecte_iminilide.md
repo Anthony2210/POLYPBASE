@@ -1,8 +1,8 @@
 # Collecte des sondes iMinilide
 
-> Mise en place le 29 octobre 2026. Remplace les pistes de
-> [`plan_integration_api.md`](plan_integration_api.md) : la VM étant hors du réseau
-> de l'aquarium, Polypbase lit le cloud iminilide.com au lieu de la sonde locale.
+> Intégration cloud ajoutée le 29 octobre 2026. Elle remplace le
+> [plan d’accès direct abandonné](plan_integration_api.md) : Polypbase lit le
+> cloud iMinilide, pas le serveur HTTP local de la sonde.
 
 ## Fonctionnement
 
@@ -43,11 +43,16 @@ Chaque zone thermique reçoit ses deux voies G et D.
 Procédure à exécuter uniquement après autorisation explicite de production.
 Ce document ne vaut pas autorisation et ne rapporte aucune exécution en production.
 
-À faire après le déploiement normal (`deploy/deploy_vm.ps1`), qui applique la
-migration `measurements.0015_iminilide_probe_collection` (additive).
+Avant la mise en service, vérifier que le schéma de la release est à jour,
+notamment `measurements.0015_iminilide_probe_collection`. Si une migration est
+en attente, suivre la [procédure dédiée](../dedicated-migration-recovery.md).
+Le [déploiement normal](../deploiement_vm.md) vérifie le schéma et n’applique
+aucune migration.
 
 1. **Identifiants iMinilide, saisis directement sur la VM** (jamais dans le dépôt,
-   le chat ou `backend/.env`). Le fichier n'est lu que par systemd, en root :
+   le chat ou `backend/.env`). systemd lit ce fichier séparé et transmet les
+   variables au seul service de collecte, exécuté sous `polypbase`. Ne pas
+   écraser un fichier déjà provisionné avec la commande de création ci-dessous :
 
    ```bash
    sudo install -d -m 0755 /etc/polypbase
@@ -105,11 +110,22 @@ migration `measurements.0015_iminilide_probe_collection` (additive).
 
 | Variable | Défaut | Rôle |
 |---|---|---|
+| `IMINILIDE_BASE_URL` | `https://iminilide.com` | URL du cloud ; ne remplacer que par un service HTTPS approuvé auquel les identifiants peuvent être envoyés |
+| `IMINILIDE_EMAIL` | vide | Compte cloud, obligatoire pour collecter |
+| `IMINILIDE_PASSWORD` | vide | Secret cloud, obligatoire pour collecter |
+| `IMINILIDE_TIMEOUT_SECONDS` | `20` | Délai d’attente des requêtes HTTP, en secondes |
 | `IMINILIDE_TIME_ZONE` | `Europe/Paris` | Fuseau des horodatages du cloud |
 | `IMINILIDE_MAX_LOOKBACK_DAYS` | `10` | Rattrapage maximal |
 | `PROBE_READING_RETENTION_DAYS` | `14` | Âge à partir duquel les mesures minute sont condensées |
 | `PROBE_BUCKET_MINUTES` | `15` | Taille des tranches condensées |
 | `PROBE_MANUAL_FALLBACK_HOURS` | `6` | Silence des sondes au-delà duquel la saisie manuelle revient |
+
+Avec un compte ou un mot de passe absent, la commande refuse de collecter ; le
+reste de l’application fonctionne. La collecte est désactivée en mode démo.
+Pour la QA, utiliser les réponses simulées de `apps.measurements.test_probe_collection`,
+sans appeler le cloud ni installer le minuteur. La
+[cadence de référence d’une sonde](probe_sampling_interval.md) règle la fraîcheur,
+pas l’intervalle de déclenchement du minuteur.
 
 ## Règles retenues
 

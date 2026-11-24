@@ -43,8 +43,22 @@ by the repository.
 
 For a normal release, use `deploy/deploy_vm.ps1` and its versioned Linux executor
 instead of assembling an alternative `git pull` and restart sequence. The workflow
-must preserve its fast-forward, backup, dependency, build, migration, static-file,
+must preserve its commit, fast-forward, backup, build, schema readiness, static-file,
 service, Nginx, and health-check safeguards.
+
+- Before fast-forward, the release requires `BACKUP_OK` from the root-installed
+  deployment backup broker running as the separate `polypbase_backup` OS account.
+  Verify the approved commit and pinned helper hashes through the operator
+  procedure. Never grant the web identity access to broker credentials or archives.
+- The release records `migrate --plan` and runs `migrate --check --noinput` in
+  read-only mode for schema changes. It never applies migrations. Pending migrations
+  stop the release before static files, publication, restart, or health checks.
+- Use the [dedicated migration procedure](../../../docs/dedicated-migration-recovery.md)
+  for the exact target and reviewed JSON plan. Obtain separate authorization for
+  `deploy/scripts/run_dedicated_migrations.sh` under the isolated migrator, not
+  the web account or the backup broker. Verify the backup, `MIGRATION_COMPLETE`
+  for that target, and migration history before seeking approval to resume the
+  guarded release for the same commit. Never bypass the readiness check.
 
 For a targeted production operation that is not a release, keep the command narrowly
 scoped, transactional where possible, auditable, and preceded by the appropriate

@@ -44,39 +44,44 @@ recharger et réexaminer : ne pas forcer ni réenregistrer silencieusement.
 Une entrée/sortie de période d'emplacement dans l'historique ou le graphique
 n'est pas automatiquement un déplacement physique prouvé.
 
-## Préparer un transfert — parcours v1 conservé, section désactivée
+## Consulter ou renseigner une preuve ADN
 
-La section Transferts est actuellement désactivée dans Administration. Les étapes
-suivantes décrivent le parcours v1 conservé dans le code, **pas une action accessible
-aujourd'hui dans l'interface**; elles n'autorisent pas à réactiver la section :
+Le badge à côté du code de la boîte indique si un lien de preuve ADN a été
+renseigné. Le badge permet de consulter le lien, son auteur et sa date d'ajout.
+Un administrateur ou un technicien de la structure active peut ajouter,
+modifier ou retirer la preuve. En cas de conflit, relire la fiche avant de
+réessayer. Le retrait conserve la trace de la preuve dans l'historique.
 
-1. choisir une boîte active et la structure destinataire ;
-2. indiquer le nombre de polypes transmis et les précautions dans les notes ;
-3. confirmer la préparation ;
-4. télécharger le CSV et, si nécessaire, imprimer l'étiquette QR.
+Dans « Nouvelle boîte », le lien de preuve ADN est facultatif. Saisir une
+adresse HTTP ou HTTPS. Polypbase ne vérifie pas le contenu de la preuve et ne
+la transmet ni à l'espèce, ni à la souche, ni aux boîtes enfants.
 
-Le transfert enregistre une intention : il ne change pas le propriétaire de la
-boîte source.
+## Administration sur ordinateur
 
-## Importer un transfert CSV — parcours v1 conservé
+Les sections Équipe, Inventaire, Espèces, Emplacements, Envois et réceptions et
+Historique sont accessibles aux administrateurs. Les sections Référentiels
+partagés et Institutions sont désactivées. Une fiche Espèce historique sans
+profil est consultable, mais ne permet ni de modifier le nom ou la référence
+WoRMS, ni de créer une souche.
 
-Dans le parcours conservé de cette même section désactivée :
+## Proposer le don d'une boîte entière
 
-1. sélectionner le fichier reçu ;
-2. contrôler l'aperçu (structure source, espèce, souche, polypes et conditions) ;
-3. choisir la structure et l'emplacement destinataires ;
-4. contrôler le code proposé. Il peut être modifié, mais doit rester unique et
-   commencer par le code de la souche ;
-5. confirmer la création ;
-6. utiliser « Ouvrir la nouvelle boîte » pour contrôler le résultat.
+Dans **Administration > Envois et réceptions**, choisir **Envoyer**, puis une
+boîte et la structure destinataire. Vérifier l'éligibilité et l'historique de
+la boîte, puis confirmer l'envoi de la proposition. Les deux structures peuvent
+consulter les détails de la proposition dans leurs listes respectives. La boîte
+reste sous le contrôle de la structure source et son historique n'est pas
+partagé avec le destinataire. Il n'y a pas de bouton d'acceptation ni d'annulation
+(annulation source par API seulement).
 
-Un même transfert ne peut être importé qu'une fois. L'identifiant numérique de
-la boîte source n'est jamais réutilisé. La boîte source reste inchangée.
+Le don est le seul type d'envoi proposé dans l'interface. Les écrans de partage
+externe ne sont pas accessibles et l'ancien parcours de transfert par CSV est
+retiré. Cela ne retire pas l'export CSV de suivi des relevés.
 
 ## Rôles
 
-- **Administrateur** : comptes, structures, emplacements, transferts, imports,
-  désactivation et réactivation des boîtes.
+- **Administrateur** : équipe, emplacements, espèces, propositions de don,
+  désactivation et réactivation des boîtes, selon les droits de la structure active.
 - **Technicien** : consultation et saisie des données de laboratoire et
   opérations autorisées sur les boîtes de sa structure.
 - **Lecteur** : consultation uniquement ; aucune modification.

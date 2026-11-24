@@ -1,8 +1,12 @@
-# External read-only Box sharing (backend foundation)
+# External read-only Box sharing
 
-Status: backend only, not reviewed, not integrated. No React reader, no XLSX,
-no biological transfer. Creation stays unavailable until two lifetime bounds
-are configured (see "Activation").
+The Django source-admin and recipient APIs remain registered. PR2 removed the
+unreachable React management and reader components; no share creation, invitation
+acceptance or reader screen is mounted. The email link still targets
+`/shared-boxes/accept#token=…`, but that path does not mount a recipient workflow.
+The active Exchanges page is for whole-Box donation proposals, not reader grants.
+No XLSX or biological transfer is provided by the sharing API. Creation remains
+unavailable until both lifetime bounds are configured (see "Activation").
 
 Code: `apps/sharing/` (`models.py`, `services.py`, `api_views.py`,
 `tokens.py`). Scientific content comes only from

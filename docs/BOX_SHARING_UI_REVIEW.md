@@ -1,6 +1,22 @@
-# Partages scientifiques — dossier de revue frontend
+# Partages scientifiques — revue frontend historique
 
-Date : 2026-11-12. Travail local non committé, sans push ni déploiement.
+**État du code après PR2 (`e921028`).** `AdminView` monte toujours
+`InstitutionalExchangesPage` dans **Envois et réceptions**
+(`/administration/transfers`, ordinateur uniquement). Elle affiche les propositions
+de don sortantes/entrantes et leur détail; « Envoyer » permet le préflight et
+l'envoi confirmé. Le don est le seul type sélectionnable. Il n'y a ni acceptation
+ni annulation dans React (annulation source par API uniquement), ni CSV v1.
+
+`BoxSharingAdminSection` et `SharedAccessApp` ont été supprimés avec leurs
+composants inaccessibles. Des routes API et des helpers subsistent, mais aucun
+écran React de gestion des partages, d'acceptation d'invitation ou de lecture
+n'est monté. Un lien d'invitation backend n'est pas la preuve d'un écran actif.
+Voir les contrats [partage](../backend/BOX_READER_SHARING.md) et
+[don](../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md).
+
+**Archive.** Les sections ci-dessous consignent la revue locale du 12 novembre
+2026, antérieure à l'intégration `ae07ef7` et au retrait PR2. Les parcours, fichiers
+et résultats cités décrivent cette branche à cette date, pas le code actuel.
 
 ## 1. Baseline et périmètre
 

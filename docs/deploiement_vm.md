@@ -1,10 +1,11 @@
 # Déploiement de Polypbase sur la VM
 
-Ce document décrit l’état vérifié du serveur Polypbase au 24 août 2026 et les
-opérations restantes. Les compléments ultérieurs sont datés dans leur section. Les mots de passe, clés SSH, clés Django et identifiants
-de base de données ne doivent jamais être ajoutés au dépôt.
+Ce guide décrit la procédure versionnée de déploiement. L’inventaire de la VM
+est un repère historique complété par des observations datées, pas un relevé en
+temps réel. Les secrets et identifiants privés ne doivent jamais être ajoutés
+au dépôt.
 
-## État actuel
+## Inventaire de la VM et unités versionnées
 
 | Élément | État |
 |---|---|
@@ -17,12 +18,14 @@ de base de données ne doivent jamais être ajoutés au dépôt.
 | PostgreSQL de production | Version 18, cluster `18/main`, port local 5433 |
 | Base active | `polypbase`, rôle local `polypbase`, authentification `peer` |
 | Ancien cluster local | PostgreSQL 17, vide, encore présent sur le port 5432 |
-| Clients PostgreSQL | `/usr/bin/pg_dump`/`pg_restore` = `pg_wrapper` Debian; sans `--cluster`, `/usr/bin/pg_restore --version` sélectionne 17.10. Clients 18 : `/usr/lib/postgresql/18/bin/` (exigés explicitement par `backup_database.py` et le contrôle d'archive de release; CCA-EOB, retiré, les utilisait aussi) |
+| Clients PostgreSQL | `/usr/bin/pg_dump`/`pg_restore` = `pg_wrapper` Debian; sans `--cluster`, `/usr/bin/pg_restore --version` sélectionne 17.10. Clients 18 : `/usr/lib/postgresql/18/bin/` (exigés par les sauvegardes versionnées) |
 | Domaine | `polypbase.org` et `www.polypbase.org` dirigés vers la VM |
 | HTTPS | Actif sur les deux noms, avec redirection HTTP vers HTTPS |
 | Déploiement | Automatisé et contrôlé par `deploy/deploy_vm.ps1` |
+| Collecte iMinilide | `polypbase-iminilide.timer` et `.service` versionnés : collecte cloud toutes les 10 minutes. Installation et état actif non vérifiés ici ; voir [collecte iMinilide](sondes/collecte_iminilide.md). |
 
-Les services suivants sont installés, activés au démarrage et opérationnels :
+Pour vérifier l’état et l’activation des services de l’inventaire, utiliser les
+contrôles en lecture seule suivants :
 
 ```bash
 systemctl is-active polypbase nginx postgresql
@@ -181,51 +184,37 @@ La commande effectue elle-même les opérations suivantes :
 3. vérification de l’empreinte SSH publique de la VM ;
 4. transfert et contrôle SHA-256 de l’exécuteur Linux versionné ;
 5. verrou empêchant deux déploiements simultanés ;
-6. sauvegarde PostgreSQL au format custom et validation avec `pg_restore` ;
+6. sauvegarde PostgreSQL vérifiée par le broker de confiance, avant le fast-forward ;
 7. mise à jour Git strictement en fast-forward vers le commit demandé ;
 8. installation des dépendances verrouillées et build frontend dans un dossier
    de préparation distinct ;
-9. plan de migration, migrations, fichiers statiques et contrôles Django ;
+9. contrôles Django, plan textuel et garde de disponibilité du schéma en lecture seule ;
+   fichiers statiques seulement si aucune migration n’est en attente ;
 10. publication du frontend, redémarrage de Gunicorn et validation de Nginx ;
 11. contrôles de santé, des routes React, de HTTPS et du commit réellement servi.
 
-Pour la sauvegarde avant mise à jour, l'exécuteur extrait les deux fichiers
-`backend/config/database_backup.py` et `deploy/scripts/backup_database.py` du
-commit cible déjà récupéré et contrôlé, dans le dossier de release. Il utilise
-ce code avec la configuration Django de la copie encore en place : la première
-release bénéficie donc des clients 18 sans avancer Git avant la sauvegarde.
-Le second contrôle d'archive utilise également le helper extrait, avec
-`client_major=18`, ses contrôles de provenance et son délai maximal. Ces
-contrôles de lisibilité ne remplacent pas un test de restauration.
+### Broker de sauvegarde de déploiement
 
-### Garde CCA-EOB du runtime dédié
+L’exécuteur appelle le broker installé par root à
+`/usr/local/libexec/polypbase-deployment-backup` via `sudo -n -u polypbase_backup`,
+avec le seul SHA cible complet. L’opérateur épingle le SHA approuvé et les
+empreintes des deux helpers revus dans la configuration protégée du broker.
+Celui-ci utilise Python système et le login PostgreSQL dédié `box1902_backup`,
+jamais le checkout web, son venv ni son `.env`. Voir le [contrat d’installation
+et de vérification](dedicated-migration-recovery.md#2-install-the-separate-deployment-backup-broker).
 
-Après le fast-forward et la synchronisation des dépendances verrouillées, avant
-le build frontend, les contrôles Django et les migrations,
-`deploy/scripts/deploy_release.sh` exécute l'étape `CCA-EOB runtime read
-permissions`. Elle est active **uniquement si** l'une de ces conditions est vraie :
-
-- le compte Linux `polypbase_cca_eob` existe (`id -u polypbase_cca_eob`);
-- le chemin `/etc/polypbase/cca-eob-runtime-permissions-v1.json` existe, y
-  compris sous forme de lien symbolique.
-
-Elle lance alors `deploy/scripts/cca_eob_runtime_permissions.py check`, qui
-exige un manifeste protégé et les droits exacts, ne modifie aucune ACL et arrête
-la release en cas d'échec (dépôt déjà avancé, migrations non appliquées).
-
-Le runtime dédié a été retiré le 2026-11-04 (rapporté par l'opérateur : compte
-et groupe supprimés, manifeste actif archivé, `CCA_EOB_DEPLOY_GUARD_CLEAR`).
-Les deux conditions étant absentes, l'étape est sautée et ne bloque plus la
-release. Si le compte ou le manifeste réapparaît, le contrôle redevient actif et
-échoue sans manifeste revu valide. **Ne jamais recréer le compte ou le manifeste,
-ni modifier ce garde, pour faire passer un déploiement** : arrêter et analyser.
-Historique : [`cca-eob-runtime-manifest-procedure.md`](cca-eob-runtime-manifest-procedure.md);
-état courant : [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+Avant le fast-forward, la release exige la sortie `BACKUP_OK` avec le chemin
+privé attendu pour ce commit. Le broker crée et vérifie l’archive avec les
+clients PostgreSQL 18 ; cette attestation ne remplace pas un test de
+restauration. Ne donner au compte web ni accès à l’archive ou aux secrets, ni
+droits supplémentaires pour répéter la vérification. Le broker ne détermine pas
+si le schéma est prêt et n’exécute pas les migrations.
 
 Le script s’arrête au premier échec. Il ne restaure jamais la base et n’annule
-jamais une migration automatiquement. Le journal distant, la sauvegarde et
-l’ancien build frontend sont conservés sous `/srv/polypbase` pour permettre un
-diagnostic ou un retour arrière décidé explicitement.
+jamais une migration automatiquement. Le journal distant et l’ancien build frontend sont conservés sous
+`/srv/polypbase` ; la sauvegarde de release reste dans le répertoire privé du
+broker. Conserver ces éléments pour le diagnostic ou un retour arrière décidé
+explicitement.
 
 Pour exécuter uniquement les contrôles locaux sans contacter la VM :
 
@@ -261,14 +250,20 @@ est absent ou vide, avec `POLYPBASE_SSH_KEY`. Sans l'un de ces deux réglages,
 `deploy/deploy_vm.ps1` s'arrête avec une erreur : aucun chemin personnel de secours
 n'est utilisé. La clé et son contenu ne sont jamais copiés dans le dépôt.
 
-### Approbation explicite d'un plan de migration revu
+### Disponibilité du schéma et migrateur dédié
 
 Le déploiement normal est désormais **strictement read-only pour les migrations** :
-`migrate --check` refuse toute migration en attente, quelle que soit son contenu.
+L’étape `database migration readiness` exécute `migrate --check --noinput` et
+refuse toute migration en attente, quelle que soit son contenu.
 Il n'applique jamais de migration et le script de release n'accepte plus aucun
 paramètre d'approbation de migration.
 
-Pour toute exécution dédiée, 0018 comme toute migration future, suivre la procédure
+Pour toute exécution dédiée, utiliser `deploy/scripts/run_dedicated_migrations.sh`
+avec le compte OS isolé `polypbase_migrator`, depuis un bundle de contrôle
+authentifié et un snapshot cible installé par root hors du checkout web. Le
+migrateur vérifie le plan JSON exact, l’approbation `COMMIT:SHA256` et une nouvelle
+sauvegarde vérifiée avant d’appliquer. Pour 0018 comme pour toute migration future,
+suivre la procédure
 [de contrôle authentifié et de reprise](dedicated-migration-recovery.md). Aucune
 opération, même personnalisée ou apparemment additive, ne reçoit d'approbation
 implicite. Le plan d'approbation dédié est un fichier JSON déterministe ; le

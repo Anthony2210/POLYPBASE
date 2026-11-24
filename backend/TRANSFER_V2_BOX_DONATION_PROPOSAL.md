@@ -1,8 +1,16 @@
 # Transfer v2 — Phase 6, jalon 2 : proposition de don de Box entière
 
-Périmètre de ce document : contrat backend de la proposition et de l'annuaire
-restreint des destinations, sans acceptation. Une proposition n'est pas un
-transfert. Fondations : [`TRANSFER_V2_BOX_IDENTITY.md`](TRANSFER_V2_BOX_IDENTITY.md).
+Une proposition n'est pas un transfert. Ce document décrit le contrat de la
+proposition et de l'annuaire restreint des destinations. Fondations :
+[`TRANSFER_V2_BOX_IDENTITY.md`](TRANSFER_V2_BOX_IDENTITY.md).
+
+Dans Administration > Envois et réceptions, `InstitutionalExchangesPage` affiche
+les propositions sortantes et entrantes et leurs détails. « Envoyer » ouvre
+`ExchangeFormPreview` : choix d'une boîte et d'une structure, préflight, puis
+confirmation et envoi idempotent. Seul le don est sélectionnable; les options de
+partage sont désactivées. L'annulation est exposée par l'API source mais n'a pas
+de bouton dans cette page. Ni l'API ni React ne proposent d'acceptation. Ce
+parcours n'utilise ni le CSV v1 retiré ni les API de partage en lecture seule.
 
 ## Ce que fait une proposition (et ce qu'elle ne fait pas)
 

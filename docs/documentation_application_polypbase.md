@@ -28,7 +28,7 @@ Les fichiers les plus importants pour comprendre l'application sont :
 | Client API | `frontend/src/api/client.ts` | Centralise les appels HTTP, le CSRF et l'envoi de l'institution active. |
 | Types frontend | `frontend/src/types.ts` | Décrit les objets manipulés côté React. |
 | Styles globaux | `frontend/src/styles/index.css` | Agrège les styles partagés, composants et pages. |
-| Styles téléphone | `frontend/src/styles/phone.css` | Adaptations spécifiques au téléphone. |
+| Styles téléphone | `frontend/src/styles/responsive/phone.css` | Adaptations spécifiques au téléphone. |
 | Détection support | `frontend/src/hooks/useIsDesktopApp.ts` | Sépare les usages bureau des usages laboratoire. |
 | Routes API | `backend/config/api_urls.py` | Liste les endpoints utilisés par React. |
 | Modèles métier | `backend/apps/*/models.py` | Structure les données Django. |
@@ -87,7 +87,7 @@ Les rôles principaux sont :
 
 | Rôle | Usage prévu |
 | --- | --- |
-| Administrateur | Gestion des comptes, emplacements, sondes, institutions, transferts et historique. |
+| Administrateur | Gestion de l’équipe, des espèces et emplacements, propositions de don et historique, selon le contexte institutionnel. |
 | Technicien | Saisie des relevés, déplacements, repiquages et usage laboratoire. |
 | Lecture seule | Consultation des données sans modification. |
 
@@ -103,7 +103,7 @@ Fichiers principaux :
 
 - `frontend/src/components/LoginPage.tsx`
 - `frontend/src/components/PasswordResetPage.tsx`
-- `frontend/src/components/LoginNotice.tsx`
+- `frontend/src/components/LoginPage.tsx`
 - `backend/apps/accounts/api_views.py`
 - `backend/apps/accounts/serializers.py`
 
@@ -162,7 +162,7 @@ Sur téléphone, l'interface est simplifiée. La navigation est en bas de l'écr
 
 Le style spécifique téléphone est dans :
 
-- `frontend/src/styles/phone.css`
+- `frontend/src/styles/responsive/phone.css`
 
 ## 7. Création d'une boîte
 
@@ -595,12 +595,11 @@ Fichier principal :
 
 - `frontend/src/components/AdminView.tsx`
 
-Sections actives : Équipe/Comptes, Inventaire et Historique. References,
-Emplacements/sondes, Institutions et Transferts sont actuellement désactivés
-(`DISABLED_ADMIN_SECTIONS`); une demande directe retombe sur Comptes. Leurs API
-backend restent soumises aux permissions. Les descriptions suivantes de ces
-sections sont des parcours conservés, pas une disponibilité actuelle.
-Administration reste desktop-only : tablette redirigée vers `/` sans UI intermédiaire.
+Sections actives : Équipe/Comptes, Inventaire, Espèces, Emplacements, Envois
+et réceptions et Historique. Seuls Référentiels partagés et Institutions sont
+désactivés (`DISABLED_ADMIN_SECTIONS`); leurs URL affichent Comptes sur ordinateur.
+Les API backend conservent leurs propres permissions. Sur tablette, les URL
+Administration redirigent vers `/` sans interface intermédiaire.
 
 ### Comptes
 
@@ -617,36 +616,22 @@ La création de compte envoie une invitation sécurisée depuis
 `backend/apps/accounts/api_views.py`. Aucun administrateur ne peut définir ou
 recevoir le mot de passe d'une autre personne.
 
-### Référentiel biologique — désactivé
+### Espèces — catalogue institutionnel
 
-Le grand catalogue partagé est abandonné pour la direction actuelle. La maintenance
-AAA contextuelle reste à concevoir; création Strain normale exige déjà l'AAA
-institutionnelle côté Django. Ne pas réactiver le catalogue pour contourner le
-lien de récupération manquante. Les fondations BBB/provenance restent backend,
-sans UI de routine. Dans le composant conservé, cette section permet à un administrateur de créer et de modifier les espèces et les souches utilisées par Polypbase. L'identification scientifique, les codes, l'identifiant WoRMS Aphia et les notes sont séparés des noms et descriptions localisés. Le français est obligatoire. L'anglais et le japonais sont facultatifs.
+`SpeciesStrainsAdminSection` regroupe espèces, souches et boîtes de la structure
+active. Un administrateur peut enregistrer une espèce et gérer le nom scientifique
+et la référence WoRMS d'un profil existant. Une fiche historique sans profil
+reste en lecture seule : pas de modification ni de création de souche. Le POST
+`/api/admin/institution-species/resolve/` est retiré (`410` après autorisation,
+sans création ni audit). La création de souche exige un AAA utilisable déjà
+attribué. Le référentiel partagé est une autre section et reste désactivé.
 
-Les champs de langue sont produits à partir de `CONTENT_LANGUAGES`. Une langue ajoutée à cette configuration apparaît automatiquement dans le formulaire. Les données sont enregistrées dans `SpeciesTranslation` et `StrainTranslation`, avec une seule traduction par référence et par langue. Les créations sont aussi ajoutées au journal d'actions.
+### Emplacements et sondes
 
-Fichiers principaux :
-
-- `frontend/src/components/TaxonomyAdminSection.tsx` ;
-- `backend/apps/taxonomy/models.py` ;
-- `backend/apps/taxonomy/serializers.py` ;
-- `backend/apps/taxonomy/api_views.py`.
-
-### Emplacements et sondes — section Administration désactivée
-
-Dans le composant conservé, cette section permet :
-
-- de créer un emplacement thermique ;
-- de définir sa température cible ;
-- de définir sa capacité ;
-- de définir une salinité de référence ;
-- d'ajouter une sonde ;
-- d'associer une sonde à un emplacement ;
-- de modifier les capacités et salinités existantes.
-
-Ces actions modifient les modèles `ThermalZone`, `Probe` et `SalinityMeasurement`.
+La section active (`LabConfigurationAdminSection`) gère la configuration des
+emplacements de la structure active, dont la capacité, la consigne thermique et
+la salinité de référence. Elle affiche aussi le rattachement des sondes. Les
+actions disponibles restent soumises aux capacités et validations serveur.
 
 ### Institutions — section désactivée
 
@@ -658,27 +643,20 @@ Le modèle principal est :
 
 Les informations affichées sont le nom, le pays, la ville, le contact, l'email, le téléphone et l'adresse postale. Un bouton crayon permet de modifier les informations d'une institution.
 
-### Transferts — section désactivée
+### Envois et réceptions
 
-Le parcours v1 conservé prépare les échanges entre structures.
+`InstitutionalExchangesPage` affiche les propositions de don de boîte entière,
+sortantes et entrantes. Le formulaire « Envoyer » permet de choisir la boîte et
+la structure, de vérifier l'éligibilité puis de confirmer la proposition. Le don
+est le seul type sélectionnable. L'annulation n'est disponible que par API côté
+source. Aucune acceptation n'est exposée : pas de changement de propriétaire,
+de boîte créée à destination ni d'accès à l'historique source.
 
-Elle contient :
-
-- un formulaire de transfert sortant ;
-- une sélection de boîte inspirée de la page Étiquettes ;
-- une institution destinataire ;
-- le nombre de polypes transférés ;
-- une note ;
-- une génération de CSV ;
-- un import de CSV de transfert entrant.
-
-Les fichiers backend concernés sont :
-
-- `backend/apps/cultures/api_views.py`
-- `backend/apps/cultures/serializers.py`
-- `backend/apps/cultures/models.py`
-
-Le document `docs/transferts_csv.md` détaille le format attendu.
+Les écrans de partage externe en lecture seule ont été retirés en PR2; les routes
+API de partage subsistent. Le CSV v1 de transfert est retiré (`410` après
+autorisation), sans rapport avec l'export CSV des relevés. Voir
+[`transferts_csv.md`](transferts_csv.md) et le
+[contrat du don](../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md).
 
 ### Historique global
 
@@ -710,7 +688,7 @@ Les actions enregistrées incluent notamment :
 - création ou modification d'emplacement ;
 - ajout de sonde ;
 - création ou modification de compte ;
-- préparation de transfert.
+- ajout, modification ou retrait d’une preuve ADN.
 
 Les anciennes entrées de résolution d'alerte restent conservées comme traces historiques, sans parcours de résolution actif.
 
@@ -745,7 +723,7 @@ Le choix de langue est enregistré dans le profil utilisateur via :
 PATCH /api/profile/
 ```
 
-Les noms et descriptions des espèces et des souches sont gérés séparément des textes de l'interface. Les modèles `SpeciesTranslation` et `StrainTranslation` stockent une valeur par langue. Le français est obligatoire. L'anglais et le japonais sont facultatifs. La liste est définie par `CONTENT_LANGUAGES` dans `backend/config/settings.py`, puis transmise automatiquement au formulaire React du référentiel biologique.
+Les noms et descriptions des espèces et des souches sont gérés séparément des textes de l'interface. Les modèles `SpeciesTranslation` et `StrainTranslation` stockent une valeur par langue. Le français est obligatoire. L'anglais et le japonais sont facultatifs. La liste est définie par `CONTENT_LANGUAGES` dans `backend/config/settings.py`, pour les contenus localisés. Le formulaire Espèces actif gère le nom scientifique et la référence WoRMS du profil institutionnel, pas ce catalogue de traductions.
 
 Cette séparation permet de préparer une taxonomie japonaise sans activer une interface japonaise incomplète. L'ajout d'une langue de contenu ne demande pas de nouvelle migration. L'ajout d'une langue complète à l'interface demande en revanche un nouveau catalogue React, un fichier Django `.po`, une relecture humaine et des essais sur les trois supports.
 
@@ -768,7 +746,7 @@ Les choix principaux sont :
 Les fichiers de style sont :
 
 - `frontend/src/styles/index.css` (agrégateur de styles composants/pages)
-- `frontend/src/styles/phone.css`
+- `frontend/src/styles/responsive/phone.css`
 
 L'agrégateur `index.css` charge les familles partagées et les styles de pages.
 Les adaptations locales restent dans leurs propriétaires; `phone.css` porte
@@ -937,8 +915,10 @@ Les endpoints sont regroupés dans `backend/config/api_urls.py`.
 | `/api/thermal-zones/<id>/` | Détail ou modification d'un emplacement. |
 | `/api/thermal-zones/<id>/temperature/` | Ajout d'une température manuelle. |
 | `/api/probes/` | Ajout d'une sonde. |
-| `/api/box-transfers/` | Préparer un transfert sortant. |
-| `/api/box-transfer-imports/` | Importer un transfert entrant. |
+| `/api/boxes/<id>/dna-validation/` et `…/revoke/` | Déclarer, modifier ou retirer la preuve ADN de la boîte. |
+| `/api/box-transfers/`, `/api/box-transfer-imports/` | Routes v1 retirées (`410` après autorisation). |
+| `/api/box-donations/…` | Préflight, propositions, consultation et annulation source; pas d’acceptation. |
+| `/api/admin/box-shares/…`, `/api/shared-boxes/…` | Partage externe en lecture seule; aucun écran React monté. |
 | `/api/organizations/` | Créer une institution. |
 | `/api/organizations/<id>/` | Modifier ou supprimer une institution. |
 | `/api/exports/options/` | Options de filtres pour les exports. |
@@ -958,7 +938,7 @@ Le bureau est prévu pour :
 - exports ;
 - administration ;
 - gestion des comptes ;
-- préparation des transferts ;
+- propositions de don ;
 - impression d'étiquettes ;
 - analyse graphique.
 
@@ -1025,7 +1005,7 @@ Les tests avec la caméra doivent être faits en HTTPS. En local simple, Safari 
 | Modifier les droits | `backend/apps/accounts/permissions.py`, `backend/apps/accounts/models.py` |
 | Modifier l'audit | `backend/apps/audit/models.py`, `backend/apps/accounts/api_views.py`, `backend/apps/cultures/api_views.py` |
 | Modifier les styles bureau/tablette | `frontend/src/styles/index.css`, styles du composant/de la page concernée |
-| Modifier les styles téléphone | `frontend/src/styles/phone.css` |
+| Modifier les styles téléphone | `frontend/src/styles/responsive/phone.css` |
 
 ## 27. Commandes utiles
 
@@ -1046,7 +1026,7 @@ Lancer le frontend :
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -1054,9 +1034,9 @@ Vérifier le backend :
 
 ```powershell
 cd backend
-uv run python manage.py check --settings=config.test_settings
-uv run python manage.py test --settings=config.test_settings
-uv run python manage.py makemigrations --check --dry-run --settings=config.test_settings
+uv run python manage.py check --settings=config.preflight_settings
+if ($LASTEXITCODE -ne 0) { throw 'Django check failed' }
+uv run python manage.py makemigrations --check --dry-run --settings=config.preflight_settings
 ```
 
 Vérifier le frontend :
@@ -1067,8 +1047,9 @@ npm run build
 ```
 
 Ne jamais utiliser Neon ou la production pour tests, imports d'essai ou démo.
-Les migrations de production passent uniquement par le déploiement explicitement
-autorisé et ses protections. Lancer les validations sur des settings isolés;
+Le déploiement vérifie la présence de migrations en attente, mais ne les applique
+pas : leur exécution passe par le migrateur dédié, avec autorisation séparée.
+Pour les tests ciblés, utiliser les [settings isolés](context/development-deployment.md);
 les garanties PostgreSQL exigent une base QA jetable séparée.
 
 ## 28. Limites actuelles et sujets à surveiller
@@ -1091,16 +1072,24 @@ Le CSV canonique/planner dispose désormais d'un applicateur restreint exact-dat
 (`backend/apps/measurements/import_apply.py`) : confirmation explicite, application
 atomique des plans valides `CREATE` exact-date / `ALREADY_MATCHES` / `IGNORED`,
 revalidation sous verrous, source privée conservée et reçu idempotent. L'API existe,
-mais les composants `MeasurementImportEntry` / `MeasurementImportPanel` ne sont pas
-montés dans l'interface React active : ne pas confondre implémentation et écran
-accessible. Ce n'est pas un import générique sans restrictions : créations semaine seule et observateurs
+mais les composants React non montés ont été supprimés en PR2. Ce n'est pas un import générique sans restrictions : créations semaine seule et observateurs
 nommés restent bloqués; correction de masse et onboarding génériques restent absents.
 Voir [`measurement-csv-diagnostics.md`](measurement-csv-diagnostics.md).
-Les importeurs historiques ont leurs contrats distincts. La section transfert v1 est désactivée;
-v2 n'a pas d'acceptation destination. Les futurs tests utilisent des fixtures
+Les importeurs historiques ont leurs contrats distincts. Le transfert CSV v1 est retiré;
+le don de boîte entière n'a pas d'acceptation destination. Les futurs tests utilisent des fixtures
 synthétiques isolées et une revue de contrat, pas des données de production.
 
 Les règles exactes de conservation des comptes, de RGPD et d'hébergement doivent être finalisées avant une mise en production.
+
+### Preuve ADN d'une boîte
+
+Sur `BoxPage`, le badge à côté du code ouvre la preuve active : lien HTTP/HTTPS,
+auteur et date d'ajout. Un administrateur ou un technicien actif de la structure
+peut l'ajouter, la modifier ou la retirer; une révision périmée impose une
+relecture. Un lien peut aussi être fourni dans « Nouvelle boîte ». La preuve et
+son audit sont alors enregistrés avec la création. Django ne consulte pas le lien
+et n’en déduit aucune validation de l'espèce, de la souche ou des boîtes enfants.
+Voir le [contrat ADN](context/boxes-lifecycle-locations.md).
 
 ## 29. Ce que Polypbase permet déjà
 
@@ -1111,7 +1100,7 @@ Les règles exactes de conservation des comptes, de RGPD et d'hébergement doive
 - appliquer des rôles par institution ;
 - rechercher une boîte ;
 - scanner un QR code quand le navigateur le permet ;
-- consulter une fiche boîte ;
+- consulter une fiche boîte et sa preuve ADN déclarée ;
 - saisir un relevé biologique ;
 - corriger un relevé ;
 - saisir une salinité dans un relevé ;
@@ -1125,11 +1114,12 @@ Les règles exactes de conservation des comptes, de RGPD et d'hébergement doive
 - désactiver ou réactiver une boîte ;
 - consulter les emplacements thermiques ;
 - saisir une température manuelle ;
-- disposer d'API backend d'emplacements/sondes sous permissions, leur section Administration étant désactivée ;
+- configurer les emplacements depuis Administration sur ordinateur ;
 - gérer les comptes ;
-- disposer d'API backend d'institutions et de transfert v1, sans parcours React actif pour ces sections ;
+- consulter les espèces et gérer les profils institutionnels autorisés ;
+- proposer un don de boîte entière, sans l’accepter ;
 - exporter des relevés ;
 - imprimer des étiquettes QR code ;
 - consulter un historique global des actions.
 
-Cette base n'est pas encore un produit final, mais elle couvre déjà les principaux parcours nécessaires au suivi de laboratoire : retrouver une boîte, saisir un relevé, conserver l'historique, suivre les emplacements, préparer les repiquages, partager les données et garder la trace des actions.
+Cette base n'est pas encore un produit final, mais elle couvre déjà les principaux parcours nécessaires au suivi de laboratoire : retrouver une boîte, saisir un relevé, conserver l'historique, suivre les emplacements, préparer les repiquages, exporter des relevés et garder la trace des actions.

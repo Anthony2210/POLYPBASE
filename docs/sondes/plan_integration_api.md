@@ -1,8 +1,10 @@
 # Plan — Relier l'API des sondes iMinilide à Polypbase
 
-> Complète [notes_integration_iminilide.md](notes_integration_iminilide.md).
-> Objectif : récupérer automatiquement les températures des sondes iMinilide et les
-> stocker dans Polypbase, en restant développable à distance (sans sonde physique).
+> **Plan abandonné, conservé comme archive.** Ni le polling HTTP/XML local,
+> ni les champs IP/port proposés, ni la commande `poll_probes` ne font partie
+> du chemin de collecte actuel. Ne pas suivre les étapes ci-dessous.
+> Voir [Collecte des sondes iMinilide](collecte_iminilide.md) pour les commandes,
+> les réglages et les unités systemd de l’intégration cloud.
 
 ---
 

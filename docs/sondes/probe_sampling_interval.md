@@ -6,6 +6,8 @@ du contrôle thermique récent (`âge <= 3 × cadence`). Les seules valeurs acce
 sont **60, 600 et 900 secondes**. Elle ne modifie ni la fréquence matérielle, ni la
 collecte cloud, ni les mesures, tranches ou agrégats historiques. Elle fonctionne
 pour tous les types de sondes, actives ou inactives, sans réactiver une sonde.
+Pour le minuteur et les variables `IMINILIDE_*`, voir
+[Collecte des sondes iMinilide](collecte_iminilide.md).
 
 ## Autorité et identité
 
@@ -54,10 +56,12 @@ force pas d'actualisation frontend.
 
 ## Validation isolée
 
-Depuis `backend/` (syntaxe shell POSIX) :
+Depuis `backend/`, dans un environnement local vérifié sans variables de démo
+héritées (syntaxe shell POSIX) :
 
 ```sh
-DJANGO_DEBUG=1 POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 uv run python manage.py test apps.measurements.test_set_probe_sampling_interval --settings=config.test_settings
+PYTHON_DOTENV_DISABLED=1 POLYPBASE_DEMO=0 POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 \
+  uv run python manage.py test apps.measurements.test_set_probe_sampling_interval --settings=config.test_settings
 ```
 
 Ces tests utilisent SQLite en mémoire : ils couvrent les arguments, permissions,

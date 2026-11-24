@@ -2,14 +2,15 @@
 
 ## Périmètre et état
 
-Implémentation non committée sur `feat/box-dna-validation`, depuis `main` local `451a4f3`.
-Au contrôle initial, le worktree était propre. Un fetch de `origin/main` a montré `ae07ef7`, un commit derrière le main local. Aucun changement de branche, merge, commit, push, déploiement ou accès production/Neon.
-
-La recherche préalable ADN/DNA/barcoding/séquençage n'a trouvé aucun modèle, champ ou composant correspondant dans l'application. `POLYPBASE_CURRENT_STATE.md` mentionnait uniquement un enrichissement ADN exploratoire. La V1 est une déclaration explicite de preuve par boîte, pas une identification automatique.
+La validation ADN est intégrée au code (PR #19, puis preuve facultative à la
+création de boîte dans la PR #23). Elle déclare un lien de preuve propre à la
+boîte, sans identification automatique. Ce dossier conserve les résultats de la
+revue locale historique; ils n'ont pas été rejoués pour PR3.
 
 ## Contrat livré
 
 - Preuve URL obligatoire, HTTP/HTTPS seulement, espaces de bord retirés, maximum 2 000 caractères. Le serveur ne consulte jamais le lien.
+- Lors de la création ordinaire, `dna_evidence_url` est facultatif. S’il est fourni, la preuve et son audit sont enregistrés dans la même transaction que la boîte.
 - Une validation active par boîte; retrait logique conservant la ligne et les auteurs. Ajouter après retrait crée une autre ligne.
 - Aucun héritage de preuve vers les enfants, la lignée, la souche ou l'espèce. Aucun effet sur les relevés, exports, QR, inventaire, graphiques ou alertes.
 - Autorisation serveur : utilisateur et membership actifs Admin/Technicien de l'institution active. Un superutilisateur sans ce membership n'obtient pas l'écriture ADN. Lecteur : `403`; objet étranger pour un auteur autorisé : `404`. Les statuts active/inactive/pending_review sont tous acceptés.
@@ -37,10 +38,10 @@ La projection de détail est `null | {id, evidence_url, created_by, created_at, 
 
 | Domaine | Fichiers |
 |---|---|
-| Persistance | `backend/apps/cultures/models.py`, `migrations/0019_box_dna_validation.py` |
+| Persistance | `backend/apps/cultures/models.py`, `migrations/0019_box_dna_validation.py`, `0021_merge_dna_and_history.py` |
 | Service/API | `backend/apps/cultures/dna_validation.py`, `dna_validation_api.py`, `serializers.py`, `backend/config/api_urls.py` |
-| Tests backend | `backend/apps/cultures/test_dna_validation.py`, `test_dna_validation_concurrency.py`, `test_dna_validation_migrations.py` |
-| Badge et lien | `frontend/src/components/DnaValidationBadge.tsx`, `DnaEvidenceLink.tsx`, `BoxPage.tsx` |
+| Tests backend | `backend/apps/cultures/test_dna_validation.py`, `test_dna_validation_concurrency.py`, `test_dna_validation_migrations.py`, `test_box_creation_dna_evidence.py` |
+| Badge et lien | `frontend/src/components/DnaValidationBadge.tsx`, `DnaEvidenceLink.tsx`, `BoxPage.tsx`, `CreateBoxPanel.tsx` |
 | Orchestration/types | `frontend/src/App.tsx`, `frontend/src/types.ts`; réutilisation de `api/client.ts`, sans seconde implémentation du transport |
 | Audits | `frontend/src/components/AuditTimeline.tsx`, `frontend/src/utils/auditPresentation.ts` |
 | Styles | `frontend/src/styles/pages/box-detail.css`, `frontend/src/styles/components/popovers.css` |
@@ -54,7 +55,8 @@ Les traductions japonaises validées (`ja.ts` et PO japonais) sont inchangées. 
 
 ## Résultats de validation
 
-Les résultats frontend/navigateur actuels ci-dessous ont été exécutés pendant la reprise et communiqués par l'utilisateur pour cette mise à jour documentaire; ils ne sont pas réexécutés par l'agent de documentation. Ils remplacent les anciens comptes de 323 tests (22 ADN) et 304 contrôles navigateur et couvrent les derniers ajustements : absence de chip, modale partagée et correction blur/submit. Les résultats backend restent historiques.
+Ces résultats historiques ont été communiqués lors de la revue de la fiche boîte.
+Ils ne valident ni le checkout PR3, ni le formulaire de création ajouté ensuite.
 
 ### Backend — résultats historiques, non réexécutés pendant cette reprise
 
@@ -79,7 +81,7 @@ env POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 ../.venv/Scripts/python.exe manage.
 
 Résultats : **aucun problème; aucune dérive de migration**.
 
-### Frontend — résultats actuels de la reprise
+### Frontend — résultats historiques de la reprise
 
 Depuis `frontend/` :
 
@@ -94,13 +96,13 @@ Depuis la racine, `python docs/translation-review/application/check_register.py`
 
 Contrôle historique uniquement, non réexécuté dans cette reprise : compilation stricte MO `--check` réussie après régénération avec `scripts/compile_django_messages.py`.
 
-### Navigateur et accessibilité — résultats actuels de la reprise
+### Navigateur et accessibilité — résultats historiques de la reprise
 
 ```sh
-uv run --no-project --with playwright python frontend/scripts/qa-dna-validation.py --output-dir C:/Users/antoc/POLYPBASE-QA/box-dna-validation
+uv run --no-project --with playwright python frontend/scripts/qa-dna-validation.py --output-dir "<répertoire-qa-hors-dépôt>"
 ```
 
-Dernière exécution communiquée : **382 contrôles réussis** sur **8 cas** (4 tailles × FR/EN), avec technicien et lecteur : **47 contrôles pour chacun des cas desktop FR/EN**, **48 pour chacun des six autres cas**. **104 captures** ont été produites; le dernier `report.json` est **vert**. Les captures et `report.json` sont conservés exclusivement dans `C:/Users/antoc/POLYPBASE-QA/box-dna-validation`, hors dépôt.
+Dernière exécution communiquée : **382 contrôles réussis** sur **8 cas** (4 tailles × FR/EN), avec technicien et lecteur : **47 contrôles pour chacun des cas desktop FR/EN**, **48 pour chacun des six autres cas**. **104 captures** ont été produites; le dernier `report.json` est **vert**. Les captures et `report.json` restent hors dépôt.
 
 - Desktop `1440×1000`, tablette tactile `960×600`, téléphone `390×844`, petit écran `320×844`.
 - FR et EN; technicien/lecteur, ajout, modification, annulation/retrait confirmé, conflit puis GET sans rejeu, code long, absence de débordement horizontal, cibles de 44px.
@@ -113,7 +115,9 @@ Dernière exécution communiquée : **382 contrôles réussis** sur **8 cas** (4
 
 ## Captures
 
-Emplacement exclusif des captures et de `report.json` : `C:/Users/antoc/POLYPBASE-QA/box-dna-validation`. Toujours passer cet emplacement avec `--output-dir`; ne pas utiliser d'autre répertoire, même temporaire. Aucun PNG ni rapport n'est versionné ici et aucun lien PNG local n'est publié dans la documentation. La dernière exécution a produit 104 captures couvrant desktop `1440×1000`, tablette `960×600`, téléphone `390×844` et petit écran `320×844`, en FR et EN, notamment l'absence de chip, la modale partagée et les erreurs après blur modifié/submit. Cette mise à jour documentaire consigne ces résultats communiqués sans relancer le harness ni produire d'autres captures.
+Choisir un répertoire hors dépôt pour `--output-dir`. Ne pas versionner les PNG
+ou `report.json`, ni publier de lien vers un chemin personnel. La revue a couvert
+des fixtures avec API simulée, pas un parcours bout en bout Django.
 
 ## Corrections visuelles du popover
 
@@ -125,7 +129,7 @@ Le popover ne suit plus un texte brut. Il réutilise le langage existant plutôt
 - Action de retrait alignée sur `row-action-menu button` (danger, `--color-danger-soft`).
 - Crayon `Pencil` de `lucide-react`, déjà utilisé pour corriger; icône `ExternalLink` pour le lien.
 - Date via `formatDisplayDateTime` (formateur existant, sans secondes).
-- Modale alignée sur les classes partagées `box-dialog*`; erreurs URL après blur d'un champ modifié ou submit invalide, pas à l'ouverture ni pendant la saisie. Ces ajustements sont couverts par les résultats actuels ci-dessus. Le blur vers le bouton submit n'insère pas d'erreur avant le clic : le submit valide et focalise directement, sans effet `focusRequest` ni délai.
+- Modale alignée sur les classes partagées `box-dialog*`; erreurs URL après blur d'un champ modifié ou submit invalide, pas à l'ouverture ni pendant la saisie. Ces ajustements sont couverts par les résultats historiques ci-dessus. Le blur vers le bouton submit n'insère pas d'erreur avant le clic : le submit valide et focalise directement, sans effet `focusRequest` ni délai.
 
 Fichiers modifiés par ces corrections : `frontend/src/components/DnaValidationBadge.tsx`, `DnaEvidenceLink.tsx`, `frontend/src/styles/components/popovers.css`, `frontend/src/styles/pages/box-detail.css`, `frontend/src/styles/responsive/phone.css`, catalogues `frontend/src/i18n/{fr,en}.ts`, `frontend/scripts/test-dna-validation.mjs`, `test-audit-presentation.mjs`, `frontend/scripts/qa-dna-validation.py`, `docs/translation-review/application/register.csv`.
 

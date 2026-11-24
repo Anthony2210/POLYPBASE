@@ -26,11 +26,12 @@ Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en 
 - `cultures` : boîtes, zones, emplacements, mouvements, repiquages, lignées et transferts.
 - `measurements` : relevés biologiques, observations, sondes, températures et salinité.
 - `exports` : sélection, aperçu, génération de CSV et traces d'import/export.
+- `sharing` : accès externe à une boîte en lecture seule, invitations et captures figées.
 - `audit` : journal d'actions (`AuditLog`); modèle et stockage historiques `Alert` conservés dormants.
 
 Ce découpage situe le code; il ne remplace pas les frontières métier documentées dans les autres contextes.
 
-Fondation additive non activée : `InstitutionSpecies` stocke le nom scientifique et l'AphiaID locaux d'une institution au-dessus de la référence `Species` partagée. La migration `taxonomy.0012` ne convertit aucune donnée historique et ne change ni les FK des souches, ni les codes. Des API Admin institutionnelles et un espace local Administration > Espèces et souches (en attente de validation, non publié) les utilisent; les anciens POST de référentiel partagé restent des bloqueurs d'activation. Modèle, diagnostic de préparation en lecture seule, rollback protégé et liste des gates : [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](../../backend/INSTITUTION_SPECIES_FOUNDATION.md).
+`InstitutionSpecies` stocke le nom scientifique et l'AphiaID locaux au-dessus de la référence `Species` partagée. La migration `taxonomy.0012` ne convertit aucune donnée historique et ne change ni les FK des souches, ni les codes. Administration > Espèces utilise les API institutionnelles. Les fiches historiques sans profil sont en lecture seule et le POST de résolution est retiré (`410` après autorisation). Cela ne bascule pas tous les consommateurs vers le nom institutionnel. Modèle, diagnostic de préparation en lecture seule, rollback protégé et liste des gates : [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](../../backend/INSTITUTION_SPECIES_FOUNDATION.md).
 
 ## Décision produit : abandon des alertes
 
@@ -61,13 +62,15 @@ Les réglages propres à un environnement et les secrets sont fournis par variab
 
 L'interface est française par défaut et dispose d'un catalogue anglais. Les contenus taxonomiques peuvent être localisés séparément en français, anglais et japonais. Voir [`frontend-ux.md`](frontend-ux.md) pour les conventions i18n.
 
-## État vivant et frontières de livraison
+## Frontières fonctionnelles
 
-[`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md) suit les intégrations, travaux locaux, décisions, revues, limites et roadmap datés. Les audits restent des instantanés historiques.
+[`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md) et les audits sont des instantanés datés; vérifier le code pour le contrat du checkout.
 
 - Import scientifique : CSV canonique et planner read-only intégrés, pas encore d'applicateur/UI générique. `iso_week` sans jour exact est une cible approuvée, pas une capacité de persistance actuelle.
-- Transfer v2 : fondations source/résolution/identité/allocateur/lignée intégrées jusqu'à la Phase 5; acceptation/matérialisation destination Phase 6 absente.
-- References, Environment, Transfers et Organizations sont désactivés dans Administration, sans désactiver leurs API backend; Équipe/Comptes, Inventaire et Historique restent actifs. Le grand catalogue partagé est abandonné; maintenance AAA contextuelle à concevoir, routine BBB/provenance différée.
+- Administration sur ordinateur : Équipe/Comptes, Inventaire, Espèces, Emplacements, Envois et réceptions et Historique sont actifs. Seuls Référentiels partagés et Institutions sont désactivés dans React; les API gardent leurs propres permissions.
+- Échanges : CSV v1 retiré (`410`); Envois et réceptions affiche les propositions de don de boîte entière, pas un transfert exécuté. Pas d'acceptation ni de matérialisation destination. Les fondations de paquet Transfer v2 (`2.0`/`2.1`) restent internes.
+- Partage externe : API distinctes, sans gestion ni lecteur React montés depuis PR2; aucune propriété n'est transférée.
+- Preuve ADN : lien déclaré pour une boîte, modifiable sur sa fiche et facultatif à la création; ni identification automatique ni héritage.
 - Le ledger Species/AAA du dépôt compagnon contient désormais des réponses d'Étienne. Ces décisions ne sont ni une approbation finale de manifeste ni une autorisation de réécrire les identifiants historiques.
 
 ## Pour aller plus loin

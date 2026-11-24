@@ -2,14 +2,18 @@
 
 Ce document boucle la traçabilité entre les **3 MCD validés par les professeurs**
 (`docs/mcd/` : métier, environnement, gestion) et l'**implémentation Django**
-(les `models.py` des applications). Il sert de preuve de cohérence conception →
-code pour le mémoire, et liste les écarts à arbitrer.
+(les modèles enregistrés par les applications). Il documente la correspondance
+conception → code et liste les écarts à arbitrer.
 
-**Relecture ciblée au 2026-10-14 :** relevés, repiquages, mouvements et fondations
-portables. Les MCD validés restent des pièces de conception historiques, sans
-modification de leurs décisions. Une différence n'est pas une autorisation de
-migration ni une roadmap produit. État courant :
-[`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+**Relecture PR3 :** le [schéma Django](mcd/schema_bdd.md) couvre les **68 modèles
+concrets propres au projet**, dont **38 nouvellement dessinés** (section 4).
+Le décompte provient du registre `apps.*` sous `config.preflight_settings`
+(SQLite en mémoire, dotenv neutralisé, aucune connexion ouverte) et exclut
+les modèles abstraits, proxys et modèles générés automatiquement. `auth.User`
+est fourni par Django et sert de cible externe ; il n'entre pas dans ce total.
+Les trois MCD validés restent des pièces de conception historiques. Un écart
+n'est ni une autorisation de migration ni un engagement produit. Voir
+[l'état courant](../POLYPBASE_CURRENT_STATE.md).
 
 - **Méthode** : pour chaque entité et chaque association du MCD, on indique le
   modèle / champ Django correspondant, puis on note les écarts.
@@ -28,11 +32,11 @@ migration ni une roadmap produit. État courant :
 | Entité MCD | Modèle Django | Correspondance des champs | Statut |
 |---|---|---|---|
 | **STRUCTURE** (id_structure, nom_structure, type_structure) | `organizations.Organization` | id→id, nom_structure→`name` ; **type_structure absent** | 🟠 |
-| **UTILISATEUR** (id_utilisateur, nom, prenom, email) | `auth.User` (+ `accounts.UserPreference`) | id→id, nom_utilisateur→`last_name`, prenom→`first_name`, email→`email` (+ `username`/droits Django) | ✅ |
+| **UTILISATEUR** (id_utilisateur, nom, prenom, email) | `auth.User` (externe) + `accounts.UserPreference` (projet) | id→id, nom_utilisateur→`last_name`, prenom→`first_name`, email→`email` (+ `username`/droits Django) | ✅ |
 | **ESPECE** (id_espece, code_espece, nom_scientifique) | `taxonomy.Species` | id→id, code_espece→`genus_species_code`, nom_scientifique→`scientific_name` (+ common_name, worms_aphia_id) | ✅ |
 | **TAXON** (id_taxon, nom_scientifique, rang_taxonomique) | `taxonomy.Taxon` | id→id, nom_scientifique→`name`, rang_taxonomique→`rank` (+ `parent` hiérarchie) | ✅ |
-| **SOUCHE** (id_souche, code_souche, nom_souche) | `taxonomy.Strain` | id→id, code_souche→`code` ; **nom_souche absent** (only `code`/`number`) | 🟠 |
-| **BOITE** (id_boite, global_id, code_local, date_creation, statut_boite) | `cultures.Box` | id→id, global_id→`global_code`, code_local→`local_code`, date_creation→`created_on`, statut_boite→`status` | ✅ |
+| **SOUCHE** (id_souche, code_souche, nom_souche) | `taxonomy.Strain` | id→id, code_souche→`code` ; pas de nom sur `Strain` ; `StrainTranslation.name` porte un libellé par langue | 🟠 |
+| **BOITE** (id_boite, global_id, code_local, date_creation, statut_boite) | `cultures.Box` | id→id, code_local→`local_code` dans la lecture historique, date_creation→`created_on`, statut_boite→`status` ; `global_code` est aujourd'hui le Local ID opérationnel, distinct de la FK nullable `global_identity` vers `BoxGlobalIdentity.global_id` | 🟠 |
 | **ZONE_THERMIQUE** (id_zone, nom_zone, type_zone, temperature_cible) | `cultures.ThermalZone` | id→id, nom_zone→`name`, type_zone→`zone_type`, temperature_cible→`target_temperature_c` | ✅ |
 | **SONDE_TEMPERATURE** (id, nom_sonde, numero_serie, url_api) | `measurements.Probe` | id→id, nom_sonde→`code`, numero_serie→`external_serial`, voie→`external_channel` (migration `0015_iminilide_probe_collection`) ; pas de champ `url_api` par sonde : le client iMinilide construit l'URL à partir de la configuration commune, de la série et de la voie | 🟠 URL du MCD représentée autrement; collecte iMinilide implémentée, activation réelle non vérifiée ici |
 
@@ -81,14 +85,14 @@ Par ordre d'impact pour le besoin métier :
    normaliser via `metadata`).
 8. **IMPORTER : `type_fichier` + `base_cible`** — ajouter si plusieurs formats/
    cibles d'import sont prévus.
-9. **SOUCHE : `nom_souche`** — ajouter un champ `name` sur `Strain` si un libellé
-   distinct du `code` est attendu.
+9. **SOUCHE : `nom_souche`** — absent de `Strain` ; vérifier si les libellés de
+   `StrainTranslation` couvrent le besoin avant d'envisager un champ distinct.
 
 ## 4. Éléments implémentés hors MCD (enrichissements)
 
-Présents dans le code mais absents des 3 MCD validés. Décision à prendre :
-**les remonter dans le MCD** (cohérence documentaire) ou **les documenter comme
-extensions techniques**.
+Les éléments ci-dessous complètent les trois MCD validés dans la documentation
+du code. Leur présence dans le [schéma Django](mcd/schema_bdd.md) ne les rend pas
+actifs et ne modifie pas les MCD historiques.
 
 | Modèle Django | Rôle | Recommandation |
 |---|---|---|
@@ -108,7 +112,21 @@ anciennes alertes ne sont pas des fonctionnalités à réintroduire ou à promou
 dans le MCD actif. Les mesures restent factuelles, sans avertissement
 opérationnel ou biologique inféré.
 
-### Extensions intégrées depuis les MCD initiaux
+### Modèles nouvellement dessinés (38)
+
+| Domaine | Modèles Django | Correspondance avec les MCD historiques |
+|---|---|---|
+| Comptes | `accounts.AccountInvitation`, `accounts.AuthenticationThrottle` | Invitation liée en OneToOne à l'appartenance ; stockage de limitation d'authentification sans FK utilisateur. |
+| Référentiels et traductions | `taxonomy.InstitutionSpecies`, `taxonomy.InstitutionStrainCreationRequest`, `taxonomy.SpeciesCodeChangeRequest`, `taxonomy.SpeciesTranslation`, `taxonomy.StrainTranslation` | Profil institutionnel au-dessus de `Species`, demandes de création/changement et libellés par langue ; `Strain.species` reste liée à `Species`, pas au profil. |
+| Identités et codes de souche | `taxonomy.BiologicalProvenance`, `taxonomy.GlobalStrainIdentity`, `taxonomy.LocalStrainIdentity`, `taxonomy.LocalStrainNumberCounter`, `taxonomy.OrganizationProvenanceCode`, `taxonomy.OrganizationSpeciesCode` | Identités globale et locale, provenance biologique, affectations AAA/BBB et compteur X. `BiologicalProvenance` ne remplace pas `Origin`. |
+| Création, identification et inventaire | `cultures.AutomaticBoxCreationRequest`, `cultures.BoxCodeNamespace`, `cultures.BoxDnaValidation`, `cultures.BoxGlobalIdentity`, `cultures.BoxInventoryInitialization`, `cultures.BoxLocalIdAlias` | Demande de création, réservation de codes, preuve de validation ADN, identité permanente rattachée par `Box.global_identity`, initialisation par institution et alias locaux. |
+| Transferts et lignée portable | `cultures.BoxTransferImport`, `cultures.TransferEnvelope`, `cultures.TransferItem`, `cultures.PortableLineageNode`, `cultures.PortableLineageEdge` | Reçu v1 distinct de l'enveloppe et des items source v2. Lignée portable avec rattachements locaux facultatifs ; ses UUID de provenance ne sont pas des FK. |
+| Propriété et don | `cultures.GlobalBoxIdentity`, `cultures.BoxOwnershipEpisode`, `cultures.BoxDonationProposal` | `GlobalBoxIdentity` est distinct de `BoxGlobalIdentity`. L'épisode rattache une institution à sa boîte locale ; la proposition référence la boîte et l'épisode source. Ni acceptation v2 ni matérialisation destination. |
+| Historique des boîtes | `cultures.BoxHistoryStream`, `cultures.BoxHistoryEventIdentity`, `cultures.BoxHistoryRevision`, `cultures.HistoricalBoxMovement` | Flux, identités d'événements et révisions ; mouvement historique avec zones et périodes propres, distinct de `BoxMovement`. |
+| Mesures et imports historiques | `measurements.HistoricalTemperatureReading`, `measurements.HistoricalTemperatureEvidence`, `measurements.HistoricalTemperatureImportReceipt`, `measurements.MeasurementImportReceipt`, `measurements.ProbeTemperatureBucket` | Lecture historique reliée au relevé biologique (OneToOne) et preuves liées à la lecture ; reçus rattachés à l'institution, acteurs stockés sans FK ; agrégat périodique rattaché à la sonde. |
+| Partage externe | `sharing.BoxReaderShare`, `sharing.BoxReaderShareCapture` | Droit de lecture individuel sur une boîte et capture figée ; ni appartenance institutionnelle ni transfert. |
+
+### Contraintes et limites d'implémentation
 
 - Relevés : UNIQUE `(box, week_start)` seulement lorsque `duplicate_of IS NULL`
   (migration `0014_measurement_canonical_evidence`). Les doublons référencent un
@@ -122,9 +140,9 @@ opérationnel ou biologique inféré.
 - `Organization.portable_id`, `GlobalStrainIdentity`, AAA/BBB institutionnels,
   `LocalStrainIdentity`, cardinalité canonique et compteur X interne : identité
   technique/biologique distincte des permissions, sans backfill inféré.
-- `TransferEnvelope` / `TransferItem`, `PortableLineageNode` / `PortableLineageEdge`
-  et snapshots : fondations source Transfer v2 jusqu'à Phase 5; pas d'acceptation
-  ou matérialisation destination Phase 6.
+- Les snapshots source Transfer v2 jusqu'à la Phase 5 et les fondations de
+  propriété et de proposition de don en Phase 6 ne constituent pas un parcours
+  d'acceptation ou de matérialisation destination.
 - `BoxCodeNamespace`, révisions/séquences scientifiques et allocations immuables :
   cohérence du repiquage et réservation de codes, distinctes de l'allocateur Strain.
 - Invitations persistées, Responsable et visibilité technique de membership :
@@ -141,12 +159,9 @@ surtout :
   doivent être décidés avant toute migration ;
 - des **divergences structurelles assumées** (relevé/observation, range/movement,
   provenance via PartnerInstitution) qui *couvrent* le besoin différemment ;
-- des **enrichissements hors MCD** (section 4) — notamment le **QR code** — à
-  réintégrer dans le MCD pour que la documentation reste le miroir du code.
+- des **enrichissements hors MCD** (section 4), notamment `IdentificationTag`
+  pour les QR codes, désormais repérables dans le schéma Django sans réécrire
+  les MCD historiques.
 
-**Actions recommandées :**
-1. Réexaminer les écarts encore ouverts de la section 3 selon les besoins produit;
-   le point quantitatif repiquage est résolu, pas un champ restant à ajouter.
-2. Mettre à jour les 3 MCD pour intégrer les enrichissements retenus (section 4),
-   au minimum le QR code (`IdentificationTag`).
-3. Générer migrations + tests pour les champs ajoutés, puis re-vérifier ce document.
+Les écarts encore ouverts de la section 3 relèvent d'une décision produit
+séparée. Le repiquage quantitatif est déjà implémenté.
