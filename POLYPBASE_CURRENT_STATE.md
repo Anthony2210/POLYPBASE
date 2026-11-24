@@ -1,4 +1,15 @@
-# POLYPBASE current state
+# État de Polypbase
+
+## État vérifié dans le dépôt
+
+- Dernier point `main` vérifié dans ce dépôt : `eb2f2e5` (20 novembre 2026). La validation ADN par boîte est intégrée ; la preuve est un lien saisi, révocable et non hérité.
+- L’administration affiche Emplacements, Espèces et Transferts. Transferts ouvre les échanges institutionnels ; le dépôt distingue la proposition de don dans React du partage externe via l’API.
+- Le dépôt inclut le socle de démo isolée, les révisions historiques, le registre des Local ID, la collecte iMinilide et les tests associés. Voir le [routeur documentaire](docs/PROJECT_CONTEXT.md) pour les contrats.
+- Aucun état actuel de la production n’a été vérifié pour cette mise à jour. Les décisions d’application des corrections historiques restent distinctes du déploiement du code.
+
+---
+
+Les sections ci-dessous sont des instantanés datés, conservés comme traces historiques. Leurs statuts et procédures ne décrivent pas la version courante.
 
 ## Box DNA validation V1 — local implementation, 2026-11-16
 

@@ -44,20 +44,23 @@ Le code décrit ce qui existe, mais un comportement observé n'est pas automatiq
 
 ## Documentation spécialisée
 
-- [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md) : état vivant daté, intégrations, travaux locaux, décisions, preuves de revue/QA et roadmap; pas une autorisation de production.
+- [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md) : état vérifié dans le dépôt et instantanés historiques ; pas une autorisation de production.
 - [`README.md`](../README.md) : installation, lancement et points d'entrée.
 - [`guide_utilisateur.md`](guide_utilisateur.md) : parcours fonctionnels.
 - [`tests_backend.md`](tests_backend.md) : inventaire détaillé des tests backend.
 - [`deploiement_vm.md`](deploiement_vm.md) : exploitation et procédures de secours.
-- [`transferts_csv.md`](transferts_csv.md) : contrat v1 et fondations Transfer v2, sans acceptation destination v2.
+- [`transferts_csv.md`](transferts_csv.md) : compatibilité v1 et contrats de transfert v2.
 - [`backend/TRANSFER_V2_BOX_IDENTITY.md`](../backend/TRANSFER_V2_BOX_IDENTITY.md) : identité globale de Box et épisodes de propriété institutionnelle (Phase 6 jalon 1, non revu, sans transition active).
 - [`backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md`](../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md) : proposition de don de Box entière (Phase 6 jalon 2, backend non revu, sans acceptation ni UI).
 - [`canonical-measurement-csv.md`](canonical-measurement-csv.md) et [`measurement-import-planner.md`](measurement-import-planner.md) : préparation et aperçu scientifique read-only, distincts des importeurs historiques.
-- [`backend/BOX_READER_SHARING.md`](../backend/BOX_READER_SHARING.md) : fondation backend du partage externe en lecture seule d'une boîte (non revue, inactive sans configuration); pas de lecteur React, de XLSX ni de transfert biologique.
+- [`backend/BOX_READER_SHARING.md`](../backend/BOX_READER_SHARING.md) : contrat backend du partage externe en lecture seule ; distinct des dons institutionnels.
 - [`backend/QUANTITATIVE_SUBCULTURE.md`](../backend/QUANTITATIVE_SUBCULTURE.md) : état scientifique, allocations et snapshots du repiquage.
 - [`frontend-style.md`](context/frontend-style.md) : références visuelles/interactions à consulter pour un travail UI substantiel.
 - [`mcd/schema_bdd.md`](mcd/schema_bdd.md) et [`tracabilite_mcd.md`](tracabilite_mcd.md) : modèle conceptuel et correspondance Django.
-- [`sondes/`](sondes/) : documentation exploratoire des sondes; vérifier le code avant de considérer une intégration comme active.
+- [`sondes/collecte_iminilide.md`](sondes/collecte_iminilide.md) : collecte, commandes et configuration des sondes.
+- [`isolated-demo.md`](isolated-demo.md) : environnement de démonstration isolé.
+- [`box-local-id-history.md`](box-local-id-history.md) et [`history-revision-storage.md`](history-revision-storage.md) : identifiants locaux et révisions.
+- [Validation ADN](context/boxes-lifecycle-locations.md#validation-adn-dune-boîte) : preuve par boîte et permissions.
 
 Ces documents peuvent dater d'étapes différentes.
 
