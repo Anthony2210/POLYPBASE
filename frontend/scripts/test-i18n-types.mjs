@@ -62,7 +62,7 @@ const negative = [
   'declare const unknownBackendKey: string;',
   't(unknownBackendKey);',
   ...translators.map(([name]) => `${name}(unknownBackendKey);`),
-  "const invalidMap = { hidden: '__invalid_translation_key__' } satisfies Record<string, TranslationKey>;",
+  "const invalidMap = { hidden: '__invalid_translation_key__' } satisfies Record<string, TranslationKey>; void invalidMap;",
   "t(({ hidden: '__invalid_translation_key__' } as const).hidden);",
 ];
 
