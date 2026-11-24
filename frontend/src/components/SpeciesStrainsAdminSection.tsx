@@ -40,6 +40,7 @@ import {
   type InstitutionSpeciesList,
   isReferenceCompatible,
   isUsableSpeciesCode,
+  isValidScientificName,
   isWormsAccepted,
   isWormsReferenceFailure,
   LOCATION_CODE_PATTERN,
@@ -759,7 +760,13 @@ function SpeciesFormDialog({
   const isCompatible = isReferenceCompatible(reference, name);
   const aphiaId = referenceAphiaId(reference);
   const isUnchanged = isEdit && normalizedName === editing.baseline && aphiaId === editing.aphiaId;
-  const canSubmit = !isChoosing && normalizedName.length > 0 && isCompatible && !isUnchanged && !isBusy;
+  // Empty stays a disabled action; a non-empty name the server would refuse is explained here.
+  const isNameInvalid = normalizedName.length > 0 && !isValidScientificName(name);
+  const canSubmit = !isChoosing && normalizedName.length > 0 && !isNameInvalid && isCompatible && !isUnchanged && !isBusy;
+  const nameDescribedBy = [
+    isNameInvalid ? 'species-form-name-invalid' : '',
+    !isCompatible ? 'species-form-reference-mismatch' : '',
+  ].filter(Boolean).join(' ') || undefined;
   const titleId = isEdit ? 'species-edit-title' : 'species-create-title';
 
   function invalidateSearch() {
@@ -879,9 +886,9 @@ function SpeciesFormDialog({
 
   // Django verifies any reference with WoRMS. Dropping it is always an explicit choice.
   async function save({ withoutReference = false } = {}) {
+    if (!normalizedName || isNameInvalid || isBusy || (!withoutReference && !canSubmit)) return;
     if (withoutReference) setReference(null);
     const sentAphiaId = withoutReference ? null : aphiaId;
-    if (!normalizedName || isBusy || (!withoutReference && !canSubmit)) return;
     setFeedback(null);
     await submit(async () => {
       try {
@@ -970,14 +977,13 @@ function SpeciesFormDialog({
                     ref={initialFocusRef}
                     id="species-form-name"
                     className="species-name-input"
-                    maxLength={150}
                     autoComplete="off"
                     spellCheck={false}
                     placeholder={isEdit ? undefined : t('speciesCreateNamePlaceholder')}
                     value={name}
                     disabled={isBusy}
-                    aria-invalid={!isCompatible}
-                    aria-describedby={!isCompatible ? 'species-form-reference-mismatch' : undefined}
+                    aria-invalid={isNameInvalid || !isCompatible}
+                    aria-describedby={nameDescribedBy}
                     onChange={(event) => {
                       setName(event.target.value);
                       setFeedback(null);
@@ -993,6 +999,9 @@ function SpeciesFormDialog({
                     {t(worms.status === 'loading' ? 'speciesCreateWormsSearching' : 'speciesEditWormsCheck')}
                   </button> : null}
                 </div>
+                {isNameInvalid ? (
+                  <small id="species-form-name-invalid" className="strain-field-error">{t('speciesCreateInvalidName')}</small>
+                ) : null}
 
                 {reference ? (
                   <div className={isCompatible ? 'species-worms-reference' : 'species-worms-reference is-mismatch'}>

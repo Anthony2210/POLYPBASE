@@ -92,6 +92,120 @@ test('payloads carry the name and optional AphiaID only; edits carry the read re
   });
 });
 
+// The server rule, read as data from the authoritative Python constants and
+// replayed with Python's algorithm: " ".join(value.split()), then a code-point
+// length limit and SCIENTIFIC_NAME_PATTERN.fullmatch (institution_species_services._clean_name).
+function pythonConstant(source, pattern, label) {
+  const match = pattern.exec(source);
+  assert.ok(match, `server constant not found: ${label}`);
+  return match[1];
+}
+function decodePythonString(body) {
+  const decoded = body.replace(/\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|([tnvfr]))/g, (_match, x, u, c) => (
+    x || u ? String.fromCharCode(parseInt(x || u, 16)) : { t: '\t', n: '\n', v: '\v', f: '\f', r: '\r' }[c]));
+  assert.ok(!decoded.includes('\\'), 'unsupported escape in server WHITESPACE');
+  return decoded;
+}
+const speciesNamesSource = read('../../backend/apps/taxonomy/species_names.py');
+const speciesServicesSource = read('../../backend/apps/taxonomy/institution_species_services.py');
+const serverWhitespace = new Set(decodePythonString(
+  pythonConstant(speciesNamesSource, /^WHITESPACE = "((?:[^"\\]|\\.)*)"$/m, 'WHITESPACE')));
+const serverPattern = new RegExp(
+  pythonConstant(speciesNamesSource, /^SCIENTIFIC_NAME_PATTERN = re\.compile\(r"([^"]*)"\)$/m, 'SCIENTIFIC_NAME_PATTERN'));
+const serverMaxLength = Number(pythonConstant(speciesServicesSource, /^MAX_NAME_LENGTH = (\d+)$/m, 'MAX_NAME_LENGTH'));
+
+function serverNormalize(value) {
+  const words = [];
+  let word = '';
+  for (const char of value) {
+    if (serverWhitespace.has(char)) {
+      if (word) words.push(word);
+      word = '';
+    } else word += char;
+  }
+  if (word) words.push(word);
+  return words.join(' ');
+}
+function serverAccepts(value) {
+  const name = serverNormalize(value);
+  return name.length > 0 && [...name].length <= serverMaxLength && serverPattern.test(name);
+}
+
+test('server whitespace is Python str.split whitespace, not JavaScript \\s', () => {
+  assert.equal(serverWhitespace.size, 29);
+  for (const char of ['\t', '\n', '\v', '\f', '\r', '\x1c', '\x1d', '\x1e', '\x1f', ' ', '\x85', '\xa0',
+    '\u1680', '\u2000', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000']) {
+    assert.ok(serverWhitespace.has(char), `U+${char.charCodeAt(0).toString(16)}`);
+  }
+  for (const char of ['\ufeff', '\u200b', '\u180e', '\u2060', '\xad']) {
+    assert.ok(!serverWhitespace.has(char), `U+${char.charCodeAt(0).toString(16)}`);
+  }
+  assert.equal(helpers.SCIENTIFIC_NAME_PATTERN.source, serverPattern.source);
+  assert.equal(helpers.MAX_SCIENTIFIC_NAME_LENGTH, serverMaxLength);
+});
+
+test('normalization and acceptance match the server for every BMP character and an astral sample', () => {
+  const codePoints = [...Array.from({ length: 0x10000 }, (_value, index) => index), 0x1f600, 0x10ffff];
+  for (const codePoint of codePoints) {
+    const char = String.fromCodePoint(codePoint);
+    const label = `U+${codePoint.toString(16).padStart(4, '0')}`;
+    assert.equal(helpers.normalizeScientificName(`a${char}b`), serverWhitespace.has(char) ? 'a b' : `a${char}b`, label);
+    for (const value of [`Aurelia${char}aurita`, `${char}Aurelia`, `Aurelia${char}`]) {
+      if (helpers.isValidScientificName(value) !== serverAccepts(value)) assert.fail(`${label}: ${JSON.stringify(value)}`);
+    }
+  }
+});
+
+test('scientific name cases: expected normalization and acceptance, never stricter than the server', () => {
+  const name = (length) => 'A' + 'a'.repeat(length - 1);
+  // A normalized name of `length` characters, padded with repeated Python whitespace.
+  const spaced = (length) => `  \t${'A'.repeat(70)}\u3000 \x1c ${'a'.repeat(length - 71)}\x85\n`;
+  const cases = [
+    // [input, normalized, accepted]
+    ['Aurelia aurita', 'Aurelia aurita', true],
+    ['  Aurelia   aurita ', 'Aurelia aurita', true],
+    [' \t Aurelia \n\n  aurita \r ', 'Aurelia aurita', true],
+    ['Aurelia\x1caurita', 'Aurelia aurita', true],
+    ['Aurelia\x1d\x1e\x1faurita', 'Aurelia aurita', true],
+    ['Aurelia\x85aurita', 'Aurelia aurita', true],
+    ['\u3000Aurelia\u2028\u2029aurita\xa0', 'Aurelia aurita', true],
+    ['\u1680Aurelia\u2000\u200a\u202f\u205faurita', 'Aurelia aurita', true],
+    ['\ufeffAurelia aurita', '\ufeffAurelia aurita', false],
+    ['Aurelia\ufeffaurita', 'Aurelia\ufeffaurita', false],
+    ['Aurelia aurita\ufeff', 'Aurelia aurita\ufeff', false],
+    ['Aurelia\u200baurita', 'Aurelia\u200baurita', false],
+    ['', '', false],
+    ['   ', '', false],
+    ['\x1c\x85\u3000\t', '', false],
+    ['\ufeff', '\ufeff', false],
+    [name(149), name(149), true],
+    [name(150), name(150), true],
+    [name(151), name(151), false],
+    [spaced(149), `${'A'.repeat(70)} ${'a'.repeat(78)}`, true],
+    [spaced(150), `${'A'.repeat(70)} ${'a'.repeat(79)}`, true],
+    [spaced(151), `${'A'.repeat(70)} ${'a'.repeat(80)}`, false],
+    ['Thyroscyphus sp. 2', 'Thyroscyphus sp. 2', true],
+    ['Aurelia (Aurelia) cf. aurita', 'Aurelia (Aurelia) cf. aurita', true],
+    ["Medusa d'Orbigny", "Medusa d'Orbigny", true],
+    ['Cassiopea × hybrid', 'Cassiopea × hybrid', true],
+    ['× Hybrida', '× Hybrida', true],
+    ['Aurélia aurita', 'Aurélia aurita', false],
+    ['1 Aurelia', '1 Aurelia', false],
+    ['Aurelia*', 'Aurelia*', false],
+    ['Aurelia_aurita', 'Aurelia_aurita', false],
+    ['.Aurelia', '.Aurelia', false],
+    ['<i>Aurelia</i>', '<i>Aurelia</i>', false],
+  ];
+  for (const [input, normalized, accepted] of cases) {
+    const label = JSON.stringify(input);
+    assert.equal(helpers.normalizeScientificName(input), normalized, label);
+    assert.equal(serverNormalize(input), normalized, `server ${label}`);
+    assert.equal(helpers.isValidScientificName(input), accepted, label);
+    assert.equal(serverAccepts(input), accepted, `server ${label}`);
+  }
+  assert.equal(spaced(150).length > 150, true, 'raw input exceeds the limit; only the normalized length counts');
+});
+
 test('a WoRMS reference stays compatible only with its exact name, never silently dropped', () => {
   const record = { kind: 'record', record: wormsRecord(5, 'Aurelia aurita') };
   const saved = { kind: 'saved', aphiaId: 6, url: null, name: 'Aurelia coerulea' };
@@ -1043,6 +1157,65 @@ test('edit: prefilled, unchanged cannot be saved, manual correction requires rem
   // The code is unchanged and strains are kept.
   assert.match(h.text(), /AUR-FRA-1/);
 });
+
+test('edit: an invalid scientific name is explained locally and never sent', async () => {
+  const h = await openEdit();
+  h.click(h.button('speciesCreateRemoveReference'));
+  h.type('Aurélia aurita');
+  assert.match(h.text(), /speciesCreateInvalidName/);
+  assert.equal(h.input.props['aria-invalid'], true);
+  assert.equal(h.input.props['aria-describedby'], 'species-form-name-invalid');
+  assert.equal(h.submitButton.disabled, true);
+  h.click(h.submitButton);
+  assert.equal(h.writes.length, 0, 'no PATCH for a name the server refuses');
+  h.type('Aurelia coerulea');
+  assert.doesNotMatch(h.text(), /speciesCreateInvalidName/);
+  assert.equal(h.submitButton.disabled, false);
+});
+
+test('existing species: edit validates the normalized name before PATCH', async () => {
+  const h = await openCompatibility();
+  h.click(h.button('speciesDetailIdentification'));
+  assert.equal(h.input.props.maxLength, undefined, 'the final field must not cap raw input');
+  for (const name of ['\ufeffAurelia coerulea', 'A'.repeat(151)]) {
+    h.type(name);
+    assert.match(h.text(), /speciesCreateInvalidName/);
+    assert.equal(h.input.props['aria-invalid'], true);
+    assert.equal(h.input.props['aria-describedby'], 'species-form-name-invalid');
+    assert.equal(h.submitButton.disabled, true);
+    await h.submitButton.props.onClick();
+    assert.equal(h.writes.length, 0);
+  }
+  const validName = 'A'.repeat(150);
+  h.type(`\x1c\x85${validName}\u3000`);
+  assert.equal(h.input.props['aria-invalid'], false);
+  assert.equal(h.submitButton.disabled, false);
+  h.click(h.submitButton);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0].method, 'apiPatch');
+  assert.equal(h.writes[0].path, HISTORICAL_PATH(7));
+  assert.deepEqual(plain(h.writes[0].payload), { scientific_name: validName, worms_aphia_id: null });
+});
+
+for (const kind of ['profile', 'historical']) {
+  test(`${kind} edit: the WoRMS retry cannot send an invalid name`, async () => {
+    const h = kind === 'profile' ? await openEdit() : await openCompatibility();
+    if (kind === 'historical') h.click(h.button('speciesDetailIdentification'));
+    h.type('Aurelia coerulea');
+    h.enter();
+    await h.respond(WORMS_PATH, { results: [wormsRecord(287206, 'Aurelia coerulea')] });
+    h.click(h.results()[0]);
+    h.click(h.submitButton);
+    assert.equal(h.writes.length, 1);
+    // Inject a field update while the request is pending to exercise the save
+    // guard even if a retry action is rendered alongside a now-invalid name.
+    h.input.props.onChange({ target: { value: 'Aurelia coerulea\ufeff' } });
+    await h.answer(0, null, { error: new h.client.ApiError(503, 'x', { code: 'worms_reference_unavailable' }) });
+    assert.equal(h.input.props['aria-invalid'], true);
+    h.click(h.button('speciesEditWithoutReference'));
+    assert.equal(h.writes.length, 1, 'no second PATCH');
+  });
+}
 
 test('edit: adopting a WoRMS proposal for the same profile sends its AphiaID', async () => {
   const h = await openEdit();

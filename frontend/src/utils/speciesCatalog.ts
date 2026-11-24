@@ -342,8 +342,22 @@ export function normalizeWormsQuery(value: string) {
   return getWormsQueryProblem(value) ? null : value.split(/\s+/).filter(Boolean).join(' ');
 }
 
+// Exactly the server's WHITESPACE (Python str.split). JavaScript \s differs:
+// it adds U+FEFF and omits \x1c-\x1f and \x85, so it is not used here.
+const SCIENTIFIC_NAME_WHITESPACE = /[\t\n\v\f\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;
+
 export function normalizeScientificName(value: string) {
-  return value.split(/\s+/).filter(Boolean).join(' ');
+  return value.split(SCIENTIFIC_NAME_WHITESPACE).filter(Boolean).join(' ');
+}
+
+// Mirrors the server's SCIENTIFIC_NAME_PATTERN and 150-character limit on the
+// normalized name, so an obviously invalid name is not sent. The server stays the authority.
+export const SCIENTIFIC_NAME_PATTERN = /^[A-Za-z×][A-Za-z0-9 .()'×-]*$/;
+export const MAX_SCIENTIFIC_NAME_LENGTH = 150;
+
+export function isValidScientificName(value: string) {
+  const name = normalizeScientificName(value);
+  return name.length > 0 && name.length <= MAX_SCIENTIFIC_NAME_LENGTH && SCIENTIFIC_NAME_PATTERN.test(name);
 }
 
 // A WoRMS reference attached to the form: a record chosen in this dialog, or
