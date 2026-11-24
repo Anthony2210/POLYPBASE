@@ -185,7 +185,7 @@ La saisie manuelle ajoute une valeur à l'agrégat journalier; elle ne crée pas
 
 Moyenne, minimum, maximum et compteur doivent représenter toutes les saisies acceptées. L'agrégat et l'audit appartiennent à la même transaction; une erreur d'audit rollbacke l'opération. Ne pas modifier les règles de précision ou transformer les saisies en historique individuel sans décision métier.
 
-Les modèles acceptent plusieurs types de sondes. Leur présence ne prouve pas qu'une ingestion automatique connectée fonctionne; vérifier les routes et services. Les documents de [`../sondes/`](../../../sondes) décrivent des explorations et plans possibles, pas nécessairement le produit actif.
+Les modèles acceptent plusieurs types de sondes. Leur présence ne prouve pas qu'une ingestion automatique connectée fonctionne; vérifier les routes et services. Les documents de [l’exploration des sondes](../../sondes-exploration/) décrivent des explorations et plans possibles, pas nécessairement le produit actif.
 
 ### Contrôle thermique sur quatre heures (décision `thermal-control-4h`, 17 novembre 2026)
 

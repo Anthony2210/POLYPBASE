@@ -80,7 +80,7 @@ L'audit global des messages visibles de refus de permission (frontend et message
 
 ## Nouveau terme ou terme ambigu
 
-1. Chercher la clé, le code qui l'affiche et le contexte métier (`docs/context/` du domaine). Le mot FR seul ne suffit pas.
+1. Chercher la clé, le code qui l'affiche et le contexte métier ([référence du domaine](../INDEX.md)). Le mot FR seul ne suffit pas.
 2. Réutiliser un terme des sections A ou B s'il couvre exactement ce sens.
 3. Sinon, ne pas inventer de terminologie produit ni scientifique : poser la question à Anthony. Une nouvelle formulation japonaise reste non résolue.
 4. Ajouter tout nouveau texte visible en FR et en EN dans les catalogues, conserver les variables (`{zone}`, `{count}`…) et ne pas utiliser le point médian.
