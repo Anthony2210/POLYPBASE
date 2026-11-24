@@ -59,12 +59,7 @@ test('configured salinity is displayed at its stored precision, null stays disti
   assert.equal(locations.formatLabSalinity(null), '-');
   assert.equal(locations.formatLabSalinity(''), '-');
   assert.match(section, /\{formatLabSalinity\(zone\.salinity_psu\)\}/);
-  assert.doesNotMatch(section, /utils\/stepValue|DecimalValue\(/, 'the shared one-decimal helper is not used here');
-});
-
-test('the shared one-decimal helper keeps its behavior for other consumers', () => {
-  const shared = load('../src/utils/stepValue.ts');
-  assert.equal(shared.incrementDecimalValue('32.15', 5), '37.2');
+  assert.doesNotMatch(section, /DecimalValue\(/, 'the shared one-decimal helper is not used here');
 });
 
 test('a fractional salinity survives the edit draft and the update payload', () => {

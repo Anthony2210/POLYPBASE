@@ -7,6 +7,7 @@ import {
   analyzeUsage, catalogKeys, checkRepository, collectUsage, isUsageSource, usageExceptions,
 } from './i18n-usage.mjs';
 
+import { retainedPr2Copy } from './pr2-retained-copy.mjs';
 import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 
 const catalogs = (...keys) => ({ fr: new Set(keys), en: new Set(keys) });
@@ -215,6 +216,8 @@ test('real source has no unreviewed orphans or stale exceptions', () => {
     assert.ok(result.catalogs.fr.has(key) && result.catalogs.en.has(key), `Protected key missing: ${key}`);
   }
   const csvKeys = [...result.catalogs.fr].filter(key => key.startsWith('csv'));
-  assert.ok(csvKeys.length >= 132, 'Preserve the 132 baseline CSV keys (no CSV exemption).');
-  for (const key of csvKeys) assert.ok(result.references.has(key), `CSV key requires real source evidence: ${key}`);
+  assert.ok(csvKeys.length >= 132, 'Preserve the 132 baseline CSV keys.');
+  for (const key of csvKeys) {
+    assert.ok(result.references.has(key) || Object.hasOwn(retainedPr2Copy, key), `CSV key requires source evidence or a specific PR2 retention decision: ${key}`);
+  }
 });

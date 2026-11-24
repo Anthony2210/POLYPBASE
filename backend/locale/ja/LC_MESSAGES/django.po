@@ -47,8 +47,8 @@ msgstr "ユーザーは、所属機関の管理者にアカウント情報の開
 msgid "Commentaire"
 msgstr "メモ"
 
-msgid "Connexion POLYPBASE"
-msgstr "POLYPBASEにログイン"
+# Retired login template msgid "Connexion POLYPBASE"
+# Retired login template msgstr "POLYPBASEにログイン"
 
 msgid "Date du relevé"
 msgstr "測定日"
@@ -92,8 +92,8 @@ msgstr "利用目的"
 msgid "Générale"
 msgstr "一般"
 
-msgid "Identifiants invalides."
-msgstr "ログイン情報が正しくありません。"
+# Retired login template msgid "Identifiants invalides."
+# Retired login template msgstr "ログイン情報が正しくありません。"
 
 msgid "Identité de compte : nom complet, adresse email, rôle et organisation."
 msgstr "アカウント情報：氏名、メールアドレス、役職、所属機関。"
@@ -137,8 +137,8 @@ msgstr "未指定"
 msgid "Only an active box can be subcultured."
 msgstr "移植できるのは有効な容器のみです。"
 
-msgid "POLYPBASE - Connexion"
-msgstr "POLYPBASE - ログイン"
+# Retired login template msgid "POLYPBASE - Connexion"
+# Retired login template msgstr "POLYPBASE - ログイン"
 
 msgid "POLYPBASE - Mon profil"
 msgstr "POLYPBASE - マイプロフィール"
@@ -188,8 +188,8 @@ msgstr "手動入力"
 msgid "Salinité (PSU)"
 msgstr "塩分（PSU）"
 
-msgid "Se connecter"
-msgstr "ログイン"
+# Retired login template msgid "Se connecter"
+# Retired login template msgstr "ログイン"
 
 msgid "Strobiles"
 msgstr "ストロビラ"

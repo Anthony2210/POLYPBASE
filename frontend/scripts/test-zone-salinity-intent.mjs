@@ -36,10 +36,8 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
     '../utils/dateFormat': { formatDisplayDate: (date) => date, formatDisplayDateTime: (value) => value, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': { formatProbeReadingTime: (value) => value, getProbeElapsedTime: () => null },
     '../utils/errors': { getErrorMessage: (error) => { presentedErrors.push(error); return error.message; } },
-    '../utils/temperatureScale': {},
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring: null, error: null, revalidate() {} }) },
     // ZoneFunctionalSections does not render the thermal panel; fail if it ever runs here.
-    '../hooks/useThermalControl': { default: () => assert.fail('Salinity sections must not run thermal control') },
     './ZoneProbeCharts': { ZoneProbeChart: () => null, ZoneThermalTrend: () => null, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
     './ThermalMonitoringChart': { default: () => assert.fail('Salinity sections must not render thermal monitoring') },
     './BoxTrackingPreview': { default: () => null },

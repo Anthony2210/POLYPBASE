@@ -61,10 +61,8 @@ function panel(monitoring, canRecord = true, language = 'fr') {
   const { TemperatureControlPanel } = load('../src/components/ZonesView.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime,
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring, error: null, revalidate() {} }) },
-    '../hooks/useThermalControl': { default: () => ({ summary: undefined, error: null }) },
     '../utils/probeStatus': status,
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => language === 'fr' ? 'fr-FR' : 'en-GB' },
-    '../utils/temperatureScale': { buildTemperatureScale: () => null },
     './ThermalMonitoringChart': { default: noop },
     './PolypbaseIcon': { default: noop },
     // A settled chart read with no reading: probe status must not depend on it.

@@ -29,7 +29,6 @@ from apps.cultures import pca_identity_unification as merge
 from . import historical_temperature_target as production
 from .historical_temperature_backup_timeouts import check_backup_timeouts
 from apps.cultures.models import Box
-from apps.organizations.models import Organization
 
 from .historical_temperature_apply import (
     _EVIDENCE_FIELDS, _archive_sources, _current_snapshot,

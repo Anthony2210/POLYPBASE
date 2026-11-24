@@ -15,7 +15,6 @@ const operations = [
   { name: 'initial location', run: h => h.context.assignBoxInitialLocation(7, { thermal_zone_id: 81 }), box: true },
   { name: 'create zone', run: h => h.context.createThermalZone({ name: 'New zone' }) },
   { name: 'update zone', run: h => h.context.updateThermalZone(81, { name: 'Updated zone' }) },
-  { name: 'create probe', run: h => h.context.createProbe({ thermal_zone: 81, code: 'Late probe' }) },
   { name: 'successful move', run: h => h.context.moveBox(7, { thermal_zone_id: 81 }), box: true },
 ];
 
@@ -133,8 +132,8 @@ for (const [name, results] of [['create zone', [zones[0]]], ['initial location',
 }
 
 for (const stage of ['before recovery', 'during recovery']) {
-  test(`create probe cannot recover stale zones after Organization switch ${stage}`, async () => {
-    const operation = operations.find(operation => operation.name === 'create probe');
+  test(`create zone cannot recover stale zones after Organization switch ${stage}`, async () => {
+    const operation = operations.find(operation => operation.name === 'create zone');
     const { h, completion, firstPage } = await startRefresh(operation);
     firstPage.resolve({ results: zones.slice(0, 80), next: nextPath });
     await tick();

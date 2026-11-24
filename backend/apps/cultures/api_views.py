@@ -62,8 +62,9 @@ from apps.measurements.services import (
     MeasurementWriteInvalid,
     _changed_values,
     _json_value,
-    _measurement_audit_values,
-    _record_measurement_audit,
+    # The historical importer still uses these compatibility aliases.
+    _measurement_audit_values as _measurement_audit_values,
+    _record_measurement_audit as _record_measurement_audit,
     _validate_measurement_create_permission,
     _validated_measurement_data,
     correct_biological_measurement,

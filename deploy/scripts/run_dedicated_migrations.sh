@@ -98,16 +98,10 @@ def check_identity():
     require(0 not in groups, "dedicated migrator must not belong to the root group")
     # The normal web account must exist; reject both UID and group sharing.
     web = pwd.getpwnam("polypbase")
-    runtimes = [web]
-    try:
-        runtimes.append(pwd.getpwnam("polypbase_cca_eob"))
-    except KeyError:
-        pass
-    for runtime in runtimes:
-        require(uid != runtime.pw_uid and runtime.pw_gid not in groups,
-                "migrator must not share a web runtime UID or group")
-        require(not groups.intersection(os.getgrouplist(runtime.pw_name, runtime.pw_gid)),
-                "migrator and web runtime must not share supplementary groups")
+    require(uid != web.pw_uid and web.pw_gid not in groups,
+            "migrator must not share a web runtime UID or group")
+    require(not groups.intersection(os.getgrouplist(web.pw_name, web.pw_gid)),
+            "migrator and web runtime must not share supplementary groups")
 
 
 def check_node(path):

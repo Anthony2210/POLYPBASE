@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 import ts from 'typescript';
 import { appHarness, tick } from './app-operation-test-harness.mjs';
+import { resourceClient } from './resource-test-harness.mjs';
 
 for (const method of ['createMeasurement', 'updateMeasurement']) {
   test(`${method}: committed measurement survives refresh failure and recovery only reads`, async () => {
@@ -165,4 +166,19 @@ test('inventory count failures propagate instead of inventing a zero', async () 
     require: () => ({ apiGet: async () => { throw error; } }),
   });
   await assert.rejects(getBoxInventoryCounters({}), candidate => candidate === error);
+});
+
+test('JSON writes keep a measured zero and existing CSRF and organization headers', async () => {
+  const client = resourceClient({
+    document: { cookie: 'csrftoken=csrf-test' },
+    fetch: async (path, options) => {
+      assert.equal(path, '/api/test/');
+      assert.equal(options.headers.get('Content-Type'), 'application/json');
+      assert.equal(options.headers.get('X-CSRFToken'), 'csrf-test');
+      assert.equal(options.headers.get('X-Organization-Id'), '1');
+      assert.equal(options.body, '{"count":0}');
+      return Response.json({});
+    },
+  });
+  await client.apiPost('/api/test/', { count: 0 });
 });

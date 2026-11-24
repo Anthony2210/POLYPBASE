@@ -10,16 +10,17 @@ by the repository.
 
 ## Read the source of truth
 
-1. Locate the repository and read its `AGENTS.md`.
-2. Read `docs/deploiement_vm.md` and the deployment scripts relevant to the requested
-   operation. Do not load unrelated project history.
+1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
+2. Read the [deployment and operations guide](../../../docs/operations/deploiement-exploitation.md)
+   and the deployment scripts relevant to the requested operation. Do not load
+   unrelated project history.
 3. Inspect the local branch, `git status --short`, relevant diffs, and recent commits.
 4. Never display or copy `.env` contents, credentials, passwords, private keys, or
    database connection strings. Inspect only non-sensitive presence and permissions.
 
 ## Safety boundaries
 
-- Never deploy uncommitted work or edit application code directly on the VM.
+- Deploy only committed code. Never edit application code directly on the VM.
 - Never force-pull, reset, clean, or discard remote changes.
 - Never mutate Neon as part of a production operation.
 - Keep application, database, and organization scopes explicit.
@@ -41,10 +42,25 @@ by the repository.
 
 ## Execute
 
-For a normal release, use `deploy/deploy_vm.ps1` and its versioned Linux executor
+For a normal release, use [`deploy/deploy_vm.ps1`](../../../deploy/deploy_vm.ps1) and its versioned Linux executor
 instead of assembling an alternative `git pull` and restart sequence. The workflow
-must preserve its fast-forward, backup, dependency, build, migration, static-file,
+must preserve its commit, fast-forward, backup, build, schema readiness, static-file,
 service, Nginx, and health-check safeguards.
+
+- Before fast-forward, the release requires `BACKUP_OK` from the root-installed
+  deployment backup broker running as the separate `polypbase_backup` OS account.
+  Verify the approved commit and pinned helper hashes through the operator
+  procedure. Never grant the web identity access to broker credentials or archives.
+- The release records `migrate --plan` and runs `migrate --check --noinput` in
+  read-only mode for schema changes. It never applies migrations. Pending migrations
+  stop the release before static files, publication, restart, or health checks.
+- Follow the dedicated migration procedure in the deployment and operations guide
+  for the exact target and reviewed JSON plan. Obtain separate authorization for
+  [`deploy/scripts/run_dedicated_migrations.sh`](../../../deploy/scripts/run_dedicated_migrations.sh)
+  under the isolated migrator, not
+  the web account or the backup broker. Verify the backup, `MIGRATION_COMPLETE`
+  for that target, and migration history before seeking approval to resume the
+  guarded release for the same commit. Never bypass the readiness check.
 
 For a targeted production operation that is not a release, keep the command narrowly
 scoped, transactional where possible, auditable, and preceded by the appropriate

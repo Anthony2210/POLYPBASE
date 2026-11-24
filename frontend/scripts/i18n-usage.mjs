@@ -2,11 +2,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { retainedPr2Copy } from './pr2-retained-copy.mjs';
 import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 
 // Exact keys only. These are retention decisions, not evidence of source use.
 export const usageExceptions = Object.freeze({
   ...retainedSpeciesCopy,
+  ...retainedPr2Copy,
   exchangePreviewNotice: 'B45 form preview (2026-11-18): modal notice explicitly removed at user request; retain the registered FR/EN key pending a dedicated i18n removal batch.',
   exchangePreviewBoxPlaceholder: 'B45 form preview: the functional donation form replaced the free-text box field with a scoped picker. Retain this registered FR/EN key pending a dedicated i18n removal batch.',
   exchangePreviewInstitutionPlaceholder: 'B45 form preview: the functional donation form replaced the free-text institution field with the authorized directory select. Retain this registered FR/EN key pending a dedicated i18n removal batch.',

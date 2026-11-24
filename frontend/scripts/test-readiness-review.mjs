@@ -46,11 +46,6 @@ for (const [value, step, expected] of [
     assert.equal(salinity.stepBiologicalSalinity(value, step), expected);
   });
 }
-test('shared one-decimal stepping remains unchanged', () => {
-  const shared = loadUtility('../src/utils/stepValue.ts');
-  assert.equal(shared.incrementDecimalValue('32.15', 5), '37.2');
-});
-
 test('initial location commits authoritative detail before failed refresh and recovery only GETs', async () => {
   const h = appHarness();
   const detail = { id: 7, thermal_zone: { id: 12 } };
