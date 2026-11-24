@@ -1,11 +1,9 @@
-"""Canonical PCA navigation and scientific API contracts on disposable PostgreSQL."""
+"""Canonical PCA navigation and scientific API contracts with recorded merged history."""
 
 
 from datetime import date
-from unittest import skipUnless
 
 from django.core.exceptions import ValidationError
-from django.db import connection
 from django.db.models import Sum
 from django.test import TransactionTestCase
 from django.urls import reverse
@@ -19,10 +17,9 @@ from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 from . import qr
 from .models import Box, BoxLocation, BoxMovement
 from .services import reactivate_box
-from .test_pca_identity_unification import PcaFixtureMixin
+from .pca_test_fixtures import PcaFixtureMixin
 
 
-@skipUnless(connection.vendor == "postgresql", "Run only on independent PostgreSQL QA.")
 class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
     reset_sequences = True
 
@@ -30,7 +27,7 @@ class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
         super().setUp()
         self.stale_donor = Box.objects.get(pk=2141)
         self.stale_canonical = Box.objects.get(pk=2135)
-        self.apply()
+        self.record_merged_history()
         self.client.force_login(self.admin)
         self.headers = {"HTTP_X_ORGANIZATION_ID": "1"}
 

@@ -13,6 +13,12 @@ import historical_temperature_cluster_lease as cluster_lease
 import test_historical_temperature_production as launcher
 
 
+LABELS = (
+    "apps.cultures.test_box_1902_correction_v2_postgres",
+    "apps.taxonomy.test_existing_species_actions",
+)
+
+
 class LauncherTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="polypbase-launcher-unit-")
@@ -33,7 +39,7 @@ class LauncherTests(unittest.TestCase):
         self.enterContext(contextlib.redirect_stdout(self.output))
         self.enterContext(patch.object(launcher, "ROOT", self.root))
         self.enterContext(patch.object(launcher.sys, "argv", [
-            "launcher", "--run", "--pg-bin", str(self.pg_bin),
+            "launcher", "--run", "--pg-bin", str(self.pg_bin), *LABELS,
         ]))
         self.enterContext(patch.dict(launcher.os.environ, {
             "PGDATA": str(self.existing), "PGHOST": "existing.invalid",
@@ -95,7 +101,7 @@ class LauncherTests(unittest.TestCase):
     def run_django_tests(self, argv, *, cwd, env, report, launch, timeout):
         self.assert_clean_environment(env)
         self.assertEqual(argv, [
-            "manage.py", "test", "apps.measurements.test_historical_temperature_production",
+            "manage.py", "test", *LABELS,
             "--settings=ht_disposable_settings", "--noinput", "-v", "2",
         ])
         self.assertEqual(cwd, self.root / "backend")
@@ -422,16 +428,28 @@ class LauncherTests(unittest.TestCase):
         self.assertIs(caught.exception, self.cleanup_error)
         self.assertTrue(self.directory.exists())
 
-    def test_missing_run_opt_in_fails_before_allocation_or_subprocesses(self):
-        with patch.object(launcher.sys, "argv", ["launcher", "--pg-bin", str(self.pg_bin)]):
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+    def assert_refused(self, arguments, message):
+        stderr = io.StringIO()
+        argv = ["launcher", "--pg-bin", str(self.pg_bin), *arguments]
+        with patch.object(launcher.sys, "argv", argv):
+            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
                 launcher.main()
         self.assertEqual(caught.exception.code, 2)
+        self.assertIn(message, stderr.getvalue())
         self.allocate.assert_not_called()
         self.version.assert_not_called()
         self.run.assert_not_called()
         self.worker.assert_not_called()
         self.remove.assert_not_called()
+
+    def test_missing_run_opt_in_fails_before_allocation_or_subprocesses(self):
+        self.assert_refused(LABELS, "--run is required")
+
+    def test_missing_labels_fail_before_allocation_or_subprocesses(self):
+        self.assert_refused(["--run"], "following arguments are required: labels")
+
+    def test_non_app_label_fails_before_allocation_or_subprocesses(self):
+        self.assert_refused(["--run", *LABELS, "backend"], "Only explicit apps.* test labels")
 
 
 if __name__ == "__main__":

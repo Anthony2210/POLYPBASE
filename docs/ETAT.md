@@ -23,6 +23,6 @@
 - Avant une release, établir SHA, date et schéma réellement en service. Vérifier séparément les anciens constats HSTS, les sondes et les sauvegardes; ne pas les supposer résolus ou encore d'actualité.
 - Avant d'activer la précision semaine seule : politique de chronologie en présence d'un repiquage, gestion des états scientifiques non résolus et attribution des emplacements/températures sans inférence.
 - Avant d'ouvrir l'acceptation des dons : politique de stock/statut, matérialisation destination et droits sur l'historique.
-- Avant toute opération de reprise de données : preuve et autorisation propres à la correction. Les rapports Box 1902, CCA-EOB, PCA et températures historiques ne sont pas des ordres d'exécution.
+- Les [dossiers des campagnes ponctuelles](archive/README.md) sont des traces historiques, pas des procédures à rejouer. Le retrait des outils dédiés ne vérifie pas l’état des données en production. Toute nouvelle reprise exige ses propres preuves et son autorisation.
 
 Voir les [décisions durables](DECISIONS.md) et les [références par domaine](INDEX.md).

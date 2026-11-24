@@ -32,7 +32,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
     services:
       postgres:
-        # Same major as the existing isolated PCA Unix QA; never a host database.
+        # Dedicated disposable PostgreSQL service; never a host database.
         image: postgres:18
         env:
           POSTGRES_DB: historical_movements_ci

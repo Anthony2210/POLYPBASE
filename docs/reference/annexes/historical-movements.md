@@ -1,10 +1,9 @@
 # Historical movements: approved adjacent-week protocol
 
-Annexe technique avec résultats de validation datés. Ces résultats ne constituent pas une validation de la version actuelle.
-
-Backend-only additive implementation. No real correction has been executed.
-The command and acceptance service remain restricted to in-memory SQLite under
-`config.test_settings`; this document is not a production execution procedure.
+This annex describes the current read-only planner and history projection. The
+former reconciliation command and acceptance service have been removed; there
+is no write path here for historical reconstruction. Prior procedures and dated
+validation results are retained in the [pre-removal annex](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/docs/reference/annexes/historical-movements.md).
 
 ## Approved evidence and week attribution
 
@@ -77,7 +76,7 @@ The plan returns `candidates` and separate diagnostic `assessments`:
 
 | Classification | Reconciliation status | Meaning |
 | --- | --- | --- |
-| `eligible` | `review_required` | Complete evidence; requires explicit acceptance |
+| `eligible` | `review_required` | Complete evidence for review; no current acceptance workflow |
 | `accepted` | `accepted` | Matching immutable row and one matching acceptance audit |
 | `already_represented` | `already_represented` | One corresponding existing movement; never insert another |
 | `ambiguous` | `blocked` | Inconsistent, competing or incomplete period/environment evidence |
@@ -86,7 +85,7 @@ The plan returns `candidates` and separate diagnostic `assessments`:
 
 Initial assignments and missing-observation/history findings live in
 `assessments`, not phantom movement candidates. Blocked transition candidates
-remain inspectable, but cannot be accepted. Multiple transitions attributed to
+remain inspectable as diagnostics. Multiple transitions attributed to
 one box/week are blocked even when one is an insufficient-evidence assessment.
 
 ### Existing movements and conflicts
@@ -107,30 +106,17 @@ week **or by the same period pair** block duplicates, including old receipts
 that used the incorrect destination week. Such old rows are preserved, not
 silently migrated, rewritten or reaccepted.
 
-### Fingerprints and acceptance
+### Fingerprints and existing receipts
 
 Policy `last_origin_measurement_week_full_periods_v3` participates in the preview
 fingerprint and candidate key, invalidating previous policies' previews. The hash
 covers the explicit selection, full box/period/movement/measurement facts,
 scoped zone attributes and scoped numeric-box audits. Changes without a Box save
-still stale the preview. Acceptance audits are excluded from the source hash so
-an unchanged replay remains idempotent; receipt rows and their audits are checked
-separately for exact evidence, attribution, references and uniqueness.
+still stale the preview. Acceptance audits are excluded from the source hash;
+existing receipt rows and their audits are checked separately for exact evidence,
+attribution, references and uniqueness.
 
-`accept_historical_movements(...)` rechecks an active institution Admin (existing
-superuser break-glass retained), exact candidate IDs, fingerprint and a nonempty
-review note. Lock order is organization, membership, user, selected boxes,
-periods, movements, measurements, scoped zones and historical rows. It rebuilds
-the real plan under those locks. Only `review_required` or valid `accepted`
-candidates can proceed; blocked findings and `already_represented` cannot.
-
-New week-only rows and individual institution-scoped audits share one transaction.
-An audit failure rolls back the entire batch. An unchanged accepted replay returns
-existing IDs with no second audit. A partial/contradictory receipt, missing audit,
-changed preview or changed source evidence fails closed. No operational box
-field, period, scientific value, existing movement or old audit is changed.
-
-## Storage and local command safety
+## Preserved storage
 
 Migration `0018` only adds `HistoricalBoxMovement` and its constraints. There is
 no data migration. It stores ISO year/week, zone/period references, immutable
@@ -144,25 +130,9 @@ business workflow and do not provide application-level cross-table guarantees.
 
 `BoxMovement` and its exact Paris-week check, ordinary uniqueness, correction
 service and endpoints are unchanged. Historical reconstructions use a separate
-ledger and do not create or reserve an ordinary exact movement slot. Acceptance
-checks both observation weeks for existing records; later changes to that source
-are re-evaluated by the projection rather than silently reconciling two ledgers.
-
-Command: `reconcile_historical_movements`
-
-- Required: `--organization-id`, repeated `--box-id`, `--actor-id`.
-- Default: authorized read-only JSON preview.
-- Accept: `--accept`, repeated `--candidate-id`, `--expected-fingerprint`, `--notes`.
-- No whole-institution default, implicit acceptance, force or guard bypass.
-
-The command refuses before querying outside `config.test_settings` with SQLite
-in memory. The public acceptance service has the same guard. Synthetic command
-tests use `call_command` in the test process. A standalone invocation starts
-with an empty in-memory database and is not a route to real application data.
-
-PostgreSQL concurrency is **not validated or enabled**. Enabling a real-database
-workflow requires separate approval, environment attestation, backup/restore
-proof, a writer/concurrency review, PostgreSQL tests and an operational runbook.
+ledger and do not create or reserve an ordinary exact movement slot. The planner
+checks both observation weeks for existing records; the projection re-evaluates
+source changes without rewriting either ledger.
 
 ## Authorized GET and frontend contract
 
@@ -258,45 +228,7 @@ masking. No midnight sample time is invented. The frontend may add stricter
 checks and must preserve both surrounding active periods. No backend data is
 hidden or deleted by this evidence projection.
 
-## Synthetic validation
-
-Use `POSTGRES_DB=''`, `POLYPBASE_TEST_POSTGRES=0`, an ephemeral Django secret and
-`--settings=config.test_settings`. Never use the default database for validation.
-
-```text
-uv run python manage.py test apps.cultures.test_historical_movements --settings=config.test_settings --noinput
-uv run python manage.py check --settings=config.test_settings
-uv run python manage.py makemigrations --check --dry-run --settings=config.test_settings
-```
-
-The feature tests use the **actual planner for every positive acceptance**, command
-replay and projection, with no eligibility/planner mocks. Only audit-failure
-injection and controlled lifecycle clocks are mocked. Tests cover ISO rollover
-(2025-W52, not destination 2026-W01), full/partial weeks, initial/insufficient
-assessments, canonical/duplicate/zero evidence, environment attribution, recorded
-linked/unlinked correspondence without forged links, ambiguous representations,
-conflicts in W and W+1, immutable/old receipts, real idempotent acceptance, batch
-audit rollback, stale fingerprints, scopes/permissions, week-only projection and
-conservative inactive-gap masking evidence including DST elapsed time.
-
-Validation after the approved protocol correction on 2026-11-04:
-
-- **68 feature tests passed**, using actual planner-to-acceptance paths.
-- **300 tests executed: 299 passed, one skipped** in the expanded selection:
-  historical movements, movement corrections, weekly integrity/limits, lifecycle,
-  location diagnostics, detail organization scoping, zone history, normalized CSV
-  and historical-2026 imports, box temperature history and CCA-EOB environment
-  consumers. The skip is the existing lifecycle `SELECT FOR UPDATE OF` test,
-  which SQLite cannot support.
-- Django `check`, migration drift (`makemigrations --check --dry-run`) and backend
-  `git diff --check` passed. This policy correction needs no additional schema
-  migration.
-
-PostgreSQL concurrency, browser behavior and real source-data suitability are not
-established by these synthetic tests. No real correction, production/Neon access,
-commit, push or deployment was performed.
-
-## Frontend integration and final local checks
+## Frontend integration
 
 The movement subtab loads this projection through the organization-scoped API
 client, including refresh, cancellation, retry and stale-context protection.
@@ -316,87 +248,6 @@ movement markers. Source records remain visible in the history. Only reciprocal,
 validated backend inactive-gap evidence can suppress lifecycle chart markers;
 active location bands remain intact.
 
-FR/EN copy is registered. The 44 added keys use English fallback in Japanese;
-no existing Japanese translation or locked review input was changed.
-
-Final checks on 2026-11-04:
-
-- Frontend full suite: `npm run test:all`: **2408 passed, zero failed**.
-  This ran before the final unique lifecycle-pair presentation fix and exact
-  black-stroke adjustment; their focused rerun below passed afterward.
-- Final focused frontend rerun: `node --test scripts/test-box-history.mjs
-  scripts/test-box-insights.mjs scripts/test-chart-readability.mjs`:
-  **92 passed, zero failed**.
-- Final `npm run build`: passed (CSS architecture, TypeScript and Vite).
-- Final backend focused regression selection: **259 executed, 258 passed,
-  one SQLite feature skip**, covering reconstruction, lifecycle, corrections,
-  weekly integrity, location diagnostics, organization scope, zone history,
-  normalized CSV and historical-2026 imports.
-- Full backend suite: attempted with `config.test_settings`; stopped at the
-  600-second timeout with no final result. It is **not** counted as passed.
-- Final Django check: no issues. Migration drift: no changes detected.
-- Japanese checks: **22 Node tests and 19 Python tests passed**. Translation
-  register checks and **62 register tests passed**.
-- Whitespace checks passed, with Git LF/CRLF advisories only.
-- No browser QA: no browser automation package was available in this checkout.
-  SVG hit testing, keyboard/touch interactions and desktop/tablet rendering
-  remain independent-review items.
-
-## Future separately authorized preview procedure
-
-There is intentionally no real-data acceptance path in this local implementation.
-Do not remove the command/service environment guard for an operational trial.
-
-For a future explicitly authorized **read-only** review of an installed schema:
-
-1. Review migration `0018` and this policy independently, and deploy only under
-   the separate approved release procedure. No migration is executed by preview.
-2. Establish the authorized institution and explicit canonical box-ID selection.
-   Do not use an unrestricted whole-institution scan or a shared test database.
-3. In an authenticated application session, request
-   `GET /api/boxes/<box-id>/history/` through the normal client with
-   `X-Organization-Id: <authorized-organization-id>`. It returns preserved events,
-   candidates, reasons and assessments, and performs no reconstruction or audit.
-4. For a scoped fingerprinted plan in a separately reviewed read-only backend
-   environment, call `plan_historical_movements(organization_id=<id>,
-   box_ids=[<explicit IDs>])` only after caller authorization. Retain its version,
-   fingerprint, evidence, classifications and exact selection for review. This
-   helper grants no permission itself and has no writes.
-5. Compare source periods and observations independently. Missing weeks, gaps,
-   overlaps, unknown ends, conflicting events and incomplete provenance remain
-   unresolved; do not edit originals to force eligibility.
-6. Stop after preview. Applying institutional reconstructions requires new
-   explicit authorization, an environment-attested operational acceptance path,
-   PostgreSQL concurrency tests, backup/restore evidence and a reviewed runbook.
-   The shipped management command and acceptance service refuse that operation.
-
-For the currently authorized synthetic local preview/acceptance exercise, run
-`apps.cultures.test_historical_movements` under `config.test_settings`; command
-preview and exact candidate/fingerprint acceptance are executed with `call_command`
-inside the same synthetic in-memory test process. A standalone command does not
-share that test database.
-
-No further biological product decision is required for these deliberately narrow
-eligible cases. Independent review must assess the source-period completeness
-policy, ledger coexistence, PostgreSQL locking, read-projection cost and the
-operational guard before any future institutional application.
-
-## Independent-review corrections (2026-11-04)
-
-### Duplicate reactivation markers — corrected
-
-The original chart counted valid audits independently, while the timeline checked
-unique pairs. Two audit claims for one movement therefore suppressed the movement
-and produced two green audit markers. `uniqueLifecyclePairs` now counts every
-explicit claim before validating a unique one-to-one association. The timeline,
-chart and inactive-gap masking share that rule. A valid pair retains the movement
-identity and correction capability, with the complete audit nested as evidence.
-Ambiguous, missing or contradictory claims stay separate unresolved history rows;
-their complete original event, including its claimed occurrence, remains in
-`evidence.source_event`. They do not acquire dated chart markers. The recorded
-reactivation remains green, not an ordinary black movement. No source object or
-persisted audit is changed.
-
 ### Audit lookup scaling — corrected and measured on synthetic SQLite only
 
 Previously the planner queried numeric JSON identities, and the projection read
@@ -406,8 +257,8 @@ supported organization/date or action/date, not the complete identity predicate.
 `audit.box_lookup.box_audits` now uses independently organization/object-type
 scoped numeric and code PK branches joined by distinct UNION, followed by one
 model/user fetch. The projection shares its loaded numeric subset with the private
-planner inside the same read snapshot. Public planning and acceptance still load
-their own evidence; callers cannot inject evidence through the public planner.
+planner inside the same read snapshot. Public planning still loads
+its own evidence; callers cannot inject evidence through the public planner.
 Database-provided membership annotations preserve typed JSON equality, including
 numeric values whose decoded Python floats lose precision. Only concrete audit
 fields participate in snapshots, so the annotation does not change fingerprints.
@@ -443,183 +294,11 @@ PostgreSQL SQL and index DDL compile without connecting, but PostgreSQL plans,
 latency and write/index-maintenance costs remain unverified. No verified disposable
 PostgreSQL environment was used.
 
-### PostgreSQL acceptance lock order — deferred, still a mandatory activation blocker
+## Local and PostgreSQL validation
 
-The acceptance path currently locks organization -> membership -> reviewing user
-with `FOR UPDATE`, then selected boxes -> periods -> movements -> measurements ->
-zones -> historical rows. Ordinary movement writers lock the box first, then
-create movements and mandatory audits referencing the actor/organization.
-
-A possible PostgreSQL cycle is:
-
-1. Acceptance holds the reviewer/organization row and waits for a box.
-2. An ordinary writer holds that box and, on movement/audit foreign-key checking
-   (possibly at commit for deferred constraints), needs `KEY SHARE` on the actor
-   or organization row held `FOR UPDATE` by acceptance.
-3. Each transaction waits for the other. Changing the reviewer does not eliminate
-   the organization-FK variant.
-
-No lock-order change is made in this correction. Before operational activation,
-the fix must remove this opposing lock dependency while retaining permission
-revalidation and membership serialization. One concrete option requiring review
-is FK-compatible `FOR NO KEY UPDATE` for existing actor/organization keys that the
-operation never changes; another is a shared global ordering across acceptance,
-box writers and membership administration. Neither option is validated here and
-neither may be enabled merely by removing the environment guard.
-
-Required disposable-PostgreSQL tests must force both interleavings with separate
-connections/barriers and bounded lock/statement timeouts: acceptance vs ordinary
-movement with the same and different actor; acceptance vs correction,
-deactivation/reactivation and measurement writes; overlapping acceptance batches
-in opposite input order; and concurrent membership revocation/user deactivation.
-Assert no deadlock, no stale permission acceptance, no partial reconstruction or
-audit, idempotent duplicate behavior and unchanged scientific/location data. Check
-foreign-key locks at commit as well as explicit row-lock acquisition.
-
-The active GET remains read-only and takes no acceptance row locks. The public
-acceptance service and command still reject every environment except SQLite in
-memory under `config.test_settings`, before querying. Added tests exercise settings,
-file-backed SQLite and PostgreSQL guard refusals without opening those databases.
-SQLite write contention is not evidence of PostgreSQL lock safety.
-
-### Correction validation
-
-- Frontend history/insights/readability/biological-timeline selection: **126 passed**.
-- `npm run typecheck`, `npm run check:css` and final `npm run build`: passed.
-- Backend feature/audit-lookup/audit-app selection after numeric-membership review:
-  **101 passed**.
-- Final broader backend selection, including lifecycle and movement correction:
-  **159 executed, 158 passed, one existing SQLite-unsupported lock-feature skip**.
-- Django check and migration drift checks: passed. Whitespace checks: passed.
-- One earlier combined frontend command timed out after its tests/typecheck/CSS
-  stages; the focused tests and production build were rerun separately and passed.
-- No browser QA or PostgreSQL execution was performed for these corrections.
-
-These findings are ready for targeted independent re-review. This is not an
-institutional acceptance or deployment verdict. All pre-existing
-implementation remains intact.
-
-## Dedicated GitHub Actions PostgreSQL validation
-
-`.github/workflows/historical-movements-postgres.yml` runs on pushes to
-`feat/historical-movements`. It does not depend on a workflow already being on
-main, a pull request or a local Docker installation. No run has been executed or
-reported successful as part of this local workflow implementation.
-
-### CI boundary
-
-- GitHub-hosted `ubuntu-latest`, 20-minute job timeout, `contents: read` only,
-  checkout without persistent credentials, actions pinned to commit SHAs.
-- PostgreSQL `18`, matching the major used by the existing PCA Unix QA. The image
-  tracks PostgreSQL 18 patch releases; the actual server version is recorded.
-- Fresh service database/role `historical_movements_ci`, mapped to loopback
-  client endpoint `127.0.0.1:55439`; Django tests create
-  `test_historical_movements_ci`. PostgreSQL data lives in a tmpfs mount under
-  `/var/lib/postgresql`. No host/persistent volume is configured.
-- Trust authentication is deliberately confined to this disposable hosted runner;
-  there are no institutional credentials, repository secrets or reusable password.
-  This is not a pattern for a shared runner or production database.
-- `config.historical_movements_ci_settings` requires the dedicated GitHub/Linux
-  gates, refuses backend/.env and external libpq/database URL configuration, and
-  uses a fixed PostgreSQL engine/endpoint/database/role. There is no SQLite fallback.
-- The read-only preflight checks configuration and PostgreSQL 18 identity, then
-  refuses unexpected schemas, public relations, routines/types or extensions.
-  It never flushes an unexpected database. A failed preflight prevents migrations.
-- The historical acceptance service and command are unchanged and remain disabled
-  on PostgreSQL. No positive acceptance test or direct historical-row insertion is
-  used to evade that guard. The known deadlock is not exercised, fixed or enabled.
-
-### Checks and evidence
-
-The job installs application dependencies from `uv.lock` using Python 3.12 and
-`uv sync --frozen`. The independent offline workflow/settings tests use pinned
-PyYAML as a transient test-tool dependency; it is not added to production packages.
-
-After preflight, CI runs Django checks/drift detection, applies the entire current
-migration graph, captures SQL for cultures `0018` and audit `0004`, and verifies
-applied migrations, exact historical columns, CHECK/unique/FK constraints and the
-two valid/ready B-tree audit indexes in PostgreSQL catalogs. Schema checks also
-require the historical reconstruction table to remain empty.
-
-The selected Django modules are:
-
-- `apps.cultures.test_historical_movements_postgres_ci`: seven PostgreSQL-only
-  tests for deterministic W/W+1 planning, read-only API, permissions/institution
-  isolation, real PostgreSQL guard refusal, schema and lookup evidence.
-- `apps.cultures.test_history_audit_lookup`: existing identity/equivalence,
-  snapshot reuse and query-count regressions. Its SQLite plan test is explicitly
-  skipped on PostgreSQL; it is not used as PostgreSQL performance evidence.
-- `apps.cultures.test_box_detail_organization_scoping`: detail authorization.
-
-The full SQLite-oriented reconstruction test module is deliberately not selected:
-its positive acceptance cases are incompatible with the PostgreSQL refusal guard.
-Its synthetic setup helper is reused without discovering or running those tests.
-No unrelated full backend suite or frontend build is added to this job.
-
-The lookup test generates 1,000 / 10,000 / 50,000 unrelated synthetic audits,
-split equally across the scoped and another institution. At each volume it checks
-numeric, legacy-current, legacy-previous and combined retrieval against the old
-query formulation. It captures 12 observations with unforced
-`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, actual index choices, row counts,
-planning/execution times, basic ORM timing and index sizes. It verifies equal
-results, typed identities, no duplicated evidence, one query and no user N+1.
-
-Plans are deliberately not forced and no latency threshold is asserted. An
-optimizer-chosen sequential scan is reported for review, not hidden or made into
-a correctness failure. Measurements are single warm executions on a shared CI
-runner inside a test transaction, not production benchmarks. The old and new
-formulations both use the migrated indexes. Index storage is reported; this job
-does not benchmark concurrent write overhead or production index-build locks.
-
-Every run attaches `historical-movements-postgres-<run-id>-<attempt>` for seven
-days, including the tested SHA, migration plan/logs/SQL, schema findings, test log
-and `historical-movements-postgres-lookup.json`. Failure logs are retained where
-available. Artifacts and the job summary alone do not imply a successful job;
-inspect all step conclusions and the test summary.
-
-### Local review and first GitHub run
-
-Local checks do not start Docker or connect to PostgreSQL:
-
-```text
-uv run --frozen --with pyyaml==6.0.3 python -B -m unittest discover -s scripts -p test_historical_movements_ci.py -v
-```
-
-Use `config.test_settings` with `POSTGRES_DB=''` and
-`POLYPBASE_TEST_POSTGRES=0` for local Django import/regression checks. The seven
-new PostgreSQL tests skip locally; a skip is not a PostgreSQL pass. Do not spoof
-the GitHub gates or redirect these settings to an existing database.
-
-After independent review, Anthony can run the following from the repository root.
-These commands are instructions only; the writer did not execute them:
-
-```text
-git status --short
-git diff --check
-git add .github/workflows/historical-movements-postgres.yml backend/config/historical_movements_ci_settings.py backend/apps/cultures/test_historical_movements_postgres_ci.py scripts/validate_historical_movements_ci.py scripts/test_historical_movements_ci.py backend/HISTORICAL_MOVEMENTS.md
-git diff --cached --stat
-git commit -m "Add isolated PostgreSQL history CI"
-git push origin feat/historical-movements
-```
-
-In GitHub, open Actions -> Historical movements PostgreSQL -> the run for the
-pushed SHA. Verify the preflight, graph/catalog checks and tests, then download the
-artifact to inspect all twelve lookup observations, actual index choices and
-limitations. If Actions requires approval/enabling in the repository, resolve that
-in GitHub; no deployment environment or production secret should be configured.
-
-Local validation of this workflow addition: all eight offline settings/workflow
-unit tests passed with pinned PyYAML; 82 Django tests completed under isolated
-SQLite settings (75 passed, seven new PostgreSQL-only tests skipped). Django
-system checks, migration drift and whitespace checks passed. YAML was parsed and
-its trigger, service, permissions, steps and pinned actions were asserted;
-`actionlint` was not available. An initial invocation with system Python failed
-because that interpreter lacked Django; the documented `uv run` invocation passed.
-No Docker command, PostgreSQL connection or GitHub run was executed locally.
-Actual service startup, migrations/catalog SQL and PostgreSQL test/EXPLAIN results
-remain unverified until the first successful Actions run.
-
-A green run is PostgreSQL integration evidence for this commit and synthetic
-workload only. It is neither production deployment approval nor authorization to
-activate historical acceptance. The documented concurrency blocker and separate
-institutional authorization remain mandatory.
+Use the [isolated QA settings](../../operations/developpement-qa.md) for local
+`apps.cultures.test_historical_movements` tests. The dedicated
+[PostgreSQL CI workflow](../../../.github/workflows/historical-movements-postgres.yml)
+checks the migration graph, reconstruction constraints and audit indexes, plus
+read-only planning, API scoping and audit lookup on a disposable PostgreSQL
+instance. This tests synthetic data, not production conditions or a write path.

@@ -51,7 +51,7 @@ verrous, contraintes ou rôles PostgreSQL, utiliser le harnais jetable prévu.
 - [`historical-movements-postgres.yml`](../../../.github/workflows/historical-movements-postgres.yml)
   et [`history-revision-postgres.yml`](../../../.github/workflows/history-revision-postgres.yml) :
   contrats PostgreSQL des mouvements et révisions historiques.
-- [`pca-unix.yml`](../../../.github/workflows/pca-unix.yml) : procédures et contrôles PCA sous Unix.
+- [`pca-unix.yml` (workflow retiré, source historique)](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/.github/workflows/pca-unix.yml) : anciens contrôles PCA sous Unix.
 - `deploy/tests/` et les tests d’outillage sous `scripts/` sont hors de la
   découverte Django depuis `backend/`. Leurs commandes et prérequis sont dans
   les workflows ou le [guide de déploiement](deploiement_vm.md).

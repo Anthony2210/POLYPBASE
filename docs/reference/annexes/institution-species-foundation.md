@@ -209,18 +209,20 @@ remain untouched.
 
 ## Validation gates
 
-Use `config.test_settings`, `POSTGRES_DB=''` and `POLYPBASE_TEST_POSTGRES=0` for
-SQLite tests. Focused module: `apps.taxonomy.test_institution_species`.
+Use the [isolated SQLite QA settings](../../operations/developpement-qa.md)
+with dotenv disabled. Focused module: `apps.taxonomy.test_institution_species`.
 
 Actual concurrent uniqueness and revision tests require a newly initialized,
 verified disposable PostgreSQL cluster, never an unknown listener or port 5432.
-Use `scripts/test_historical_temperature_production.py --run --pg-bin <local PostgreSQL 18 bin>`
-with explicit test labels. PostgreSQL fixture cleanup requires the launcher's
-live in-memory lease, matching server identity and the expected test database.
+Despite its historical filename, `scripts/test_historical_temperature_production.py`
+is a synthetic PostgreSQL 18 test launcher, not a campaign or production command.
+It requires `--run`, `--pg-bin` and explicit `apps.*` test labels. PostgreSQL fixture
+cleanup requires the launcher's live in-memory lease, matching server identity
+and the expected test database.
 A declared directory or environment flag alone grants no cleanup authority.
 The runner bypasses ordinary triggers only inside its fixture-cleanup transaction
-and checks that the normal replication role is restored. Historical-temperature
-and identity guards remain active during test assertions. Other isolated runners
+and checks that the normal replication role is restored. Migration-installed
+preservation and identity guards remain active during test assertions. Other isolated runners
 retain their own cleanup infrastructure; they do not gain this bypass.
 
 Automatic `migrate` refuses any plan with multiple backwards migrations that

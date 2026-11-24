@@ -1,16 +1,59 @@
 """Database-free regressions for the Box 1902 disposable setup and cleanup."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 from django.db.migrations.graph import MigrationGraph
 from django.db.migrations.loader import MigrationLoader
 from django.test import SimpleTestCase
 
 from . import test_box_1902_correction_v2_postgres as harness
+from . import test_box_1902_preservation_postgres as preservation
 
 
 class Box1902HarnessTests(SimpleTestCase):
+    def test_inherited_preservation_test_uses_runtime_login(self):
+        suite = harness.Box1902CorrectionV2PostgreSQLTests
+        case = suite("test_ordinary_identity_change_still_invalidates")
+        db = MagicMock(in_atomic_block=False)
+        db.settings_dict = {"USER": harness.contract.EXECUTOR}
+
+        def switch(user):
+            db.settings_dict["USER"] = user
+
+        def reading_statuses():
+            self.assertEqual(db.settings_dict["USER"], harness.contract.RUNTIME)
+            return {1: "pending_review"}
+
+        with patch.object(harness, "connection", db), \
+                patch.object(preservation, "connection", db), \
+                patch.object(case, "use_django_role", side_effect=switch) as use_role, \
+                patch.object(case, "reading_ids", [1], create=True), \
+                patch.object(case, "_reading_statuses", side_effect=reading_statuses):
+            case.test_ordinary_identity_change_still_invalidates()
+
+        self.assertEqual(use_role.call_args_list, [call(harness.contract.RUNTIME), call(harness.contract.EXECUTOR)])
+        db.cursor.return_value.__enter__.return_value.execute.assert_called_once()
+
+    def test_role_restores_previous_login_after_failure(self):
+        case = harness.Box1902CorrectionV2PostgreSQLTests()
+        db = SimpleNamespace(settings_dict={"USER": harness.contract.EXECUTOR}, in_atomic_block=False)
+        with patch.object(harness, "connection", db), patch.object(case, "use_django_role") as use_role:
+            with self.assertRaisesMessage(RuntimeError, "fixture failed"), case.role(harness.contract.RUNTIME):
+                raise RuntimeError("fixture failed")
+        self.assertEqual(use_role.call_args_list, [call(harness.contract.RUNTIME), call(harness.contract.EXECUTOR)])
+
+    def test_role_refuses_login_switch_in_atomic_block(self):
+        case = harness.Box1902CorrectionV2PostgreSQLTests()
+        db = SimpleNamespace(settings_dict={"USER": harness.contract.EXECUTOR}, in_atomic_block=True)
+        with patch.object(harness, "connection", db), patch.object(case, "use_django_role") as use_role:
+            with self.assertRaisesMessage(AssertionError, "before switching genuine logins"):
+                with case.role(harness.contract.RUNTIME):
+                    self.fail("Fixture body must not run")
+            with case.role(harness.contract.EXECUTOR):
+                use_role.assert_not_called()
+        use_role.assert_not_called()
+
     def baseline_plan(self, loader):
         suite = harness.Box1902CorrectionV2PostgreSQLTests
         executor = Mock(loader=loader)

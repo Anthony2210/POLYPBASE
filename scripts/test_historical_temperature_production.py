@@ -19,16 +19,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--pg-bin", type=Path, required=True)
-    parser.add_argument("--scale-boxes", type=int)
-    parser.add_argument("--diagnose-legacy-guards", action="store_true")
-    parser.add_argument("labels", nargs="*", default=["apps.measurements.test_historical_temperature_production"])
+    parser.add_argument("labels", nargs="+", help="Explicit Django apps.* test labels")
     args = parser.parse_args()
     if not args.run:
         parser.error("--run is required to create a fresh disposable cluster")
     if any(not re.fullmatch(r"apps\.[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", label) for label in args.labels):
         parser.error("Only explicit apps.* test labels are accepted")
-    if args.scale_boxes is not None and not 1 <= args.scale_boxes <= 1000:
-        parser.error("--scale-boxes must be 1..1000")
+
     suffix = ".exe" if os.name == "nt" else ""
     binaries = {name: args.pg_bin.resolve() / (name + suffix)
                 for name in ("initdb", "pg_ctl", "postgres", "pg_dump", "pg_restore", "pg_controldata")}
@@ -100,12 +97,7 @@ def main():
             "'OPTIONS': {'options': '-c lock_timeout=10000 -c statement_timeout=120000'}}}\n",
             encoding="utf-8")
         env["PYTHONPATH"] = os.pathsep.join(map(str, (directory, ROOT / "backend", ROOT / "scripts")))
-        env["POLYPBASE_PCA_QA_PG_BIN"] = str(args.pg_bin.resolve())
         env["POLYPBASE_HISTORICAL_TEMPERATURE_DISPOSABLE_CLUSTER"] = str(data.resolve())
-        if args.diagnose_legacy_guards:
-            env["POLYPBASE_HT_DIAGNOSE_LEGACY_GUARDS"] = "1"
-        if args.scale_boxes:
-            env["POLYPBASE_HISTORICAL_TEMPERATURE_SCALE"] = str(args.scale_boxes)
         report_dir = ROOT / ".local-docs"
         report_dir.mkdir(exist_ok=True)
         report = report_dir / "historical-temperature-production-tests.log"

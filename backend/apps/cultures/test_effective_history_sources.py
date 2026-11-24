@@ -23,7 +23,8 @@ from .effective_history import (
     to_payload,
 )
 from .effective_history_sources import STARTING_LOCATION_KEY, HistorySourceNotFound, load_box_source_history
-from .historical_movements import PROVENANCE as RECONSTRUCTION_PROVENANCE, accept_historical_movements, plan_historical_movements
+from .historical_movement_test_fixtures import record_reconstruction
+from .historical_movements import PROVENANCE as RECONSTRUCTION_PROVENANCE, plan_historical_movements
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone
 from .services import deactivate_box, move_box_to_thermal_zone, qualify_pending_box, reactivate_box
 
@@ -406,10 +407,7 @@ class RecordedHistorySourceTests(TestCase):
         for day in (date(2025, 12, 22), date(2025, 12, 29)):
             BiologicalMeasurement.objects.create(box=box, measured_on=day, polyp_count=0, ephyrae_count=0)
         plan = plan_historical_movements(organization_id=self.org.pk, box_ids=[box.pk])
-        accept_historical_movements(
-            organization_id=self.org.pk, box_ids=[box.pk], candidate_ids=[plan["candidates"][0]["id"]],
-            expected_fingerprint=plan["fingerprint"], actor=self.admin, notes="Synthetic explicit review")
-        receipt = HistoricalBoxMovement.objects.get(box=box)
+        receipt = record_reconstruction(box=box, actor=self.admin, plan=plan, reviewed=True)
         source = self.load(box=box)
         self.assertEqual(sorted(by_key(source)), sorted([f"location:{origin.pk}:start", f"historical:{receipt.pk}"]))
         event = by_key(source)[f"historical:{receipt.pk}"]

@@ -1,16 +1,12 @@
-"""PostgreSQL-only CI evidence; never bypass the historical acceptance guard."""
+"""PostgreSQL-only history planner, API and catalog evidence."""
 
 import importlib.util
-import io
 import json
 from pathlib import Path
 from time import perf_counter
 from unittest import skipUnless
 
-from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import Q
 from django.test import TestCase
@@ -22,7 +18,7 @@ from apps.audit.box_lookup import box_audits, numeric_box_audit_values
 from apps.audit.models import AuditLog
 
 from . import test_historical_movements as fixture_module
-from .historical_movements import accept_historical_movements, plan_historical_movements
+from .historical_movements import plan_historical_movements
 from .models import Box, HistoricalBoxMovement
 
 
@@ -109,27 +105,6 @@ class HistoricalMovementsPostgresCITests(TestCase):
         self.assertNotIn(self.foreign.name, response.content.decode())
         self.assertEqual(self.client.post(url, HTTP_X_ORGANIZATION_ID=str(self.org.pk)).status_code, 405)
         self.assertEqual(self.snapshot(), before)
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-
-    def test_postgres_service_guard_refuses_before_any_query(self):
-        self.assertEqual(connection.vendor, "postgresql")
-        self.assertEqual(settings.SETTINGS_MODULE, _validation.SETTINGS_MODULE)
-        with self.assertNumQueries(0), self.assertRaises(PermissionDenied):
-            accept_historical_movements(
-                organization_id=self.org.pk, box_ids=[self.box.pk], candidate_ids=["synthetic"],
-                expected_fingerprint="synthetic", actor=self.admin, notes="Must be refused",
-            )
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-
-    def test_postgres_command_guard_refuses_preview_and_accept_before_any_query(self):
-        for accept in (False, True):
-            with self.subTest(accept=accept), self.assertNumQueries(0), self.assertRaises(CommandError):
-                call_command(
-                    "reconcile_historical_movements", organization_id=self.org.pk,
-                    box_id=[self.box.pk], actor_id=self.admin.pk, accept=accept,
-                    candidate_id=["synthetic"], expected_fingerprint="synthetic",
-                    notes="Must be refused", stdout=io.StringIO(), skip_checks=True,
-                )
         self.assertFalse(HistoricalBoxMovement.objects.exists())
 
     def test_catalog_schema_constraints_foreign_keys_and_typed_indexes(self):

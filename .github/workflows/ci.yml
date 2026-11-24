@@ -196,6 +196,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-18
 
+      - name: Check cross-login PostgreSQL snapshot dump and restore over Unix peer
+        run: >-
+          uv run --frozen --no-sync python -B scripts/probe_pg18_exported_snapshot.py
+          --bin-dir /usr/lib/postgresql/18/bin --peer
+
       - name: Run genuine-role Box 1902 regression tests
         run: >-
           uv run --frozen python -B scripts/test_historical_temperature_production.py

@@ -1,4 +1,4 @@
-"""Synthetic XLSX and pure pipeline tests; no settings or database required."""
+"""Synthetic XLSX source tests; no settings or database required."""
 
 from copy import deepcopy
 import hashlib
@@ -10,8 +10,6 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from .historical_temperature_dry_run import build_report, compare_2026_manifest, main
-from .historical_temperature_plan import plan
 from .historical_temperature_source import (
     SOURCES, Cell, Sheet, SourceError, _read_sheets, canonical_box,
     canonical_json, extract_sheet, extract_sources, fingerprint, numeric_state, read_source,
@@ -161,7 +159,6 @@ class HistoricalTemperatureSourceTests(unittest.TestCase):
         result = extract(sheet)
         self.assertEqual(result["candidates"][0]["biological_state"], "malformed")
         self.assertEqual(result["header_issues"][0]["reason"], "DUPLICATE_WEEK_HEADER")
-        self.assertEqual(plan(result["candidates"], organization_id=7)["associations"][0]["status"], "BLOCKED")
 
     def test_2026_dash_is_not_silently_week_20(self):
         sheet = sheet_fixture()
@@ -216,51 +213,3 @@ class HistoricalTemperatureSourceTests(unittest.TestCase):
         original = deepcopy(sheet)
         self.assertEqual(canonical_json(extract(sheet)), canonical_json(extract(sheet)))
         self.assertEqual(sheet, original)
-
-    def test_report_is_deterministic_and_no_baseline_means_no_db_proposal(self):
-        extraction = {"sources": [], **extract(), "ignored_merged_values": []}
-        with patch("apps.measurements.historical_temperature_dry_run.extract_sources", return_value=extraction):
-            first = build_report("unused", organization_id=7)
-            second = build_report("unused", organization_id=7)
-        self.assertEqual(canonical_json(first), canonical_json(second))
-        self.assertFalse(first["database_access"])
-        self.assertEqual(first["database_writes"], 0)
-        self.assertEqual(first["association_plan"]["proposed_changes"], [])
-        self.assertEqual(first["report_fingerprint"], fingerprint({k: v for k, v in first.items() if k != "report_fingerprint"}))
-
-    def test_cli_refuses_report_outside_ignored_private_directory_before_reading_sources(self):
-        with patch("apps.measurements.historical_temperature_dry_run.build_report", side_effect=AssertionError("source access forbidden")):
-            with self.assertRaises(SystemExit) as exc:
-                main(["--raw-directory", "synthetic", "--organization-id", "7", "--output", "tracked-report.json"])
-        self.assertEqual(exc.exception.code, 2)
-
-    def test_report_blocks_manifest_identity_disagreement_despite_matching_db_counts(self):
-        extraction = {"sources": [], **extract(), "ignored_merged_values": []}
-        candidate = extraction["candidates"][0]
-        manifest = {"source": {"sha256": "14befa67441f289153576b5c53de462eaa05b4218df6d5439a44ee432f62cb67"},
-                    "boxes": [], "measurements": [{"sheet": "Synthetic", "polyp_cell": "F3", "ephyrae_cell": "F4",
-                        "box": "XYZ-DEF-1.001", "iso_week": 1, "polyps": 0, "ephyrae": 0}]}
-        manifest["fingerprint"] = fingerprint(manifest)
-        baseline = {"organization_id": 7, "boxes": [{"id": 11, "organization_id": 7, "global_code": "ABC-DEF-1.001"}],
-                    "biological_measurements": [{"id": 21, "box_id": 11, "week_start": "2025-12-29",
-                                                 "polyp_count": 0, "ephyrae_count": 0}], "historical_temperatures": []}
-        with patch("apps.measurements.historical_temperature_dry_run.extract_sources", return_value=extraction):
-            report = build_report("unused", organization_id=7, baseline=baseline, manifest=manifest)
-        self.assertFalse(report["summary"]["ready"])
-        self.assertEqual(report["association_plan"]["proposed_changes"], [])
-        self.assertIn("V2_IDENTITY_DIFFERS_REVIEW_REQUIRED", report["association_plan"]["associations"][0]["issues"])
-        self.assertEqual(candidate["canonical_box"], "ABC-DEF-1.001")
-
-    def test_manifest_comparison_is_not_a_db_resolution_or_identity_mapping(self):
-        candidate = extract()["candidates"][0]
-        manifest = {"source": {"sha256": "14befa67441f289153576b5c53de462eaa05b4218df6d5439a44ee432f62cb67"},
-                    "boxes": [], "measurements": [{"sheet": "Synthetic", "polyp_cell": "F3", "ephyrae_cell": "F4",
-                        "box": "XYZ-DEF-1.001", "iso_week": 1, "polyps": 0, "ephyrae": 0}]}
-        manifest["fingerprint"] = fingerprint(manifest)
-        result = compare_2026_manifest({"candidates": [candidate], "blocks": []}, manifest)
-        self.assertEqual(result["comparisons"][0]["issues"], ["IDENTITY_DIFFERS"])
-        self.assertFalse(result["corrections_transferred"])
-        self.assertEqual(candidate["canonical_box"], "ABC-DEF-1.001")
-        manifest["measurements"][0]["box"] = "ABC-DEF-1.001"
-        with self.assertRaises(SourceError):
-            compare_2026_manifest({"candidates": [], "blocks": []}, manifest)

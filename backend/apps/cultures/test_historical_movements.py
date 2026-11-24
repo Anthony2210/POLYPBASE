@@ -1,17 +1,11 @@
-import io
-import json
-
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
-from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
@@ -23,7 +17,8 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
 
-from .historical_movements import accept_historical_movements, plan_historical_movements
+from .historical_movement_test_fixtures import record_reconstruction
+from .historical_movements import plan_historical_movements
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone
 from .movement_corrections import correct_box_movement
 from .services import deactivate_box, move_box_to_thermal_zone, reactivate_box, qualify_pending_box
@@ -57,25 +52,9 @@ class HistoricalMovementsTests(TestCase):
     def plan(self, **kwargs):
         return plan_historical_movements(organization_id=self.org.pk, box_ids=[self.box.pk], **kwargs)
 
-    def accept(self, plan=None, **kwargs):
-        plan = plan or self.plan()
-        args = dict(organization_id=self.org.pk, box_ids=[self.box.pk], candidate_ids=[row["id"] for row in plan["candidates"][:1]],
-                    expected_fingerprint=plan["fingerprint"], actor=self.admin, notes="Synthetic explicit review")
-        args.update(kwargs)
-        return accept_historical_movements(**args)
-
-    def stored_reconstruction(self, *, legacy=False):
-        """Represent a pre-review record without passing the acceptance gate."""
-        plan = self.plan()
-        candidate = plan["candidates"][0]
-        return HistoricalBoxMovement.objects.create(
-            box=self.box, iso_year=candidate["iso_year"], iso_week=candidate["iso_week"],
-            from_thermal_zone=self.a, to_thermal_zone=self.b,
-            origin_location=self.origin, destination_location=self.destination,
-            candidate_key=candidate["id"], plan_fingerprint=plan["fingerprint"],
-            evidence={"basis": "legacy_unestablished"} if legacy else candidate["evidence"],
-            accepted_by=self.admin, notes="Synthetic pre-review record",
-        )
+    def stored_reconstruction(self, *, legacy=False, reviewed=False):
+        return record_reconstruction(box=self.box, actor=self.admin, plan=self.plan(),
+                                     legacy=legacy, reviewed=reviewed)
 
     def snapshot(self):
         return [list(model.objects.order_by("pk").values()) for model in (Box, BoxLocation, BoxMovement, BiologicalMeasurement, AuditLog)]
@@ -97,86 +76,9 @@ class HistoricalMovementsTests(TestCase):
         self.assertFalse(candidate["evidence"]["physical_occurrence_proven"])
         self.assertEqual(candidate["evidence"]["measurement_ids"], [self.before.pk, self.after.pk])
 
-    def test_accept_is_additive_audited_and_idempotent(self):
-        plan = self.plan()
-        before = self.snapshot()[:4]
-        ids = self.accept(plan)
-        self.assertEqual(ids, self.accept(plan))
-        self.assertEqual(before, self.snapshot()[:4])
-        self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
-        audit = AuditLog.objects.get(metadata__event="historical_movements_v1")
-        self.assertEqual(audit.organization_id, self.org.pk)
-        self.assertEqual(audit.user_id, self.admin.pk)
-        self.assertEqual(audit.metadata["plan_fingerprint"], plan["fingerprint"])
-
-    def test_audit_failure_rolls_back(self):
-        with patch("apps.cultures.historical_movements.AuditLog.objects.create", side_effect=RuntimeError("audit unavailable")):
-            with self.assertRaises(RuntimeError):
-                self.accept()
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-
-    def test_batch_acceptance_rolls_back_all_events_when_second_audit_fails(self):
-        box = Box.objects.create(organization=self.org, strain=self.box.strain, box_number="002", global_code="HIS-LAB-1.002")
-        BoxLocation.objects.create(box=box, thermal_zone=self.a, starts_at=self.origin.starts_at, ends_at=self.origin.ends_at)
-        BoxLocation.objects.create(box=box, thermal_zone=self.b, starts_at=self.destination.starts_at)
-        for source in (self.before, self.after):
-            BiologicalMeasurement.objects.create(box=box, measured_on=source.measured_on, polyp_count=0, ephyrae_count=0)
-        selection = [self.box.pk, box.pk]
-        plan = plan_historical_movements(organization_id=self.org.pk, box_ids=selection)
-        create = AuditLog.objects.create
-        count = 0
-
-        def fail_second(**kwargs):
-            nonlocal count
-            count += 1
-            if count == 2:
-                raise RuntimeError("Second audit unavailable")
-            return create(**kwargs)
-
-        with patch("apps.cultures.historical_movements.AuditLog.objects.create", side_effect=fail_second):
-            with self.assertRaises(RuntimeError):
-                accept_historical_movements(organization_id=self.org.pk, box_ids=selection,
-                                            candidate_ids=[c["id"] for c in plan["candidates"]],
-                                            expected_fingerprint=plan["fingerprint"], actor=self.admin, notes="Synthetic batch review")
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-        self.assertFalse(AuditLog.objects.filter(metadata__event="historical_movements_v1").exists())
-
-    def test_stale_measurement_fingerprint(self):
-        plan = self.plan()
-        self.after.polyp_count = 1
-        self.after.save()
-        with self.assertRaises(ValidationError):
-            self.accept(plan)
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-
     def test_stale_period_fingerprint_without_box_change(self):
         plan = self.plan()
         BoxLocation.objects.filter(pk=self.origin.pk).update(notes="Independent evidence change")
-        with self.assertRaises(ValidationError):
-            self.accept(plan)
-
-    def test_stale_movement_fingerprint(self):
-        plan = self.plan()
-        BoxMovement.objects.create(box=self.box, to_thermal_zone=self.a, moved_at=paris(2025, 11, 1))
-        with self.assertRaises(ValidationError):
-            self.accept(plan)
-
-    def test_permissions_reloaded_under_lock(self):
-        for actor in (self.viewer, self.tech):
-            with self.assertRaises(PermissionDenied):
-                self.accept(actor=actor)
-        OrganizationMembership.objects.filter(user=self.admin).update(is_active=False)
-        with self.assertRaises(PermissionDenied):
-            self.accept()
-
-    def test_inactive_account_and_organization_refused(self):
-        get_user_model().objects.filter(pk=self.admin.pk).update(is_active=False)
-        with self.assertRaises(PermissionDenied):
-            self.accept()
-        get_user_model().objects.filter(pk=self.admin.pk).update(is_active=True)
-        Organization.objects.filter(pk=self.org.pk).update(is_active=False)
-        with self.assertRaises(PermissionDenied):
-            self.accept()
 
     def test_scope_requires_all_explicit_boxes(self):
         for selection in ([], [self.box.pk, 999999]):
@@ -191,8 +93,6 @@ class HistoricalMovementsTests(TestCase):
         self.assertEqual(plan["candidates"], [])
         assessment = next(row for row in plan["assessments"] if row["classification"] == "insufficient_evidence")
         self.assertIn("adjacent_measurement_evidence_missing", assessment["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept(plan=plan, candidate_ids=[assessment["id"]])
 
     def test_foreign_environment_measurement_is_not_evidence(self):
         other_box = Box.objects.create(organization=self.org, strain=self.box.strain, box_number="002", global_code="HIS-LAB-1.002")
@@ -221,8 +121,6 @@ class HistoricalMovementsTests(TestCase):
         self.assertEqual(candidate["reconciliation_status"], "already_represented")
         self.assertEqual(candidate["blockers"], [])
         self.assertEqual(candidate["evidence"]["represented_movement_ids"], [movement.pk])
-        with self.assertRaises(ValidationError):
-            self.accept()
         movement.refresh_from_db()
         self.assertEqual(movement.kind, "unclassified")
 
@@ -232,45 +130,6 @@ class HistoricalMovementsTests(TestCase):
         self.assertIn("invalid_or_foreign_period", candidate["blockers"])
         self.assertIsNone(candidate["from_thermal_zone_id"])
         self.assertNotIn("Never expose", self.history().content.decode())
-
-    def test_exact_selection_and_note_required(self):
-        for kwargs in ({"candidate_ids": []}, {"candidate_ids": ["unknown"]}, {"notes": " "}, {"expected_fingerprint": None}):
-            with self.assertRaises(ValidationError):
-                self.accept(**kwargs)
-
-    @override_settings(SETTINGS_MODULE="config.settings")
-    def test_real_environment_refused_before_query(self):
-        with self.assertNumQueries(0):
-            with self.assertRaises(PermissionDenied):
-                self.accept(plan={"fingerprint": "fake", "candidates": [{"id": "fake"}]})
-            with self.assertRaises(CommandError):
-                call_command("reconcile_historical_movements", organization_id=self.org.pk, box_id=[self.box.pk], actor_id=self.admin.pk)
-
-    def test_non_memory_and_postgresql_acceptance_refused_before_query(self):
-        for vendor in ("sqlite", "postgresql"):
-            guarded_connection = SimpleNamespace(vendor=vendor, is_in_memory_db=lambda: False)
-            with self.subTest(vendor=vendor), self.assertNumQueries(0):
-                with patch("apps.cultures.historical_movements.connection", guarded_connection):
-                    with self.assertRaises(PermissionDenied):
-                        self.accept(plan={"fingerprint": "fake", "candidates": [{"id": "fake"}]})
-                with patch("apps.cultures.management.commands.reconcile_historical_movements.connection", guarded_connection):
-                    with self.assertRaises(CommandError):
-                        call_command("reconcile_historical_movements", organization_id=self.org.pk,
-                                     box_id=[self.box.pk], actor_id=self.admin.pk)
-
-    def test_command_real_preview_accept_and_replay(self):
-        output = io.StringIO()
-        call_command("reconcile_historical_movements", organization_id=self.org.pk, box_id=[self.box.pk], actor_id=self.admin.pk, stdout=output)
-        plan = json.loads(output.getvalue())
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-        self.assertEqual(plan["candidates"][0]["reconciliation_status"], "review_required")
-        before = self.snapshot()[:4]
-        for _ in range(2):
-            call_command("reconcile_historical_movements", organization_id=self.org.pk, box_id=[self.box.pk], actor_id=self.admin.pk,
-                         accept=True, candidate_id=[plan["candidates"][0]["id"]], expected_fingerprint=plan["fingerprint"], notes="Reviewed synthetic", stdout=io.StringIO())
-        self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
-        self.assertEqual(AuditLog.objects.filter(metadata__event="historical_movements_v1").count(), 1)
-        self.assertEqual(before, self.snapshot()[:4])
 
     def test_get_is_read_only_with_full_contract(self):
         before = self.snapshot()
@@ -308,9 +167,8 @@ class HistoricalMovementsTests(TestCase):
         self.assertFalse(event["evidence"]["period_pairing_reliable"])
         self.assertEqual(event["evidence"]["accepted_by"]["first_name"], "Review")
 
-    def test_real_acceptance_projects_approved_week_only_evidence(self):
-        plan = self.plan()
-        self.accept(plan)
+    def test_stored_receipt_projects_approved_week_only_evidence(self):
+        self.stored_reconstruction(reviewed=True)
         persisted = HistoricalBoxMovement.objects.get()
         self.assertEqual((persisted.iso_year, persisted.iso_week), (2025, 52))
         self.assertEqual(self.plan()["candidates"][0]["reconciliation_status"], "accepted")
@@ -342,19 +200,15 @@ class HistoricalMovementsTests(TestCase):
     def test_full_destination_week_may_end_at_following_monday(self):
         BoxLocation.objects.filter(pk=self.destination.pk).update(ends_at=paris(2026, 1, 5))
         self.assertEqual(self.plan()["candidates"][0]["classification"], "eligible")
-        self.accept()
+        self.stored_reconstruction(reviewed=True)
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
 
     def test_partial_origin_or_destination_week_is_blocked(self):
         BoxLocation.objects.filter(pk=self.origin.pk).update(starts_at=paris(2025, 12, 23))
         self.assertIn("whole_week_period_evidence_required", self.plan()["candidates"][0]["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
         BoxLocation.objects.filter(pk=self.origin.pk).update(starts_at=paris(2025, 12, 15))
         BoxLocation.objects.filter(pk=self.destination.pk).update(ends_at=paris(2026, 1, 4))
         self.assertIn("destination_period_does_not_cover_week", self.plan()["candidates"][0]["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_missing_origin_measurement_does_not_interpolate_from_an_earlier_week(self):
         self.before.delete()
@@ -367,7 +221,7 @@ class HistoricalMovementsTests(TestCase):
         BiologicalMeasurement.objects.create(box=self.box, measured_on=self.before.measured_on,
                                              duplicate_of=self.before, polyp_count=0)
         self.assertEqual(self.plan()["candidates"][0]["evidence"]["measurement_ids"], [self.before.pk, self.after.pk])
-        self.accept()
+        self.stored_reconstruction(reviewed=True)
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
 
     def test_linked_boundary_movement_is_already_represented_without_changing_exact_week(self):
@@ -383,8 +237,6 @@ class HistoricalMovementsTests(TestCase):
         self.assertEqual((candidate["iso_year"], candidate["iso_week"]), (2025, 52))
         movement.refresh_from_db()
         self.assertEqual(movement.iso_week_start.isocalendar()[:2], (2026, 1))
-        with self.assertRaisesMessage(ValidationError, "already represented"):
-            self.accept()
         self.assertEqual(before, self.snapshot())
         self.assertFalse(HistoricalBoxMovement.objects.exists())
 
@@ -406,22 +258,16 @@ class HistoricalMovementsTests(TestCase):
         candidate = self.plan()["candidates"][0]
         self.assertEqual(candidate["classification"], "ambiguous")
         self.assertIn("recorded_period_link_mismatch", candidate["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_unrelated_movement_in_origin_week_blocks_reconstruction(self):
         BoxMovement.objects.create(box=self.box, from_thermal_zone=self.b, to_thermal_zone=self.a,
                                    moved_at=paris(2025, 12, 24, 12))
         self.assertIn("recorded_event_in_week", self.plan()["candidates"][0]["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_unrelated_movement_in_destination_week_blocks_reconstruction(self):
         BoxMovement.objects.create(box=self.box, from_thermal_zone=self.b, to_thermal_zone=self.a,
                                    moved_at=paris(2025, 12, 31, 12))
         self.assertIn("recorded_event_in_week", self.plan()["candidates"][0]["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_multiple_boundary_representations_are_ambiguous(self):
         for _ in range(2):
@@ -430,8 +276,6 @@ class HistoricalMovementsTests(TestCase):
         candidate = self.plan()["candidates"][0]
         self.assertEqual(candidate["classification"], "ambiguous")
         self.assertIn("multiple_recorded_representations", candidate["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_prior_boundary_week_receipt_blocks_duplicate_period_reconstruction(self):
         receipt = self.stored_reconstruction(legacy=True)
@@ -439,27 +283,20 @@ class HistoricalMovementsTests(TestCase):
             iso_year=2026, iso_week=1, candidate_key="old-boundary-week-key",
         )
         self.assertIn("historical_event_in_week", self.plan()["candidates"][0]["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
 
-    def test_missing_acceptance_audit_blocks_replay_and_uncertifies_projection(self):
-        self.accept()
+    def test_missing_acceptance_audit_uncertifies_projection(self):
+        self.stored_reconstruction(reviewed=True)
         AuditLog.objects.filter(metadata__event="historical_movements_v1").delete()
         candidate = self.plan()["candidates"][0]
         self.assertIn("historical_receipt_audit_unresolved", candidate["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
         event = next(row for row in self.history().json()["events"] if row["kind"] == "historical_reconstruction")
         self.assertEqual(event["reconciliation_status"], "unresolved")
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
 
-    def test_changed_period_evidence_invalidates_replay_and_projection(self):
-        plan = self.plan()
-        self.accept(plan)
+    def test_changed_period_evidence_invalidates_projection(self):
+        self.stored_reconstruction(reviewed=True)
         BoxLocation.objects.filter(pk=self.origin.pk).update(starts_at=paris(2025, 12, 23))
-        with self.assertRaisesMessage(ValidationError, "preview has changed"):
-            self.accept(plan)
         event = next(row for row in self.history().json()["events"] if row["kind"] == "historical_reconstruction")
         self.assertEqual(event["temporal_precision"], "unresolved")
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
@@ -921,8 +758,6 @@ class HistoricalMovementsTests(TestCase):
         BoxLocation.objects.create(box=self.box, thermal_zone=self.a, starts_at=paris(2026, 1, 1))
         for candidate in self.plan()["candidates"]:
             self.assertIn("multiple_period_transitions_in_week", candidate["blockers"])
-        with self.assertRaises(ValidationError):
-            self.accept()
 
     def test_overlap_blocks_entire_box(self):
         BoxLocation.objects.create(box=self.box, thermal_zone=self.a, starts_at=paris(2025, 12, 20), ends_at=paris(2025, 12, 23))
@@ -950,15 +785,6 @@ class HistoricalMovementsTests(TestCase):
                        lambda: HistoricalBoxMovement.objects.all().update(notes="Overwrite")):
             with self.assertRaises(ValidationError):
                 action()
-
-    def test_incomplete_period_evidence_is_not_overridden_by_review_note(self):
-        BoxLocation.objects.filter(pk=self.origin.pk).update(starts_at=paris(2025, 12, 23))
-        before = self.snapshot()
-        for note in ("Reviewed all adjacent weeks", "Source zones verified manually"):
-            with self.assertRaisesMessage(ValidationError, "Blocked or already represented"):
-                self.accept(notes=note)
-        self.assertFalse(HistoricalBoxMovement.objects.exists())
-        self.assertEqual(before, self.snapshot())
 
     def inactive_cycle(self, hours=2, start=None):
         start = start or paris(2026, 1, 7, 12)
@@ -1072,8 +898,6 @@ class HistoricalMovementsTests(TestCase):
             measurement.save()
         before = self.snapshot()
         self.assertEqual(self.plan()["candidates"][0]["reconciliation_status"], "blocked")
-        with self.assertRaisesMessage(ValidationError, "Blocked or already represented"):
-            self.accept()
         self.assertEqual(HistoricalBoxMovement.objects.count(), 1)
         self.assertEqual(before, self.snapshot())
 
