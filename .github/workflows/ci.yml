@@ -15,6 +15,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation:
+    name: Documentation checks and context bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
+
+      - name: Check documentation and skill copies
+        run: |
+          uv run --frozen python -B scripts/check_docs.py
+          uv run --frozen python -B scripts/gen_api_doc.py --check
+          uv run --frozen python -B scripts/sync_agent_skills.py --check
+
+      - name: Warn if live documentation did not change
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'doc:non-requise')
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: uv run --frozen python -B scripts/check_docs.py --impact-base "$PR_BASE_SHA"
+
+      - name: Build context bundle
+        run: uv run --frozen python -B scripts/build_doc_bundle.py
+
+      - name: Upload context bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: polypbase-contexte
+          path: polypbase-contexte.md
+          if-no-files-found: error
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest

@@ -3,11 +3,9 @@
 ## Chargement du contexte
 
 1. Lire ce fichier.
-2. Identifier le domaine de la tâche dans [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md).
-3. Ouvrir uniquement le ou les fichiers utiles sous `docs/context/`.
+2. Identifier le domaine de la tâche dans l'[index de la documentation](docs/INDEX.md).
+3. Ouvrir uniquement les pages utiles. Consulter [l'état du projet](docs/ETAT.md) si la tâche dépend d'un état daté; ne pas le traiter comme une règle durable.
 4. Inspecter ensuite l'implémentation, les migrations et les tests concernés.
-
-Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche transversale peut en nécessiter plusieurs; une tâche locale, généralement un ou deux.
 
 ## Inspection et périmètre
 
@@ -24,9 +22,9 @@ Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche tran
 - Toute donnée appartenant à une organisation doit être filtrée et autorisée côté serveur dans le contexte de l'organisation active. Vérifier querysets, identifiants client, relations, choix, agrégats, exports et actions groupées. Un filtre frontend n'est jamais une permission.
 - Django reste l'autorité pour les permissions, validations et transitions métier.
 - Préserver mesures historiques, emplacements, mouvements, lignées, auteurs et audits.
-- Pour toute écriture métier, évaluer transactions, contraintes, concurrence, alertes et cohérence de l'audit.
+- Pour toute écriture métier, évaluer transactions, contraintes, concurrence et cohérence de l'audit.
 - Ne jamais exposer, copier ou committer un secret, un `.env`, des données de production, un mot de passe, un identifiant de base ou une clé SSH.
-- Ne jamais utiliser Neon ou la production comme environnement de test, de démonstration ou d'import d'essai. Les migrations de production ne peuvent être exécutées que dans le cadre d'un déploiement explicitement autorisé et de la procédure prévue.
+- Ne jamais utiliser Neon ou la production comme environnement de test, de démonstration ou d'import d'essai. Les migrations de production suivent une procédure dédiée avec autorisation explicite distincte du déploiement applicatif.
 
 ## Interface
 
@@ -34,7 +32,8 @@ Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche tran
 - **Administration est desktop-only.** Sur tablette, son entrée est absente et toute URL `/administration...` redirige vers `/` sans rendre d'UI ou de message intermédiaire. Ce garde UX ne remplace jamais les permissions backend. Ne pas rendre Administration responsive sans décision produit explicite.
 - Préserver les états loading, empty, error, disabled et focus, l'accès clavier/tactile et la distinction entre vide et zéro.
 - Le texte utilisateur passe par l'i18n française et anglaise. Ne pas utiliser le point médian dans l'interface.
-- Pour tout texte visible, traduction ou terme métier, suivre [`docs/context/terminology-i18n.md`](docs/context/terminology-i18n.md). Le japonais validé n'est jamais écrasé.
+- Pour l'architecture de l'interface et du CSS, suivre la [référence frontend](docs/reference/frontend.md).
+- Pour tout texte visible, traduction ou terme métier, suivre la [référence terminologie et i18n](docs/reference/terminologie-i18n.md). Le japonais validé n'est jamais écrasé.
 
 ## Git et multi-agent
 
@@ -45,5 +44,9 @@ Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche tran
 ## Validation et production
 
 - Valider proportionnellement au risque : tests ciblés d'abord, puis contrôles élargis si un invariant transversal est touché.
-- Selon le domaine, exécuter tests Django isolés, contrôle migrations, TypeScript, CSS, build Vite, QA navigateur et `git diff --check`. Les commandes exactes sont dans [`development-deployment.md`](docs/context/development-deployment.md).
-- Toute mutation de production exige une autorisation explicite. Utiliser la procédure `deploy` existante; ne pas reconstruire manuellement ses étapes lorsqu'elle les orchestre.
+- Selon le domaine, exécuter tests Django isolés, contrôle migrations, TypeScript, CSS, build Vite, QA navigateur et `git diff --check`. Suivre le [guide de développement et QA](docs/operations/developpement-qa.md).
+- Toute mutation de production exige une autorisation explicite. Suivre le [guide de déploiement et d'exploitation](docs/operations/deploiement-exploitation.md) et utiliser l'automatisation existante plutôt que de reconstruire ses étapes.
+
+## Skills des agents
+
+Modifier uniquement les sources dans [`.agents/skills/`](.agents/skills/). Depuis la racine, lancer `python scripts/sync_agent_skills.py` pour régénérer le miroir [`.claude/skills/`](.claude/skills/) (copies réelles; les entrées absentes de la source sont supprimées du miroir). Lancer `python scripts/sync_agent_skills.py --check` pour vérifier l'inventaire et les octets sans écriture. Ne pas modifier le miroir à la main.

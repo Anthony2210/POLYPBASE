@@ -9,7 +9,7 @@ Verify the requested behavior without risking shared or production data.
 
 ## Establish scope
 
-1. Locate the repository and read its `AGENTS.md`.
+1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
 2. Inspect `git status --short`, the relevant diff, and the files involved in the
    changed workflow. Read additional documentation only when that workflow needs it.
 3. Preserve every pre-existing change. Never reset, clean, restore, or overwrite
@@ -35,7 +35,7 @@ browser matrix as a shared data-flow or permissions change.
   5.1 it can remove the environment variable, allowing dotenv to restore a
   configured PostgreSQL value. Do not use default settings for unverified QA.
 - Follow the explicit SQLite commands and child-process boundary in
-  [the development guide](../../../docs/context/development-deployment.md#backend-isolé).
+  [the development and QA guide](../../../docs/operations/developpement-qa.md).
   In-memory settings are for checks/tests, not persistent visual-QA data.
 - Never run `migrate`, `loaddata`, `flush`, or `seed_demo_data` against the default
   environment unless the user has explicitly identified an isolated database.
@@ -43,7 +43,7 @@ browser matrix as a shared data-flow or permissions change.
 
 ## Run deterministic checks
 
-Prefer targeted checks first. For broader local QA, run the PR1-updated
+Prefer targeted checks first. For broader local QA, run
 [`scripts/run_checks.ps1`](scripts/run_checks.ps1) from the repository root as
 `./.agents/skills/polypbase-qa/scripts/run_checks.ps1` in the verified child
 session above. It selects `config.preflight_settings` for `check` and
@@ -55,8 +55,8 @@ labels, including `apps.sharing` and `config.test_api_defaults`. It sets
 The runner also checks Git whitespace and builds the frontend. It is not the
 full CI workflow: CI discovers Django tests without labels, has separate
 PostgreSQL jobs, and runs frontend `test:all`. See the
-[backend test map](../../../docs/tests_backend.md#découverte-et-ci) for discovery
-and isolation. Frontend checks can be selected separately from `frontend/package.json`.
+[development and QA guide](../../../docs/operations/developpement-qa.md) for discovery
+and isolation. Select frontend checks from [`frontend/package.json`](../../../frontend/package.json).
 Stop and report the exact failing command when a check fails.
 
 ## Perform visual QA
