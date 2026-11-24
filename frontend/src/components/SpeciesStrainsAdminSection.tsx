@@ -15,6 +15,7 @@ import {
   adminSpeciesPath,
   adminSpeciesTargetFor,
   buildEditPayload,
+  buildExistingSpeciesEditPayload,
   buildRegistrationPayload,
   buildSpeciesEntries,
   ACQUISITION_TYPES,
@@ -78,6 +79,7 @@ const historicalPath = (speciesId: number) => `/api/admin/institution-species/hi
 const WORMS_SEARCH_PATH = '/api/admin/species-catalog/worms-search/';
 const LOCATIONS_PATH = '/api/admin/collection-locations/';
 const profileStrainsPath = (id: number) => `/api/admin/institution-species/${id}/strains/`;
+const historicalStrainsPath = (speciesId: number) => `/api/admin/institution-species/historical/${speciesId}/strains/`;
 
 type LoadState<T> =
   | { status: 'loading' }
@@ -438,16 +440,14 @@ function SpeciesDetail({
     return () => { isCurrent = false; };
   }, [target.kind, target.id, version, organizationId]);
 
-  const readyProfile = state.status === 'ready' && state.data.kind === 'profile' ? state.data.data : null;
   // Readiness comes from verified server evidence, never from a displayed AAA.
   const canCreateStrain = state.status === 'ready' && state.data.data.can_create_strain === true;
-  // Opening a dialog never persists anything: only an established institutional
-  // profile can be edited, and only a server-ready one can receive a Strain.
-  // Historical Species stay read-only here (the former implicit "resolve" is retired).
-  const isHistorical = state.status === 'ready' && state.data.kind === 'historical';
 
+  // Opening a dialog never persists anything, with or without institutional
+  // information yet: Django associates the Species only on the explicit save or
+  // Strain creation, inside that operation.
   function openSpeciesAction(action: 'edit' | 'strain') {
-    if (!readyProfile || (action === 'strain' && !canCreateStrain)) return;
+    if (state.status !== 'ready' || (action === 'strain' && !canCreateStrain)) return;
     if (action === 'strain') setIsStrainCreateOpen(true);
     else { setIsUpdated(false); setIsEditOpen(true); }
   }
@@ -508,6 +508,7 @@ function SpeciesDetail({
 
   const name = detail.kind === 'profile' ? detail.data.scientific_name : detail.data.scientific_name ?? detail.data.shared_scientific_name;
   const profile = detail.kind === 'profile' ? detail.data : null;
+  const existing = detail.kind === 'historical' ? detail.data : null;
   const code = detail.data.species_code;
   const strains = detail.data.strains;
   const wormsId = detail.data.worms_aphia_id;
@@ -550,15 +551,14 @@ function SpeciesDetail({
           </ul>
         </div>
         <div className="entity-header__actions box-action-stack species-action-stack">
-          <button className="primary-button" type="button" disabled={!canCreateStrain || isHistorical}
-            aria-describedby={isHistorical ? 'species-historical-readonly' : !canCreateStrain ? 'species-code-issue' : undefined}
+          <button className="primary-button" type="button" disabled={!canCreateStrain}
+            aria-describedby={!canCreateStrain ? 'species-code-issue' : undefined}
             onClick={() => { openSpeciesAction('strain'); }}>
             <PolypbaseIcon name="plus" size={16} />
             {t('speciesStrainNew')}
           </button>
           {/* Editing is independent of AAA readiness and of any WoRMS link. */}
-          <button className="secondary-button" type="button" disabled={isHistorical}
-            aria-describedby={isHistorical ? 'species-historical-readonly' : undefined}
+          <button className="secondary-button" type="button"
             onClick={() => { openSpeciesAction('edit'); }}>
             {t('speciesDetailIdentification')}
           </button>
@@ -566,9 +566,7 @@ function SpeciesDetail({
       </header>
 
 
-      {isHistorical ? (
-        <p id="species-historical-readonly" className="species-admin-notice" role="status">{t('speciesDetailActionsUnavailable')}</p>
-      ) : !canCreateStrain ? <p id="species-code-issue" className="species-code-issues" role="alert">{t(strainIssueKey)}</p> : null}
+      {!canCreateStrain ? <p id="species-code-issue" className="species-code-issues" role="alert">{t(strainIssueKey)}</p> : null}
       {createdCode !== undefined && !isUpdated ? (
         <p className="species-detail-message" role="status">
           {createdCode
@@ -596,9 +594,10 @@ function SpeciesDetail({
         t={t}
       />
 
-      {isStrainCreateOpen && profile && isUsableSpeciesCode(code) ? (
+      {isStrainCreateOpen && isUsableSpeciesCode(code) ? (
         <StrainCreateDialog
-          profile={profile}
+          speciesName={name}
+          createPath={profile ? profileStrainsPath(profile.id) : historicalStrainsPath(detail.data.species_id)}
           speciesCode={code}
           language={language}
           t={t}
@@ -614,16 +613,28 @@ function SpeciesDetail({
         />
       ) : null}
 
-      {isEditOpen && profile ? (
+      {isEditOpen ? (
         <SpeciesFormDialog
           mode="edit"
-          profile={profile}
+          profile={profile ?? undefined}
+          existing={existing ?? undefined}
           t={t}
           onClose={() => setIsEditOpen(false)}
           onSaved={(saved) => {
             setIsEditOpen(false);
+            if (typeof saved?.id !== 'number') {
+              // Nothing was associated (unchanged final state): reread the server truth.
+              setVersion((value) => value + 1);
+              return;
+            }
             setIsUpdated(true);
-            setState({ status: 'ready', data: { kind: 'profile', data: { ...profile, ...saved, strains: profile.strains } } });
+            // The saved local information now governs this page; readiness and
+            // Strains are unchanged by an identification save.
+            const base = detail.data;
+            setState({ status: 'ready', data: { kind: 'profile', data: {
+              ...saved, can_create_strain: base.can_create_strain, strain_creation_issue: base.strain_creation_issue,
+              strains: base.strains,
+            } } });
           }}
           onOpenExisting={(existing) => {
             setIsEditOpen(false);
@@ -694,6 +705,7 @@ type Feedback = {
 function SpeciesFormDialog({
   mode,
   profile,
+  existing,
   t,
   onClose,
   onSaved,
@@ -702,28 +714,41 @@ function SpeciesFormDialog({
 }: {
   mode: 'create' | 'edit';
   profile?: InstitutionSpecies;
+  // A Species used here without institutional information yet: prefilled from
+  // the server detail, associated by Django only when the final state is saved.
+  existing?: HistoricalSpeciesDetail;
   t: Translator;
   onClose: () => void;
   onSaved: (profile: InstitutionSpecies) => void;
   onOpenExisting: (target: AdminSpeciesTarget) => void;
   onReload?: () => void;
 }) {
-  const isEdit = mode === 'edit' && profile !== undefined;
+  const editing = profile ? {
+    speciesId: profile.species_id, name: profile.scientific_name, baseline: profile.scientific_name,
+    aphiaId: profile.worms_aphia_id, url: profile.worms_url,
+  } : existing ? {
+    speciesId: existing.species_id,
+    name: existing.scientific_name ?? existing.shared_scientific_name,
+    // The server compares normalized names: an untouched legacy spelling is unchanged.
+    baseline: normalizeScientificName(existing.scientific_name ?? existing.shared_scientific_name),
+    aphiaId: existing.worms_aphia_id ?? null, url: existing.worms_url ?? null,
+  } : null;
+  const isEdit = mode === 'edit' && editing !== null;
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
   const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLInputElement>(false, onClose);
-  const [name, setName] = useState(isEdit ? profile.scientific_name : '');
+  const [name, setName] = useState(isEdit ? editing.name : '');
   const [reference, setReference] = useState<FormReference | null>(
-    isEdit && profile.worms_aphia_id !== null
-      ? { kind: 'saved', aphiaId: profile.worms_aphia_id, url: profile.worms_url, name: profile.scientific_name }
+    isEdit && editing.aphiaId !== null
+      ? { kind: 'saved', aphiaId: editing.aphiaId, url: editing.url, name: editing.name }
       : null,
   );
   const [isChoosing, setIsChoosing] = useState(!isEdit);
   useEffect(() => { initialFocusRef.current?.focus(); }, [isChoosing, initialFocusRef]);
-  const [query, setQuery] = useState(isEdit ? profile.scientific_name : '');
+  const [query, setQuery] = useState(isEdit ? editing.name : '');
   const [worms, setWorms] = useState<WormsState>({ status: 'idle' });
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const searchGeneration = useRef(0);
@@ -733,7 +758,7 @@ function SpeciesFormDialog({
   const normalizedName = normalizeScientificName(name);
   const isCompatible = isReferenceCompatible(reference, name);
   const aphiaId = referenceAphiaId(reference);
-  const isUnchanged = isEdit && normalizedName === profile.scientific_name && aphiaId === profile.worms_aphia_id;
+  const isUnchanged = isEdit && normalizedName === editing.baseline && aphiaId === editing.aphiaId;
   const canSubmit = !isChoosing && normalizedName.length > 0 && isCompatible && !isUnchanged && !isBusy;
   const titleId = isEdit ? 'species-edit-title' : 'species-create-title';
 
@@ -791,7 +816,7 @@ function SpeciesFormDialog({
     setFeedback(null);
     // Another species of this institution already carries this name or reference.
     const match = record.local_species;
-    if (match && !(isEdit && match.institution_species_id === profile.id)) {
+    if (match && !(isEdit && match.species_id === editing.speciesId)) {
       setFeedback(existingFeedback(match));
       return;
     }
@@ -860,9 +885,11 @@ function SpeciesFormDialog({
     setFeedback(null);
     await submit(async () => {
       try {
-        const saved = isEdit
+        const saved = isEdit && profile
           ? await apiPatch<InstitutionSpecies>(profilePath(profile.id), buildEditPayload(profile.revision, name, sentAphiaId))
-          : await apiPost<InstitutionSpecies>(LIST_PATH, buildRegistrationPayload(name, sentAphiaId));
+          : isEdit
+            ? await apiPatch<InstitutionSpecies>(historicalPath(editing.speciesId), buildExistingSpeciesEditPayload(name, sentAphiaId))
+            : await apiPost<InstitutionSpecies>(LIST_PATH, buildRegistrationPayload(name, sentAphiaId));
         if (isMountedRef.current) onSaved(saved);
       } catch (requestError) {
         if (isMountedRef.current) setFeedback(failureFeedback(requestError, sentAphiaId));
@@ -1016,7 +1043,7 @@ function SpeciesFormDialog({
                     const isSelected = record?.aphia_id === item.aphia_id;
                     // The species being edited is not "already recorded" against itself.
                     const isOtherSpecies = Boolean(item.local_species)
-                      && !(isEdit && item.local_species?.institution_species_id === profile.id);
+                      && !(isEdit && item.local_species?.species_id === editing.speciesId);
                     const content = (
                       <>
                         <span className="species-worms-result-name">
@@ -1105,6 +1132,10 @@ type StrainFeedback = {
 const STRAIN_FAILURE_KEYS: Record<string, TranslationKey> = {
   species_code_missing: 'speciesStrainSpeciesCodeMissing',
   species_code_unusable: 'speciesStrainSpeciesCodeUnusable',
+  // Missing, contradictory or colliding AAA evidence found at submission.
+  species_code_inconsistent: 'speciesCodeDataIssue',
+  historical_code_conflict: 'speciesCodeHistoricalConflict',
+  institution_species_name_exists: 'speciesEditNameExists',
   collection_location_code_unusable: 'speciesStrainLocationCodeUnusable',
   strain_number_unavailable: 'speciesStrainNumberUnavailable',
   strain_code_conflict: 'speciesStrainConflict',
@@ -1127,8 +1158,10 @@ const COORDINATE_PROBLEM_KEYS: Record<CoordinateProblem, TranslationKey> = {
 
 // Fields in the approved order: country, acquisition type, donor (donation only),
 // GPS, then the optional name. The Species is already known.
-function StrainCreateDialog({ profile, speciesCode, language, t, onClose, onCreated }: {
-  profile: InstitutionSpecies;
+function StrainCreateDialog({ speciesName, createPath, speciesCode, language, t, onClose, onCreated }: {
+  speciesName: string;
+  // The profile route, or the existing-Species route that associates on submit.
+  createPath: string;
   speciesCode: string;
   language: Language;
   t: Translator;
@@ -1250,7 +1283,7 @@ function StrainCreateDialog({ profile, speciesCode, language, t, onClose, onCrea
       try {
         // A successful idempotent replay (200) is handled exactly like a creation.
         const created = await apiPost<StrainCreationResponse>(
-          profileStrainsPath(profile.id), { ...payload, request_id: requestId },
+          createPath, { ...payload, request_id: requestId },
         );
         if (isMountedRef.current) onCreated(created);
       } catch (requestError) {
@@ -1287,7 +1320,7 @@ function StrainCreateDialog({ profile, speciesCode, language, t, onClose, onCrea
           <header className="box-dialog-heading">
             <div>
               <h2 id="strain-create-title">{t('speciesStrainNew')}</h2>
-              <p id="strain-create-species" className="strain-create-species"><em>{profile.scientific_name}</em> ({speciesCode})</p>
+              <p id="strain-create-species" className="strain-create-species"><em>{speciesName}</em> ({speciesCode})</p>
             </div>
             <button className="icon-button box-dialog-close" type="button" aria-label={t('close')} title={t('close')} disabled={isBusy} onClick={close}>
               <PolypbaseIcon name="close" size={19} aria-hidden="true" />

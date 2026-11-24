@@ -127,10 +127,17 @@ _PERSONAL_DETAIL_FIELDS_BY_OBJECT_TYPE = {
 }
 
 
-# Technical side effects of the retired Species "resolve" preparation. They
-# stay in the authoritative administrative audit; only the ordinary personal
-# activity journal omits them. Matched on writer-owned structured fields.
-TECHNICAL_ACTIVITY_SOURCES = ("institution_species_resolution",)
+# Technical side effects of Species actions: the retired "resolve" preparation
+# and the association/AAA registration performed inside an explicit
+# identification save or Strain creation (whose own business audit stays
+# visible). They stay in the authoritative administrative audit; only the
+# ordinary personal activity journal omits them. Matched on writer-owned
+# structured fields.
+TECHNICAL_ACTIVITY_SOURCES = (
+    "institution_species_resolution",
+    "institution_species_edit",
+    "institution_strain_creation",
+)
 TECHNICAL_ACTIVITY_OBJECT_TYPES = ("institution_species", "organization_species_code")
 
 

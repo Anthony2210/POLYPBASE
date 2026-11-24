@@ -88,25 +88,44 @@ def resolve_institution_species_codes(organization, species_ids):
     return codes, issues
 
 
-def strain_creation_issue(organization, species_id):
+def strain_creation_issue(organization, species_id, *, include_recoverable=False):
     """Require a persisted, usable assignment consistent with current evidence.
 
     A display code inferred from labels is never authority to create a Strain.
     This read-only check must be repeated inside the creation transaction.
+
+    ``include_recoverable`` is for read-only readiness only: a missing
+    assignment is then judged on the single AAA that current institutional
+    evidence proves, exactly as the explicit Strain creation would register it.
+    Without such evidence the Species stays ``species_code_missing``; no first
+    AAA is ever generated for it.
     """
+    from .species_codes import is_safe_recorded_code
+
     assignment = OrganizationSpeciesCode.objects.filter(
         organization=organization, species_id=species_id,
     ).first()
-    if assignment is None:
-        return "species_code_missing"
-    if re.fullmatch(r"[A-Z]{3}", assignment.code or "") is None:
-        return "species_code_unusable"
     codes, issues = resolve_institution_species_codes(organization, [species_id])
-    if species_id in issues or codes.get(species_id) != assignment.code:
-        return "species_code_inconsistent"
+    if assignment is None:
+        if not include_recoverable:
+            return "species_code_missing"
+        if species_id in issues:
+            return "species_code_inconsistent"
+        code = codes.get(species_id)
+        if code is None:
+            return "species_code_missing"
+        species = Species.objects.filter(pk=species_id).first()
+        if species is None or not is_safe_recorded_code(code, organization, species):
+            return "species_code_inconsistent"
+    else:
+        code = assignment.code
+        if re.fullmatch(r"[A-Z]{3}", code or "") is None:
+            return "species_code_unusable"
+        if species_id in issues or codes.get(species_id) != code:
+            return "species_code_inconsistent"
     # An unassigned different Species can already carry this AAA locally. Only
     # current evidence counts; foreign use, aliases and previous IDs do not.
-    prefix = f"{assignment.code}-"
+    prefix = f"{code}-"
     strain_codes = eligible_strains(organization).filter(
         Q(organization=organization)
         | Q(boxes__organization=organization, boxes__merged_into__isnull=True),

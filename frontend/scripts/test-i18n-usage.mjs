@@ -194,7 +194,7 @@ test('partial-history retention is exact and expires when the key is used or rem
 });
 
 test('Species retention is exact, justified and expires when a consumer returns', () => {
-  assert.equal(Object.keys(retainedSpeciesCopy).length, 67);
+  assert.equal(Object.keys(retainedSpeciesCopy).length, 68);
   for (const [key, reason] of Object.entries(retainedSpeciesCopy)) {
     assert.match(reason, /Species integration \(2026-11-17\)/);
     assert.match(analyze([key], `t('${key}')`, { [key]: reason }).errors.join('\n'), /stale exception/);

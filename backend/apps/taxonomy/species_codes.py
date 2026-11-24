@@ -122,6 +122,19 @@ def _is_safe(code, organization, species):
     return not Box.objects.filter(global_code__startswith=prefix).exclude(strain__species=species).exists()
 
 
+def is_safe_recorded_code(code, organization, species):
+    """Read-only: whether ``allocate_species_code(recorded_code=code)`` could keep it.
+
+    Mirrors the recorded-code checks below without writing or locking; the
+    allocation itself still repeats them under the gate.
+    """
+    if re.fullmatch(r"[A-Z]{3}", code or "") is None:
+        return False
+    if not _historical_prefixes(organization, species) <= {code}:
+        return False
+    return _is_safe(code, organization, species)
+
+
 def lock_species_code_allocation():
     """Serialize automatic selection across institutions until transaction end.
 

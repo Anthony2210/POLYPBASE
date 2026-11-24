@@ -30,11 +30,12 @@ from .institution_species_services import (
     InstitutionSpeciesNotFound,
     WormsReferenceRejected,
     WormsReferenceUnavailable,
+    edit_existing_species,
     historical_species_ids,
     register_institution_species,
     update_institution_species,
 )
-from .models import Species, StrainTranslation
+from .models import InstitutionSpecies, Species, StrainTranslation
 from .scoping import eligible_strains
 from .species_code_change import plan_species_code_change
 from .species_codes import SpeciesCodeError
@@ -197,7 +198,13 @@ class InstitutionSpeciesListCreateAPIView(APIView):
 
 
 def _strain_creation_payload(organization, species_id):
-    issue = strain_creation_issue(organization, species_id)
+    """Read-only readiness of the explicit Strain creation.
+
+    A missing AAA registration that the creation would itself register from
+    proven institutional evidence is not an obstacle; missing, contradictory or
+    colliding evidence still is. Nothing is registered by this read.
+    """
+    issue = strain_creation_issue(organization, species_id, include_recoverable=True)
     return {"can_create_strain": issue is None, "strain_creation_issue": issue}
 
 
@@ -268,19 +275,24 @@ class InstitutionSpeciesStrainsAPIView(APIView):
         different intent is a 409 conflict. A new intent is 201.
         """
         organization, _profiles = _authorized(request)
-
-        def create():
-            strain, created = create_institution_strain(
+        return _service_errors(lambda: _strain_creation_response(
+            organization, *create_institution_strain(
                 user=request.user, organization=organization, profile_pk=pk, data=request.data,
-            )
-            strains = _strains(organization, strain.species_id, include_metadata=False)
-            return Response({
-                "institution_species_id": pk,
-                "strain": next(item for item in strains if item["id"] == strain.pk),
-                "strains": strains,
-            }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+            ),
+        ))
 
-        return _service_errors(create)
+
+def _strain_creation_response(organization, strain, created):
+    """Creation (201) or idempotent replay (200), with the profile now established."""
+    strains = _strains(organization, strain.species_id, include_metadata=False)
+    profile_id = InstitutionSpecies.objects.for_organization(organization).filter(
+        species_id=strain.species_id,
+    ).values_list("pk", flat=True).first()
+    return Response({
+        "institution_species_id": profile_id,
+        "strain": next(item for item in strains if item["id"] == strain.pk),
+        "strains": strains,
+    }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class InstitutionSpeciesCodeChangePreviewAPIView(APIView):
@@ -320,14 +332,29 @@ class CollectionLocationListAPIView(APIView):
 
 
 class HistoricalSpeciesDetailAPIView(APIView):
-    """Read-only alias for a Species used here, including after explicit resolution.
+    """Detail of a Species used here, addressed by its shared reference ID.
 
     An own profile or own persisted usage is required. The shared name remains
     available, while local information takes precedence in the editable fields.
-    Nothing is adopted, assigned or written.
+    GET writes nothing. PATCH is the explicit identification save of a Species
+    without an institutional profile (see ``edit_existing_species``).
     """
 
     permission_classes = [IsAuthenticated]
+
+    def patch(self, request, species_id):
+        organization, _profiles = _authorized(request)
+
+        def edit():
+            profile, changed = edit_existing_species(
+                user=request.user, organization=organization, species_id=species_id, data=request.data,
+            )
+            if not changed:
+                # Unchanged prefill: nothing was associated, audited or written.
+                return self.get(request, species_id)
+            return Response(_profile_response(organization, profile), status=status.HTTP_201_CREATED)
+
+        return _service_errors(edit)
 
     def get(self, request, species_id):
         organization, profiles = _authorized(request)
@@ -352,3 +379,22 @@ class HistoricalSpeciesDetailAPIView(APIView):
             "requires_historical_adoption": profile is None,
             "strains": strains,
         })
+
+
+class HistoricalSpeciesStrainsAPIView(APIView):
+    """Explicit Strain creation for a Species used here, addressed by shared ID.
+
+    Same payload, idempotency and response as the profile route. The missing
+    institutional profile and AAA registration are established by this
+    submission only, inside the creation transaction.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, species_id):
+        organization, _profiles = _authorized(request)
+        return _service_errors(lambda: _strain_creation_response(
+            organization, *create_institution_strain(
+                user=request.user, organization=organization, species_id=species_id, data=request.data,
+            ),
+        ))

@@ -155,7 +155,9 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
         before = _snapshot()
         response = self.resolve("edit")
         self.assertEqual(response.status_code, 201)
-        self.assert_readiness(response.json(), "species_code_missing")
+        # Readiness counts the proven recorded AAA, but this read registers nothing.
+        self.assert_readiness(response.json())
+        self.assertFalse(OrganizationSpeciesCode.objects.filter(organization=self.a).exists())
         self.assertEqual(_snapshot(), before)
         self.assertEqual(response.json()["species_code"], "AAU")
         prepared = self.resolve("strain")
@@ -175,7 +177,8 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
         read_state = self._all_creation_state()
         detail = self.get(HISTORICAL_URL, self.a, self.species.pk).json()
         self.assertEqual(detail["species_code"], "AFL")
-        self.assert_readiness(detail, "species_code_missing")
+        # Ready from proven evidence; the read itself registers nothing.
+        self.assert_readiness(detail)
         self.assertEqual(self._all_creation_state(), read_state)
         with patch("apps.taxonomy.species_codes.candidate_codes", side_effect=AssertionError("Keep recorded AAA")):
             response = self.resolve("strain")

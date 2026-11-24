@@ -474,7 +474,7 @@ test('strain creation and eligible heading actions do not depend on a WoRMS refe
       species_code: 'CAN', worms_aphia_id: aphiaId,
     }), [strain(42, 'CAN-FRA-1', { strain_number: 1 }), strain(43, 'legacy', { is_box_usable: false })]));
     assert.equal(h.button('speciesStrainNew').props.disabled, false);
-    assert.equal(h.button('speciesDetailIdentification').props.disabled, false);
+    assert.notEqual(h.button('speciesDetailIdentification').props.disabled, true);
     h.click(h.button('speciesDetailIdentification'));
     assert.equal(h.input.props.value, 'Cassiopea andromeda');
     h.click(h.view.byClass('box-dialog-close'));
@@ -497,7 +497,7 @@ test('missing or malformed institutional AAA and forbidden detail block strain c
     await h.respond('/api/admin/institution-species/1/', detailOf(profile(1, 'Uncoded species', { species_code: code })));
     assert.equal(h.button('speciesStrainNew').props.disabled, true);
     assert.equal(h.button('speciesStrainNew').props['aria-describedby'], 'species-code-issue');
-    assert.equal(h.button('speciesDetailIdentification').props.disabled, false);
+    assert.notEqual(h.button('speciesDetailIdentification').props.disabled, true);
     assert.match(h.text(), code ? /speciesStrainSpeciesCodeUnusable/ : /speciesStrainSpeciesCodeMissing/);
     h.button('speciesStrainNew').props.onClick();
     await h.view.settle();
@@ -512,32 +512,201 @@ test('missing or malformed institutional AAA and forbidden detail block strain c
   assert.equal(h.button('createBoxNew'), undefined);
 });
 
-for (const [speciesId, extra, strains] of [
-  [8, {}, []],
+const HISTORICAL_PATH = (speciesId) => `/api/admin/institution-species/historical/${speciesId}/`;
+
+for (const [speciesId, extra, strains, ready] of [
+  [8, {}, [], false],
   [7, { species_code: 'AHA', strain_count: 1, can_create_strain: false, strain_creation_issue: 'species_code_missing' },
-    [strain(42, 'AHA-ARG-1')]],
-  [7, { species_code: 'AUR', can_create_strain: true, strain_creation_issue: null }, []],
+    [strain(42, 'AHA-ARG-1')], false],
+  [7, { species_code: 'AHA', strain_count: 1, can_create_strain: true, strain_creation_issue: null },
+    [strain(42, 'AHA-ARG-1')], true],
 ]) {
-  test(`historical ${speciesId}/${extra.strain_creation_issue}: read-only, actions never persist a profile or code`, async () => {
+  test(`existing species ${speciesId}/${extra.strain_creation_issue}: actions follow server readiness, opening never writes`, async () => {
     const h = await mount({ target: { kind: 'historical', id: speciesId }, boxCollectionStatus: 'ready' });
-    await h.respond(`/api/admin/institution-species/historical/${speciesId}/`, detailOf(
+    await h.respond(HISTORICAL_PATH(speciesId), detailOf(
       historical(speciesId, 'Acromitus hardenbergi', extra), strains,
     ));
-    for (const label of ['speciesStrainNew', 'speciesDetailIdentification']) {
-      const button = h.button(label);
-      assert.equal(button.props.disabled, true);
-      assert.equal(button.props['aria-describedby'], 'species-historical-readonly');
-      button.props.onClick();
+    // One Species concept: no storage notice, no activation or adoption step.
+    assert.doesNotMatch(h.text(), /speciesDetailActionsUnavailable|speciesDetailHistorical|speciesCatalogHistorical/);
+    assert.equal(h.view.nodes.some((node) => node.props.id === 'species-historical-readonly'), false);
+    assert.notEqual(h.button('speciesDetailIdentification').props.disabled, true);
+    assert.equal(h.button('speciesStrainNew').props.disabled, !ready);
+    if (!ready) {
+      assert.equal(h.button('speciesStrainNew').props['aria-describedby'], 'species-code-issue');
+      assert.match(h.text(), /speciesStrainSpeciesCodeMissing/);
+      h.button('speciesStrainNew').props.onClick();
       await h.view.settle();
+      assert.equal(strainDialog(h), undefined, 'the handler also blocks a non-ready Species');
+    } else {
+      assert.doesNotMatch(h.text(), /speciesStrainSpeciesCodeMissing/);
+      h.click(h.button('speciesStrainNew'));
+      assert.ok(strainDialog(h));
+      assert.match(nodeText(strainDialog(h)), /Acromitus hardenbergi/);
+      assert.match(nodeText(strainDialog(h)), /AHA/);
+      await h.respond(LOCATIONS_PATH, { collection_locations: [], countries: COUNTRIES });
+      h.click(h.view.byClass('box-dialog-close'));
+      assert.equal(strainDialog(h), undefined);
     }
-    assert.match(h.text(), /speciesDetailActionsUnavailable/);
-    assert.doesNotMatch(h.text(), /speciesStrainSpeciesCodeMissing/);
-    assert.equal(h.input, undefined, 'no edit dialog opens');
-    assert.equal(strainDialog(h), undefined, 'no strain dialog opens');
-    assert.equal(h.writes.length, 0, 'browsing and clicking a historical species never writes');
-    assert.equal(h.env.requests.length, 1, 'only the read-only detail GET');
+    h.click(h.button('speciesDetailIdentification'));
+    assert.equal(h.input.props.value, 'Acromitus hardenbergi', 'prefilled from the server detail');
+    assert.equal(h.submitButton.disabled, true, 'an unchanged prefill cannot be submitted');
+    h.click(h.button('cancel'));
+    assert.equal(h.input, undefined);
+    assert.equal(h.writes.length, 0, 'opening and cancelling both dialogs writes nothing');
+    assert.ok(h.env.requests.every((request) => !request.path.includes('/resolve/')), 'the retired resolve is never called');
   });
 }
+
+test('existing species: explicit identification save associates and updates the displayed profile', async () => {
+  const h = await mount({ target: { kind: 'historical', id: 7 } });
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Acromitus flagellatus', {
+    species_code: 'AFL', strain_count: 1, can_create_strain: true, strain_creation_issue: null,
+  }), [strain(42, 'AFL-TAI-1')]));
+  h.click(h.button('speciesDetailIdentification'));
+  h.type('Acromitus maculosus');
+  h.click(h.submitButton);
+  assert.deepEqual(plain({ method: h.writes[0].method, path: h.writes[0].path, payload: h.writes[0].payload }), {
+    method: 'apiPatch', path: HISTORICAL_PATH(7),
+    payload: { scientific_name: 'Acromitus maculosus', worms_aphia_id: null },
+  });
+  const reads = h.env.requests.length;
+  await h.answer(0, profile(41, 'Acromitus maculosus', { species_id: 7, species_code: 'AFL', revision: 1, strain_count: 1 }));
+  assert.equal(h.input, undefined, 'dialog closed');
+  assert.equal(flatText(h.view.nodes.find((node) => node.type === 'h2')), 'Acromitus maculosus (AFL)');
+  assert.match(h.text(), /AFL-TAI-1/, 'strains are kept');
+  assert.equal(h.button('speciesStrainNew').props.disabled, false, 'readiness is kept');
+  assert.equal(h.env.requests.length, reads, 'the saved profile is displayed without a reread');
+  // The page now edits the established profile with its revision.
+  h.click(h.button('speciesDetailIdentification'));
+  h.type('Acromitus flagellatus');
+  h.click(h.submitButton);
+  assert.equal(h.writes[1].path, `${LIST_PATH}41/`);
+  assert.deepEqual(plain(h.writes[1].payload), {
+    expected_revision: 1, scientific_name: 'Acromitus flagellatus', worms_aphia_id: null,
+  });
+  assert.equal(h.writes.length, 2);
+});
+
+test('existing species: a prefilled WoRMS reference is kept and a concurrent association asks for a reload', async () => {
+  const h = await mount({ target: { kind: 'historical', id: 7 } });
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Aurelia aurita', {
+    species_code: 'AUR', worms_aphia_id: 135306, worms_url: 'https://example.invalid/135306',
+  })));
+  h.click(h.button('speciesDetailIdentification'));
+  assert.match(h.text(), /135306/);
+  h.enter();
+  await h.respond(WORMS_PATH, { query: 'Aurelia aurita', truncated: false, limit: 25, results: [
+    wormsRecord(135306, 'Aurelia aurita', { local_species: { institution_species_id: null, species_id: 7, scientific_name: 'Aurelia aurita', requires_historical_adoption: true } }),
+    wormsRecord(287206, 'Aurelia coerulea'),
+  ] });
+  assert.equal(h.results().filter((node) => /speciesCreateAlreadyRecorded/.test(nodeText(node))).length, 0,
+    'not recorded against itself');
+  h.click(h.results().find((node) => /coerulea/.test(nodeText(node))));
+  h.click(h.submitButton);
+  assert.deepEqual(plain(h.writes[0].payload), { scientific_name: 'Aurelia coerulea', worms_aphia_id: 287206 });
+  await h.answer(0, null, { error: new h.client.ApiError(409, 'x', {
+    code: 'stale_revision', current_revision: 1, institution_species_id: 41,
+  }) });
+  assert.match(h.text(), /speciesEditStale/);
+  assert.equal(flatText(h.view.nodes.find((node) => node.type === 'h2')), 'Aurelia aurita (AUR)', 'no partial update');
+  h.click(h.button('speciesEditReload'));
+  assert.equal(h.input, undefined);
+  assert.equal(h.env.requests.at(-1).path, HISTORICAL_PATH(7));
+  assert.equal(h.writes.length, 1, 'never retried silently');
+});
+
+for (const [status, body, key] of [
+  [403, { code: 'forbidden' }, /speciesCatalogActionForbidden/],
+  [409, { code: 'historical_name_collision', species_id: 8 }, /speciesEditHistoricalNameCollision/],
+]) {
+  test(`existing species: refused identification save ${body.code} keeps the page unchanged`, async () => {
+    const h = await mount({ target: { kind: 'historical', id: 7 } });
+    await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Aurelia aurita', { species_code: 'AUR' })));
+    h.click(h.button('speciesDetailIdentification'));
+    h.type('Aurelia coerulea');
+    h.click(h.submitButton);
+    await h.answer(0, null, { error: new h.client.ApiError(status, 'x', body) });
+    assert.match(h.text(), key);
+    assert.ok(h.input, 'values kept after a refusal');
+    assert.equal(flatText(h.view.nodes.find((node) => node.type === 'h2')), 'Aurelia aurita (AUR)');
+  });
+}
+
+test('existing species: a late save after an institution change cannot publish into the new page', async () => {
+  const h = await mount({ target: { kind: 'historical', id: 7 } });
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Aurelia aurita', { species_code: 'AUR' })));
+  h.click(h.button('speciesDetailIdentification'));
+  h.type('Aurelia coerulea');
+  h.click(h.submitButton);
+  h.view.setProps({ organizationId: 2 });
+  h.renderLeaves();
+  assert.equal(h.input, undefined, 'the dialog of the previous institution is gone');
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Other institution name', { species_code: 'OTH' })));
+  await h.answer(0, profile(41, 'Aurelia coerulea', { species_id: 7, species_code: 'AUR' }));
+  assert.equal(flatText(h.view.nodes.find((node) => node.type === 'h2')), 'Other institution name (OTH)');
+  assert.doesNotMatch(h.text(), /Aurelia coerulea/);
+});
+
+async function openExistingStrainCreate({ onCreateBox } = {}) {
+  const h = await mount({ target: { kind: 'historical', id: 7 }, ...(onCreateBox ? { onCreateBox } : {}) });
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Acromitus flagellatus', {
+    species_code: 'AFL', strain_count: 1, can_create_strain: true, strain_creation_issue: null,
+  }), [strain(42, 'AFL-TAI-1')]));
+  h.click(h.button('speciesStrainNew'));
+  await h.respond(LOCATIONS_PATH, { collection_locations: [location(3, 'FRA', 'France', 'FR')], countries: COUNTRIES });
+  set(h, 'adminCountry', 'FR');
+  h.click(h.submitButton);
+  assert.equal(h.writes[0].path, `${HISTORICAL_PATH(7)}strains/`);
+  assert.deepEqual(plain(withoutKey(h.writes[0].payload)), { country: 'FR' });
+  assert.match(h.writes[0].payload.request_id, UUID);
+  return h;
+}
+
+test('existing species: explicit strain creation, reread as a profile, then the Box offer', async () => {
+  const boxes = [];
+  const h = await openExistingStrainCreate({ onCreateBox: (strainId) => boxes.push(strainId) });
+  const created = strain(43, 'AFL-FRA-1', { strain_number: 1, recorded_provenance_name: 'France', recorded_country_code: 'FR' });
+  await h.answer(0, { institution_species_id: 41, strain: created, strains: [strain(42, 'AFL-TAI-1'), created] });
+  assert.equal(strainDialog(h), undefined, 'form closed');
+  assert.equal(h.env.requests.at(-1).path, HISTORICAL_PATH(7));
+  await h.respond(HISTORICAL_PATH(7), detailOf(historical(7, 'Acromitus flagellatus', {
+    species_code: 'AFL', institution_species_id: 41,
+  })));
+  assert.equal(h.env.requests.at(-1).path, `${LIST_PATH}41/`, 'the associated profile is read');
+  await h.respond(`${LIST_PATH}41/`, detailOf(profile(41, 'Acromitus flagellatus', {
+    species_id: 7, species_code: 'AFL', strain_count: 2,
+  }), [strain(42, 'AFL-TAI-1'), created]));
+  assert.ok(h.strainHeading('AFL-FRA-1'));
+  assert.match(nodeText(confirmModal(h)), /strainOfferBoxTitle/);
+  h.click(h.view.byClass('confirm-action-submit'));
+  await h.view.settle();
+  assert.deepEqual(boxes, [43]);
+  assert.equal(h.writes.length, 1, 'no duplicate write');
+});
+
+for (const [code, key] of [
+  ['species_code_missing', /speciesStrainSpeciesCodeMissing/],
+  ['species_code_inconsistent', /speciesCodeDataIssue/],
+  ['historical_code_conflict', /speciesCodeHistoricalConflict/],
+  ['institution_species_name_exists', /speciesEditNameExists/],
+]) {
+  test(`existing species: strain creation refusal ${code} is explained without partial update`, async () => {
+    const h = await openExistingStrainCreate();
+    const reads = h.env.requests.length;
+    await h.answer(0, null, { error: new h.client.ApiError(409, 'x', { code }) });
+    assert.match(nodeText(strainDialog(h)), key);
+    assert.equal(h.env.requests.length, reads, 'no reread of a failed creation');
+    assert.equal(h.strainHeading('AFL-FRA-1'), undefined);
+    assert.equal(confirmModal(h), undefined);
+  });
+}
+
+test('existing species: a forbidden strain creation is reported and nothing else changes', async () => {
+  const h = await openExistingStrainCreate();
+  await h.answer(0, null, { error: new h.client.ApiError(403, 'x', { code: 'forbidden' }) });
+  assert.match(nodeText(strainDialog(h)), /speciesCatalogActionForbidden/);
+  assert.equal(h.writes.length, 1);
+});
 
 test('a foreign or missing detail is not found, without data', async () => {
   const h = await mount({ target: { kind: 'profile', id: 99 } });
@@ -942,7 +1111,7 @@ for (const [code, allowed, issue] of [
     const h = await mount({ target: { kind: 'profile', id: 41 } });
     await h.respond(`${LIST_PATH}41/`, resolvedProfile(extra));
     assert.equal(h.button('speciesStrainNew').props.disabled, !allowed);
-    assert.equal(h.button('speciesDetailIdentification').props.disabled, false);
+    assert.notEqual(h.button('speciesDetailIdentification').props.disabled, true);
     if (!allowed) {
       h.button('speciesStrainNew').props.onClick();
       await h.view.settle();
@@ -984,7 +1153,7 @@ for (const [language, source, notice] of [
   ['fr', fr, /lecture seule/],
   ['en', en, /read-only/],
 ]) {
-  test(`${language}: historical sheet shows a translated read-only notice`, async () => {
+  test(`${language}: an existing species sheet shows no historical read-only notice`, async () => {
     const exports = {};
     vm.runInNewContext(ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -995,7 +1164,8 @@ for (const [language, source, notice] of [
       return catalog[key];
     };
     const h = await openCompatibility({}, { language, t });
-    assert.match(h.text(), notice);
+    assert.doesNotMatch(h.text(), notice);
+    assert.ok(h.button(catalog.speciesDetailIdentification));
     assert.equal(h.writes.length, 0);
   });
 }

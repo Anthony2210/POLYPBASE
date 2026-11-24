@@ -34,15 +34,21 @@ from apps.organizations.models import Organization
 from .countries import normalize_country_code
 from .institution_species import strain_creation_issue
 from .institution_species_services import (
+    STRAIN_ASSOCIATION_SOURCE,
     InstitutionSpeciesConflict,
     InstitutionSpeciesInvalid,
     InstitutionSpeciesNotFound,
+    associate_existing_species,
+    audit_association,
+    audit_recorded_code,
+    lock_managed_species,
+    register_recorded_species_code,
     require_institution_admin,
     species_action_transaction,
 )
 from .models import (
     BiologicalProvenance, InstitutionSpecies, InstitutionStrainCreationRequest,
-    OrganizationProvenanceCode, OrganizationSpeciesCode, Origin, Species, Strain, StrainTranslation,
+    OrganizationProvenanceCode, Origin, Species, Strain, StrainTranslation,
 )
 from .services import allocate_next_local_strain_number, create_local_strain_identity
 
@@ -196,14 +202,16 @@ def _clean_creation(data):
     }
 
 
-def _normalized_intent(*, profile_pk, cleaned):
+def _normalized_intent(*, profile_pk, species_id=None, cleaned):
     """The material request identity compared across replays of one key.
 
-    The profile is part of the intent, so reusing a key for another Species is a
-    conflict rather than a silent second creation.
+    The profile (or, on the existing-Species route, the shared Species) is part
+    of the intent, so reusing a key for another Species is a conflict rather
+    than a silent second creation.
     """
+    target = {"profile": profile_pk} if species_id is None else {"species": species_id}
     return {
-        "profile": profile_pk,
+        **target,
         "country": cleaned["country"],
         "country_name": cleaned["country_name"],
         "bbb_code": cleaned["bbb_code"],
@@ -366,8 +374,15 @@ def _allocate_code(*, organization, species, provenance, prefix):
 
 # Creation -----------------------------------------------------------------------
 
-def create_institution_strain(*, user, organization, profile_pk, data):
+def create_institution_strain(*, user, organization, data, profile_pk=None, species_id=None):
     """Create one owned Strain of an institutional Species; return (strain, created).
+
+    Exactly one target is given: an own profile (``profile_pk``) or a Species
+    already managed here (``species_id``, which must carry persisted
+    institutional history). A missing profile and a missing AAA registration
+    are established only by this explicit submission, in the same transaction;
+    a missing AAA is recovered from proven institutional evidence and never
+    generated.
 
     Country location (when new or linked), Strain, acquisition record, optional
     name, local identity, audit and the idempotency receipt share one
@@ -375,13 +390,15 @@ def create_institution_strain(*, user, organization, profile_pk, data):
     returns the recorded Strain without allocating another X or writing another
     location, identity, counter or audit. A different intent is a conflict.
     """
+    if (profile_pk is None) == (species_id is None):
+        raise ValueError("Exactly one of profile_pk or species_id is required.")
     require_institution_admin(user, organization)
     cleaned = _clean_creation(data)
     request_id = cleaned["request_id"]
-    intent = _normalized_intent(profile_pk=profile_pk, cleaned=cleaned)
+    intent = _normalized_intent(profile_pk=profile_pk, species_id=species_id, cleaned=cleaned)
     with species_action_transaction():
         # Share registry -> allocation gate -> organization -> Species order
-        # with resolution, before checking current institutional evidence.
+        # with every other Species action, before checking current evidence.
         locked = Organization.objects.select_for_update().get(pk=organization.pk)
         require_institution_admin(user, locked)
         previous = InstitutionStrainCreationRequest.objects.filter(
@@ -391,15 +408,25 @@ def create_institution_strain(*, user, organization, profile_pk, data):
             if previous.intent != intent:
                 raise InstitutionSpeciesConflict("strain_creation_request_conflict")
             return previous.strain, False
-        profile = InstitutionSpecies.objects.for_organization(locked).filter(pk=profile_pk).first()
-        if profile is None:
-            raise InstitutionSpeciesNotFound()
-        species = Species.objects.select_for_update().get(pk=profile.species_id)
-        require_institution_admin(user, locked)
+        if profile_pk is not None:
+            profile = InstitutionSpecies.objects.for_organization(locked).filter(pk=profile_pk).first()
+            if profile is None:
+                raise InstitutionSpeciesNotFound()
+            species = Species.objects.select_for_update().get(pk=profile.species_id)
+            require_institution_admin(user, locked)
+        else:
+            locked, species, profile = lock_managed_species(user=user, organization=locked, species_id=species_id)
+        profile_created = profile is None
+        if profile_created:
+            # The local information starts as the shared reference, exactly.
+            profile = associate_existing_species(
+                organization=locked, species=species,
+                scientific_name=species.scientific_name, worms_aphia_id=species.worms_aphia_id,
+            )
+        species_assignment, code_created = register_recorded_species_code(organization=locked, species=species)
         issue = strain_creation_issue(locked, species.pk)
         if issue is not None:
             raise InstitutionSpeciesConflict(issue)
-        species_assignment = OrganizationSpeciesCode.objects.get(organization=locked, species=species)
 
         location = _country_location(user=user, organization=locked, cleaned=cleaned)
         if not SEGMENT.fullmatch(location.code):
@@ -452,6 +479,18 @@ def create_institution_strain(*, user, organization, profile_pk, data):
                 "name": cleaned["name"], "name_language": cleaned["name_language"],
             },
         )
+        # Required records of the association side effects, after the Strain
+        # they serve; hidden from the personal journal, kept in the admin audit.
+        side_effect = {"strain_id": strain.pk, "request_id": str(request_id)}
+        if profile_created:
+            audit_association(
+                user=user, organization=locked, profile=profile, source=STRAIN_ASSOCIATION_SOURCE, **side_effect,
+            )
+        if code_created:
+            audit_recorded_code(
+                user=user, organization=locked, assignment=species_assignment,
+                source=STRAIN_ASSOCIATION_SOURCE, institution_species_id=profile.pk, **side_effect,
+            )
         InstitutionStrainCreationRequest.objects.create(
             organization=locked, actor=user, request_id=request_id, intent=intent, strain=strain,
         )

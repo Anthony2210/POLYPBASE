@@ -111,6 +111,7 @@ from apps.taxonomy.admin_api import (
 )
 from apps.taxonomy.institution_species_api import (
     HistoricalSpeciesDetailAPIView,
+    HistoricalSpeciesStrainsAPIView,
     InstitutionSpeciesCodeChangePreviewAPIView,
     InstitutionSpeciesDetailAPIView,
     InstitutionSpeciesListCreateAPIView,
@@ -389,6 +390,11 @@ urlpatterns = [
         "admin/institution-species/historical/<int:species_id>/",
         HistoricalSpeciesDetailAPIView.as_view(),
         name="api_admin_historical_species_detail",
+    ),
+    path(
+        "admin/institution-species/historical/<int:species_id>/strains/",
+        HistoricalSpeciesStrainsAPIView.as_view(),
+        name="api_admin_historical_species_strains",
     ),
     path(
         "admin/institution-species/<int:pk>/code-change-preview/",

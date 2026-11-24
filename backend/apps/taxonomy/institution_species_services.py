@@ -439,10 +439,200 @@ def resolve_institution_species(*, user, organization, data):
     return profile, True
 
 
+# Explicit-submit association ----------------------------------------------
+#
+# An existing Species used by the institution without an ``InstitutionSpecies``
+# profile is associated only inside the explicitly submitted business operation
+# (an identification save or a Strain creation), never when a dialog opens.
+# Callers hold species_action_transaction, then the organization and Species
+# row locks, and have rechecked authority under them.
+
+# Writer-owned audit sources of association side effects (see audit services).
+EDIT_ASSOCIATION_SOURCE = "institution_species_edit"
+STRAIN_ASSOCIATION_SOURCE = "institution_strain_creation"
+
+
+def lock_managed_species(*, user, organization, species_id):
+    """Return (locked organization, locked Species, own profile or None).
+
+    The Species must already be managed here: an own profile or persisted
+    institutional history (code assignment, owned Strain or own Box). A client
+    supplied ID alone never establishes it.
+    """
+    locked = Organization.objects.select_for_update().get(pk=organization.pk)
+    species = Species.objects.select_for_update().filter(pk=species_id).first()
+    require_institution_admin(user, locked)
+    if species is None:
+        raise InstitutionSpeciesNotFound()
+    profile = InstitutionSpecies.objects.for_organization(locked).filter(species=species).first()
+    if profile is None and not _has_history(locked, species):
+        raise InstitutionSpeciesNotFound()
+    return locked, species, profile
+
+
+def _check_local_identity_free(organization, species, name, aphia_id):
+    """Refuse a name or AphiaID already used by this institution for another Species."""
+    profiles = InstitutionSpecies.objects.for_organization(organization).exclude(species=species)
+    clash = _name_matches(profiles, name).first()
+    if clash is not None:
+        raise InstitutionSpeciesConflict(
+            "institution_species_name_exists",
+            institution_species_id=clash.pk, scientific_name=clash.scientific_name,
+        )
+    if aphia_id is not None:
+        clash = profiles.filter(worms_aphia_id=aphia_id).first()
+        if clash is not None:
+            raise InstitutionSpeciesConflict(
+                "institution_aphia_id_exists",
+                institution_species_id=clash.pk, scientific_name=clash.scientific_name,
+            )
+
+
+def associate_existing_species(*, organization, species, scientific_name, worms_aphia_id):
+    """Create the missing profile of a locked, managed Species. No audit here.
+
+    Never modifies the shared reference. A concurrent association surfaces as
+    ``stale_revision`` so no caller silently overwrites another user's save.
+    """
+    _check_local_identity_free(organization, species, scientific_name, worms_aphia_id)
+    try:
+        with transaction.atomic():
+            return InstitutionSpecies.objects.create(
+                organization=organization, species=species,
+                scientific_name=scientific_name, worms_aphia_id=worms_aphia_id,
+            )
+    except IntegrityError:
+        current = InstitutionSpecies.objects.for_organization(organization).filter(species=species).first()
+        if current is not None:
+            raise _stale(current.revision, institution_species_id=current.pk) from None
+        raise InstitutionSpeciesConflict("institution_species_name_exists") from None
+
+
+def audit_association(*, user, organization, profile, source, **extra):
+    _audit(
+        organization=organization, user=user, action=AuditLog.Action.CREATION,
+        object_type="institution_species", object_id=profile.pk,
+        description=f"Institution species information enabled: {profile.scientific_name}",
+        metadata={
+            "source": source, "species_id": profile.species_id,
+            "scientific_name": profile.scientific_name, "worms_aphia_id": profile.worms_aphia_id,
+            "revision": profile.revision, "shared_reference_created": False, **extra,
+        },
+    )
+
+
+def register_recorded_species_code(*, organization, species):
+    """Return (assignment, created) for a locked, managed Species. No audit here.
+
+    An existing assignment is returned unchanged, even if unusable (the strict
+    readiness check reports it). A missing one is registered only from the
+    single AAA proven by current institution-scoped evidence; missing,
+    contradictory or colliding evidence is refused and nothing is generated.
+    """
+    existing = OrganizationSpeciesCode.objects.filter(organization=organization, species=species).first()
+    if existing is not None:
+        return existing, False
+    codes, issues = resolve_institution_species_codes(organization, [species.pk])
+    if species.pk in issues:
+        raise InstitutionSpeciesConflict(issues[species.pk])
+    recorded_code = codes.get(species.pk)
+    if recorded_code is None:
+        raise InstitutionSpeciesConflict("species_code_missing")
+    # Fails with historical_code_conflict rather than substituting a code.
+    return allocate_species_code(organization=organization, species=species, recorded_code=recorded_code)
+
+
+def audit_recorded_code(*, user, organization, assignment, source, **extra):
+    _audit(
+        organization=organization, user=user, action=AuditLog.Action.CREATION,
+        object_type="organization_species_code", object_id=assignment.pk,
+        description=f"Species code assigned for species {assignment.species_id}",
+        metadata={
+            "source": source, "species_id": assignment.species_id,
+            "code": assignment.code, "recorded_code_preserved": True, **extra,
+        },
+    )
+
+
+def _is_unchanged_from_shared(species, name, aphia_id):
+    return normalize_scientific_name(species.scientific_name) == name and aphia_id == species.worms_aphia_id
+
+
+def edit_existing_species(*, user, organization, species_id, data):
+    """Explicit identification save for a managed Species without a profile.
+
+    Returns (profile or None, changed). The dialog was prefilled from the shared
+    reference; an unchanged submission writes nothing. Otherwise the profile is
+    created with the submitted final name and AphiaID, with its association
+    audit and the business update audit, atomically. The shared reference, the
+    Species code and all Strain/Box identifiers stay untouched; no AAA is
+    required or generated. If a profile appeared meanwhile, the intent is stale.
+    """
+    require_institution_admin(user, organization)
+    _check_fields(data, REGISTRATION_FIELDS, REGISTRATION_FIELDS)
+    errors = {}
+    name = _clean_name(data["scientific_name"], errors)
+    aphia_id = _clean_aphia_id(data["worms_aphia_id"], errors)
+    if errors:
+        raise InstitutionSpeciesInvalid(errors)
+    if type(species_id) is not int or species_id < 1:
+        raise InstitutionSpeciesNotFound()
+
+    def check(locked_organization, species, profile):
+        if profile is not None:
+            raise _stale(profile.revision, institution_species_id=profile.pk)
+        return _is_unchanged_from_shared(species, name, aphia_id)
+
+    # Short pre-pass in its own transaction, holding no gate: report not-found,
+    # stale or unchanged intents before any WoRMS call. Rechecked under locks.
+    with transaction.atomic():
+        if check(*lock_managed_species(user=user, organization=organization, species_id=species_id)):
+            return None, False
+    if aphia_id is not None:
+        _verify_reference(aphia_id, name)
+
+    with species_action_transaction():
+        locked, species, profile = lock_managed_species(user=user, organization=organization, species_id=species_id)
+        if check(locked, species, profile):
+            return None, False
+        # A historical reference still shown here under its shared name keeps it.
+        profiled = InstitutionSpecies.objects.for_organization(locked).values("species_id")
+        for shared in _name_matches(Species.objects.exclude(pk=species.pk), name).exclude(pk__in=profiled):
+            if _has_history(locked, shared):
+                raise InstitutionSpeciesConflict(
+                    "historical_name_collision", species_id=shared.pk,
+                    species_code=_own_code(locked, shared.pk),
+                )
+        profile = associate_existing_species(
+            organization=locked, species=species, scientific_name=name, worms_aphia_id=aphia_id,
+        )
+        audit_association(user=user, organization=locked, profile=profile, source=EDIT_ASSOCIATION_SOURCE)
+        changes = {
+            field: {"before": before, "after": after}
+            for field, before, after in (
+                ("scientific_name", species.scientific_name, profile.scientific_name),
+                ("worms_aphia_id", species.worms_aphia_id, profile.worms_aphia_id),
+            )
+            if before != after
+        }
+        _audit(
+            organization=locked, user=user, action=AuditLog.Action.UPDATE,
+            object_type="institution_species", object_id=profile.pk,
+            description=f"Institution species information updated: {profile.scientific_name}",
+            metadata={
+                "species_id": species.pk,
+                "revision": {"before": None, "after": profile.revision},
+                "changes": changes,
+                "institution_species_created": True,
+            },
+        )
+    return profile, True
+
+
 # Modification ---------------------------------------------------------------
 
-def _stale(profile_revision):
-    return InstitutionSpeciesConflict("stale_revision", current_revision=profile_revision)
+def _stale(profile_revision, **details):
+    return InstitutionSpeciesConflict("stale_revision", current_revision=profile_revision, **details)
 
 
 def update_institution_species(*, user, organization, pk, data):

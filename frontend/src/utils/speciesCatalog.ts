@@ -383,6 +383,15 @@ export function buildEditPayload(expectedRevision: number, scientificName: strin
   };
 }
 
+// Editing an existing Species without institutional information yet: the explicit
+// final state only. The server associates it on this save, never on opening.
+export function buildExistingSpeciesEditPayload(scientificName: string, aphiaId: number | null) {
+  return {
+    scientific_name: normalizeScientificName(scientificName),
+    worms_aphia_id: aphiaId,
+  };
+}
+
 export type ServiceFailure = {
   code: string;
   institution_species_id?: number | null;

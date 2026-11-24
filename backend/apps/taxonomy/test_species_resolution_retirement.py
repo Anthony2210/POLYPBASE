@@ -48,7 +48,9 @@ class RetiredResolutionTests(InstitutionSpeciesApiBase):
         self.assertEqual(self.get(LIST_URL, self.a).status_code, 200)
         body = self.get(HISTORICAL_URL, self.a, self.species.pk).json()
         self.assertIsNone(body["institution_species_id"])
-        self.assertEqual(body["strain_creation_issue"], "species_code_missing")
+        # The recorded AHA is recoverable by an explicit Strain creation only.
+        self.assertIsNone(body["strain_creation_issue"])
+        self.assertTrue(body["can_create_strain"])
         self.assertEqual(self.state(), before)
 
     def test_retired_resolve_never_creates_profile_code_or_audit(self):

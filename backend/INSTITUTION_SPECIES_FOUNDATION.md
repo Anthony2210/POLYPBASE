@@ -93,7 +93,10 @@ the evidence and collisions in its own transaction. No such applicator exists.
 | `POST /api/admin/institution-species/<id>/strains/` | `{request_id, collection_location: <id>}` or `{request_id, new_collection_location: {name, code}}` → 201 `{strain, strains}`; the server allocates X and builds `AAA-BBB-X` (see below). `request_id` is a required client idempotency key |
 | `GET /api/admin/institution-species/<id>/code-change-preview/?proposed_code=AAA` | Read-only impact plan of a Species code change (see "Species code change preview"); writes and reserves nothing |
 | `GET /api/admin/collection-locations/` | The active institution's coded collection locations `{id, code, name}` (BBB), never another institution's |
-| `GET /api/admin/institution-species/historical/<species_id>/` | Read-only view of a reference used here without a profile (shared name, own code, eligible Strains); 404 for profiled, unused or foreign references |
+| `GET /api/admin/institution-species/historical/<species_id>/` | Read-only detail of a Species used here, by shared ID (shared name, local name when a profile exists, own code, readiness, eligible Strains); 404 for unused or foreign references. Writes nothing |
+| `PATCH /api/admin/institution-species/historical/<species_id>/` | Explicit identification save of a managed Species without a profile: `{scientific_name, worms_aphia_id}` (both required). 201 profile; unchanged final state → 200 detail with no write; existing profile → 409 `stale_revision` (`current_revision`, `institution_species_id`) |
+| `POST /api/admin/institution-species/historical/<species_id>/strains/` | Explicit Strain creation for a managed Species: same payload, idempotency and response as the profile route; establishes a missing profile and AAA registration in the same transaction |
+| `POST /api/admin/institution-species/resolve/` | Retired: 410 `institution_species_resolution_retired` after authorization, never a write |
 
 Registration: WoRMS verification (if an AphiaID is sent) runs before any
 transaction; then allocation gate → Organization lock. The normalized name is
@@ -111,6 +114,53 @@ conditional update uses `compare_and_swap` under the Organization/profile lock;
 audit stores before/after values and revisions. Shared Species, codes, Strain
 and Box identifiers are never modified.
 
+## Existing Species: explicit-submit association
+
+A Species already used by the institution (own code assignment, owned Strain or
+own Box: `_has_history`) but without an `InstitutionSpecies` profile is managed
+like any other Species. Opening its page, a dialog, cancelling or closing writes
+nothing. The retired `resolve` endpoint (which associated on dialog opening)
+stays at 410; its service is kept without a route.
+
+- A client-supplied Species ID never establishes management: the history check
+  is repeated under `species_action_transaction` (Local ID registry → allocation
+  gate) → Organization → Species row locks, with Admin authority rechecked.
+- Identification save (`edit_existing_species`): the dialog is prefilled from
+  the read detail (shared name and AphiaID). An unchanged final state (normalized
+  name, same AphiaID) writes nothing. Otherwise WoRMS verification runs outside
+  locks, then the existing name, AphiaID and historical-name collision rules
+  apply, and the profile is created with the submitted values. Audits: a
+  `CREATION` of `institution_species` (`source: institution_species_edit`) and the
+  business `UPDATE` (`changes` from the shared values, `revision.before: null`,
+  `institution_species_created: true`). No AAA is required, registered or
+  generated; the shared reference is never modified. A profile created
+  meanwhile makes the intent stale (409) rather than overwriting it.
+- Strain creation (both routes, `create_institution_strain`): within the creation
+  transaction, a missing profile is created from the shared name and AphiaID
+  (copied exactly), and a missing AAA registration is recovered only from the
+  single AAA proven by current institutional evidence
+  (`resolve_institution_species_codes`: assignment, consistent own/used Strain
+  prefixes, current own Box Local IDs; aliases, previous IDs, merged Boxes and
+  foreign data are excluded), through `allocate_species_code(recorded_code=…)`.
+  Missing evidence → 409 `species_code_missing`; contradictory evidence → 409
+  `species_code_inconsistent`; the AAA assigned to or carried by another Species
+  (any institution) → 409 `historical_code_conflict`. No first AAA is ever
+  generated, and the same applies to an existing profile without a
+  registration. BBB allocation, X numbering, `request_id` idempotency (the intent
+  is keyed by `species` on the existing-Species route) and existing Strain/Box
+  identifiers are unchanged. Association and code audits
+  (`source: institution_strain_creation`, with `strain_id` and `request_id`,
+  `recorded_code_preserved: true`) are written with the `strain` creation audit.
+- Any failure, including an audit failure, rolls the whole operation back.
+- Personal journal: rows of `institution_species`/`organization_species_code` with
+  the technical sources above are hidden (`TECHNICAL_ACTIVITY_SOURCES`); the
+  administrative audit keeps every row. The business edit and the Strain creation
+  stay visible.
+- Read-only readiness (`can_create_strain`, `strain_creation_issue`) counts a
+  missing registration as ready only when this recovery would succeed
+  (`strain_creation_issue(..., include_recoverable=True)`); the creation
+  transaction repeats the strict check after registration.
+
 ## Legacy mutation paths
 
 | Path | Current state |
@@ -126,8 +176,11 @@ and Box identifiers are never modified.
 | WoRMS search `local_species` | Institution-scoped: own profiles (local name/AphiaID) and historical references used here; never another institution's information |
 | `import_bdd_csv`, `seed_demo_data`, historical importers, Transfer v1 import | Technical writers of shared references, unchanged |
 
-Existing codes remain unchanged. Historical references lacking an institution
-code still require an approved, reviewed adoption process; nothing assigns one.
+Existing codes remain unchanged. A missing institution code is registered only
+by an explicit Strain creation that proves the existing AAA from current
+institutional evidence (see "Existing Species: explicit-submit association");
+nothing generates a first code for a historical reference, and no bulk backfill
+exists.
 
 ## Consumers for the later naming switch
 
