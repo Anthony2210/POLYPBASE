@@ -31,7 +31,8 @@
     "test:layout": "node --test scripts/test-page-layout.mjs",
     "test:subculture": "node --test scripts/test-subculture.mjs",
     "build": "npm run check:css && tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "perf:sweep": "node scripts/perf-sweep.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.0",
@@ -48,6 +49,8 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.2",
+    "lighthouse": "12.8.2",
+    "playwright": "1.62.1",
     "typescript": "5.8.3",
     "vite": "~8.1.6"
   }

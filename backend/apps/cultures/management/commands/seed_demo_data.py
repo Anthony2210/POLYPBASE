@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone as datetime_timezone
 from decimal import Decimal
 
 from django.conf import settings
@@ -45,8 +45,18 @@ DEMO_CREATION_STRAIN_NOTES = (
 )
 
 
+MAX_VOLUME = 500
+VOLUME_FIRST_WEEK = date(2026, 4, 20)
+VOLUME_WEEKS = 32
+VOLUME_FIRST_DAY = date(2026, 9, 30)
+VOLUME_DAYS = 56
+VOLUME_PROBE_INTERVAL = timedelta(minutes=15)
+VOLUME_SAMPLES_PER_DAY = timedelta(days=1) // VOLUME_PROBE_INTERVAL
+VOLUME_NOTE = "Synthetic volume fixture from seed_demo_data."
+
+
 class Command(BaseCommand):
-    help = "Create a small, idempotent demo dataset for local development."
+    help = "Create an idempotent demo dataset for local development, optionally with volume fixtures."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -54,14 +64,21 @@ class Command(BaseCommand):
             action="store_true",
             help="Allow seeding a disposable demo database with DEBUG disabled.",
         )
+        parser.add_argument(
+            "--volume", type=int, default=0, metavar="N",
+            help=f"Ensure N additional demo boxes (0–{MAX_VOLUME}) and their histories; never delete fixtures.",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG and not options["allow_non_debug"]:
             raise CommandError("Demo seeding requires DEBUG or --allow-non-debug on a disposable database.")
-        self._seed()
+        volume = options["volume"]
+        if type(volume) is not int or not 0 <= volume <= MAX_VOLUME:
+            raise CommandError(f"--volume must be an integer from 0 to {MAX_VOLUME}.")
+        self._seed(volume)
 
     @transaction.atomic
-    def _seed(self):
+    def _seed(self, volume):
         admin_user, lab_user, viewer_user = self._create_users()
         paris, partner = self._create_organizations()
         self._create_memberships(paris, partner, admin_user, lab_user, viewer_user)
@@ -81,6 +98,8 @@ class Command(BaseCommand):
         self._create_transfer(boxes, paris, partner, admin_user)
         self._create_import_export_records(paris, lab_user)
         self._create_audit_logs(paris, boxes, lab_user)
+        if volume:
+            self._create_volume_data(volume, paris, strains["aurelia_demo"], lab_user)
 
         self.stdout.write(self.style.SUCCESS("Demo data is ready."))
         self.stdout.write("Users:")
@@ -560,6 +579,147 @@ class Command(BaseCommand):
                 "user": lab_user,
             },
         )
+
+    def _create_volume_data(self, volume, organization, strain, user):
+        zone_specs = (("Demo Volume 15 C", Decimal("15.0")), ("Demo Volume 20 C", Decimal("20.0")))
+        zones = []
+        for name, target in zone_specs:
+            zone, _ = ThermalZone.objects.get_or_create(
+                organization=organization, name=name,
+                defaults={"target_temperature_c": target, "notes": VOLUME_NOTE},
+            )
+            if zone.notes != VOLUME_NOTE or zone.target_temperature_c != target or not zone.is_active:
+                raise CommandError(f"Demo volume zone {name} conflicts with an existing zone.")
+            zones.append(zone)
+
+        sample_boxes = []
+        for number in range(1, volume + 1):
+            zone = zones[(number - 1) % len(zones)]
+            box = self._create_volume_box(number, organization, strain, zone, user)
+            if number <= len(zones):
+                sample_boxes.append(box)
+
+        probe_groups = [self._create_volume_environment(zone, user) for zone in zones]
+        self.stdout.write(
+            f"Volume (requested prefix): {volume} boxes, {volume * VOLUME_WEEKS} biological measurements, "
+            f"{volume * len(range(0, VOLUME_WEEKS, 4))} box observations; "
+            f"{len(zones) * VOLUME_DAYS} daily temperatures and as many salinity readings; "
+            f"{sum(map(len, probe_groups)) * VOLUME_DAYS * VOLUME_SAMPLES_PER_DAY} raw probe temperatures."
+        )
+        self.stdout.write(f"  organization_id={organization.pk} slug={organization.slug}")
+        for box in sample_boxes:
+            self.stdout.write(f"  box_id={box.pk} code={box.global_code} zone_id={box.thermal_zone_id}")
+        for zone, probes in zip(zones, probe_groups):
+            probe_ids = ",".join(str(probe.pk) for probe in probes)
+            self.stdout.write(f"  zone_id={zone.pk} name={zone.name} probe_ids={probe_ids}")
+
+    def _create_volume_box(self, number, organization, strain, zone, user):
+        code = f"DEMO-VOL-{number:04d}"
+        # These codes are separate from the ordinary AAU-DMO-1 automatic sequence.
+        box, created = Box.objects.get_or_create(
+            global_code=code,
+            defaults={
+                "organization": organization, "strain": strain, "thermal_zone": zone,
+                "local_code": code, "box_number": f"{number:04d}", "entered_on": VOLUME_FIRST_WEEK,
+                "notes": VOLUME_NOTE,
+            },
+        )
+        if (box.organization_id != organization.pk or box.strain_id != strain.pk
+                or box.thermal_zone_id != zone.pk or box.notes != VOLUME_NOTE
+                or box.status != Box.Status.ACTIVE or box.merged_into_id is not None):
+            raise CommandError(f"Demo volume box {code} conflicts with an existing box.")
+        if created:
+            self._create_tags({code: box})
+            BoxLocation.objects.create(
+                box=box, thermal_zone=zone,
+                starts_at=datetime.combine(VOLUME_FIRST_WEEK, time(8), datetime_timezone.utc),
+                notes=VOLUME_NOTE,
+            )
+
+        for week in range(VOLUME_WEEKS):
+            monday = VOLUME_FIRST_WEEK + timedelta(weeks=week)
+            # Use the model's save path for the weekly key and polyp-state sequence.
+            BiologicalMeasurement.objects.canonical().get_or_create(
+                box=box, week_start=monday,
+                defaults={
+                    "measured_on": monday, "temporal_precision": BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+                    "polyp_count": 20 + (number * 13 + week * 7) % 160,
+                    "ephyrae_count": (number + week) % 12 if week % 4 else 0,
+                    "strobila_count": (number + week) % 4,
+                    "salinity_psu": Decimal("34.50") + Decimal((number + week) % 15) / 10,
+                    "culture_status": BiologicalMeasurement.CultureStatus.GOOD,
+                    "notes": VOLUME_NOTE, "user": user, "original_observer": user,
+                    "observer_status": BiologicalMeasurement.ObserverStatus.KNOWN,
+                },
+            )
+            if week % 4 == 0:
+                Observation.objects.get_or_create(
+                    box=box, observed_on=monday, observation_type=Observation.ObservationType.GENERAL,
+                    defaults={"notes": VOLUME_NOTE, "user": user},
+                )
+        return box
+
+    def _create_volume_environment(self, zone, user):
+        probes = []
+        # The ordinary probe charts only read configured iMinilide channels.
+        # These serials are fictitious; do not run a collector on this fixture database.
+        serial = f"DEMO-VOLUME-{zone.target_temperature_c:.0f}C"
+        for channel in (1, 2):
+            probe, _ = Probe.objects.get_or_create(
+                organization=zone.organization, code=f"{serial}-{channel}",
+                defaults={
+                    "thermal_zone": zone, "probe_type": Probe.ProbeType.IMINILIDE,
+                    "external_serial": serial, "external_channel": channel,
+                    "sampling_interval_seconds": int(VOLUME_PROBE_INTERVAL.total_seconds()), "notes": VOLUME_NOTE,
+                },
+            )
+            if (probe.thermal_zone_id != zone.pk or probe.probe_type != Probe.ProbeType.IMINILIDE
+                    or probe.external_serial != serial or probe.external_channel != channel
+                    or probe.notes != VOLUME_NOTE or not probe.is_active):
+                raise CommandError(f"Demo volume probe {probe.code} conflicts with an existing probe.")
+            probes.append(probe)
+
+        start = datetime.combine(VOLUME_FIRST_DAY, time.min, datetime_timezone.utc)
+        end = start + timedelta(days=VOLUME_DAYS)
+        for probe in probes:
+            existing = set(probe.temperature_measurements.filter(
+                measured_at__gte=start, measured_at__lt=end,
+            ).values_list("measured_at", flat=True))
+            rows = []
+            for offset in range(VOLUME_DAYS):
+                for slot in range(VOLUME_SAMPLES_PER_DAY):
+                    measured_at = start + VOLUME_PROBE_INTERVAL * (offset * VOLUME_SAMPLES_PER_DAY + slot)
+                    if measured_at not in existing:
+                        rows.append(TemperatureMeasurement(
+                            probe=probe, measured_at=measured_at,
+                            temperature_c=self._volume_probe_temperature(zone, offset, slot, probe.external_channel),
+                            source="demo_seed", user=user,
+                        ))
+            TemperatureMeasurement.objects.bulk_create(rows)
+
+        for offset in range(VOLUME_DAYS):
+            day = VOLUME_FIRST_DAY + timedelta(days=offset)
+            readings = [
+                self._volume_probe_temperature(zone, offset, slot, probe.external_channel)
+                for probe in probes for slot in range(VOLUME_SAMPLES_PER_DAY)
+            ]
+            DailyTemperature.objects.get_or_create(
+                thermal_zone=zone, date=day,
+                defaults={
+                    "min_temperature_c": min(readings), "max_temperature_c": max(readings),
+                    "average_temperature_c": (sum(readings) / len(readings)).quantize(Decimal("0.01")),
+                    "measurement_count": len(readings), "computed_from_probes": True,
+                },
+            )
+            SalinityMeasurement.objects.get_or_create(
+                thermal_zone=zone, measured_on=day,
+                defaults={"salinity_psu": Decimal("34.50") + Decimal(offset % 11) / 10,
+                          "user": user, "notes": VOLUME_NOTE},
+            )
+        return probes
+
+    def _volume_probe_temperature(self, zone, offset, slot, channel):
+        return zone.target_temperature_c + Decimal(2 * (offset % 7 - 3) + slot % 16 - 8 + 5 * channel) / 20
 
     def _create_lineage(self, boxes, lab_user):
         event, _created = SubcultureEvent.objects.update_or_create(
