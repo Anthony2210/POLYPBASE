@@ -370,7 +370,13 @@ class SessionLoginApiTests(TestCase):
     def test_login_response_includes_browser_security_headers(self):
         response = self.client.get(self.login_url)
 
-        self.assertIn("Content-Security-Policy", response)
+        policy = {}
+        for directive in response["Content-Security-Policy"].split(";"):
+            if directive.strip():
+                name, *sources = directive.split()
+                policy[name] = sources
+        self.assertEqual(policy["script-src"], ["'self'"])
+        self.assertIn("'unsafe-inline'", policy["style-src"])
         self.assertEqual(
             response["Permissions-Policy"],
             "camera=(self), microphone=(), geolocation=()",
