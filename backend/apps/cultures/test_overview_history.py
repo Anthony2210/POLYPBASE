@@ -349,6 +349,82 @@ class OverviewHistoryTests(TestCase):
         self.assertEqual(boxes[self.empty_box.pk]["measurements"][0]["date"], "2022-01-03")
         self.assertEqual(boxes[self.box.pk]["temperatures"], [])
 
+    def test_full_history_query_budget_is_constant_as_boxes_and_history_grow(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2024, 1, 1), polyp_count=1
+        )
+        params = {"history": "full"}
+        self.get_overview(params=params)  # Initialize user preferences outside the budget.
+        with self.assertNumQueries(14):
+            small = self.get_overview(params=params)
+        self.assertEqual(len(small["results"]), 2)
+
+        start = datetime(2023, 6, 1, tzinfo=timezone.utc)
+        for number in range(3, 9):
+            box = Box.objects.create(
+                organization=self.organization,
+                strain=self.strain,
+                global_code=f"AOV-1.{number:03d}",
+                box_number=f"{number:03d}",
+                thermal_zone=self.zone,
+            )
+            BoxLocation.objects.create(box=box, thermal_zone=self.zone, starts_at=start)
+            for week in range(12):
+                BiologicalMeasurement.objects.create(
+                    box=box, measured_on=start.date() + timedelta(weeks=week), polyp_count=week
+                )
+
+        with self.assertNumQueries(14):
+            large = self.get_overview(params=params)
+        self.assertEqual(len(large["results"]), 8)
+        for box in large["results"][2:]:
+            self.assertEqual(len(box["measurements"]), 12)
+            self.assertEqual(len(box["locations"]), 1)
+            self.assertEqual(box["current_polyp_state"]["polyp_count"], 11)
+
+    def test_history_metadata_and_state_use_canonical_evidence_in_both_modes(self):
+        first = BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2023, 2, 1), polyp_count=8
+        )
+        BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2023, 1, 30), polyp_count=99, user=self.user,
+            duplicate_of=first,
+        )
+        latest = BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2026, 7, 3), polyp_count=0, ephyrae_count=0,
+            salinity_psu="0.00",
+        )
+        BiologicalMeasurement.objects.create(
+            box=self.empty_box, measured_on=date(2023, 3, 1), polyp_count=7, user=self.user
+        )
+        self.box.refresh_from_db()
+        windowed = self.get_overview()
+        full = self.get_overview(params={"history": "full"})
+        for payload in (windowed, full):
+            self.assertEqual([box["id"] for box in payload["results"]], [self.box.pk, self.empty_box.pk])
+            first_box, second_box = payload["results"]
+            self.assertEqual(first_box["earliest_biological_measurement_on"], "2023-02-01")
+            self.assertFalse(first_box["tracked_in_app"])
+            self.assertEqual(first_box["current_polyp_state"], {
+                "polyp_count": 0,
+                "source": {
+                    "kind": "measurement", "id": latest.pk,
+                    "timestamp": latest.created_at.isoformat(), "measured_on": "2026-07-03",
+                },
+                "revision": f"box:{self.box.pk}:{self.box.polyp_state_revision}",
+            })
+            self.assertTrue(second_box["tracked_in_app"])
+            self.assertEqual(second_box["earliest_biological_measurement_on"], "2023-03-01")
+
+        zero = {"date": "2026-07-03", "polyp_count": 0, "ephyrae_count": 0, "salinity_psu": "0.00"}
+        self.assertEqual(windowed["results"][0]["measurements"], [zero])
+        self.assertEqual(windowed["results"][1]["measurements"], [])
+        self.assertEqual(full["results"][0]["measurements"], [
+            {"date": "2023-02-01", "polyp_count": 8, "ephyrae_count": 0, "salinity_psu": None},
+            zero,
+        ])
+        self.assertEqual(len(full["results"][1]["measurements"]), 1)
+
     def test_full_history_handles_empty_and_old_only_boxes(self):
         BiologicalMeasurement.objects.create(
             box=self.box, measured_on=date(2020, 1, 6), polyp_count=0, ephyrae_count=0
