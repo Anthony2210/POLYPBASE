@@ -261,6 +261,16 @@ jobs:
           cache-dependency-glob: uv.lock
           python-version: "3.12"
 
+      - name: Make Nginx available without starting a service
+        run: |
+          sudo apt-get update
+          mkdir "$RUNNER_TEMP/nginx-syntax"
+          cd "$RUNNER_TEMP/nginx-syntax"
+          apt-get download nginx
+          dpkg-deb -x nginx_*.deb extracted
+          test -x "$PWD/extracted/usr/sbin/nginx"
+          printf '%s\n' "$PWD/extracted/usr/sbin" >> "$GITHUB_PATH"
+
       - name: Test deployment scripts
         run: uv run --frozen python -B -m unittest discover -s deploy/tests
 

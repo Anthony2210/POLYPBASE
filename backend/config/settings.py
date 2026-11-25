@@ -174,6 +174,22 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+POLYPBASE_LOG_SLOW_API = env_flag("POLYPBASE_LOG_SLOW_API")
+if POLYPBASE_LOG_SLOW_API:
+    MIDDLEWARE.insert(0, "config.middleware.SlowApiLoggingMiddleware")
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {"slow_api": {"class": "logging.StreamHandler"}},
+        "loggers": {
+            "polypbase.slow_api": {
+                "handlers": ["slow_api"],
+                "level": "WARNING",
+                "propagate": False,
+            },
+        },
+    }
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [

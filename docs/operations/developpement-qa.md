@@ -280,6 +280,18 @@ npm run check:css
 
 Pour une modification substantielle, vérifier dans un vrai navigateur les supports concernés et les états loading, empty, error, zéro, clavier et tactile. Ne pas laisser de capture, serveur, base ou réglage QA temporaire.
 
+## Balayage de performance sur données synthétiques
+
+Préparer une instance **jetable**, sans `.env` réel, sans réseau sortant côté serveur et avec une base locale explicitement vérifiée. Ne pas utiliser la copie de production décrite plus haut. Sur cette base migrée uniquement, lancer `seed_demo_data --volume 150` avec les réglages isolés de l’instance (et `--allow-non-debug` seulement si nécessaire). Le volume représente des boîtes supplémentaires, avec des séries fictives ; un rejeu n’ajoute pas de doublons. Activer `POLYPBASE_LOG_SLOW_API=1` dans le processus Django : le journal avertit au-delà de 500 ms et indique le nombre et le temps cumulé des requêtes SQL, sans SQL ni paramètres. Le désactiver après la mesure.
+
+Servir le build et l’API sur la même origine loopback dédiée, avec les en-têtes de sécurité habituels. Depuis `frontend/`, installer Chromium (`npx playwright install chromium`) et fournir `PERF_PASSWORD` ou les mots de passe de démo par rôle dans l’environnement du processus. Exemple de premier passage :
+
+```sh
+npm run perf:sweep -- --synthetic --base-url http://127.0.0.1:18173 --box-code DEMO-VOL-0001 --zone-name 'Demo Volume 15 C' --roles admin --viewports desktop
+```
+
+Retirer les filtres pour la matrice des trois rôles et des trois largeurs (390, 820 et 1440 px). `--help` décrit les filtres et `--skip-lighthouse` permet un passage rapide. La QA vérifie plutôt la redirection quand l’administration est indisponible sur les écrans tactiles. Conserver les captures et résultats sous `.local-docs/`, hors Git. Les scores Lighthouse sont des mesures locales de navigation et les chevauchements détectés sont des indices à vérifier sur les captures, pas une preuve de conformité. Arrêter le serveur et supprimer la base jetable ensuite.
+
 ## Git et revue
 
 Depuis la racine :
