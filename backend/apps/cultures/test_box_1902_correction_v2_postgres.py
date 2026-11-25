@@ -25,6 +25,7 @@ from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.exceptions import IrreversibleError
 from psycopg import sql
 
+from config.backend_postgres_ci import active
 from config.migration_test_utils import historical_targets
 
 from apps.measurements import box_1902_sql as contract
@@ -47,7 +48,7 @@ SCOPE = {"organization_id": 1, "box_id": 1902, "source_strain_id": 213,
          "source_species_id": 131, "target_strain_id": 285}
 
 
-@skipUnless(LEASE, "Requires scripts/test_historical_temperature_production.py and its fresh PG18 lease")
+@skipUnless(LEASE or active(), "Requires a verified disposable PostgreSQL 18 runner")
 class Box1902CorrectionV2PostgreSQLTests(
     Box1902PreservationPostgreSQLTests, ClaBox1902Fixture, TestCase,
 ):
@@ -84,17 +85,23 @@ class Box1902CorrectionV2PostgreSQLTests(
         """)
 
     @classmethod
-    def connect(cls, user="subculture_qa", database=DATABASE):
+    def connect(cls, user="subculture_qa", database=DATABASE, *, role=None):
+        if cls.service is not None:
+            return cls.service.connect(cls.database_name if database == DATABASE else database,
+                                       "postgres" if user == "subculture_qa" else user, role=role)
         from historical_temperature_cluster_lease import connect_leased
 
         return connect_leased(
             host="127.0.0.1", port=cls.port, dbname=database, user=user,
             password="", sslmode="disable", connect_timeout=5, autocommit=True,
-            options="-c lock_timeout=5000 -c statement_timeout=60000",
+            options="-c lock_timeout=5000 -c statement_timeout=60000" + (" -c role=box1902_owner" if role else ""),
+            expected_role=role,
         )
 
     @classmethod
     def execute(cls, statement, params=None, *, user="subculture_qa", database=DATABASE):
+        if cls.service is not None and database == "subculture_qa":
+            return cls.service.execute_maintenance(statement, params)
         with cls.connect(user, database) as conn:
             cursor = conn.execute(statement, params)
             return cursor.fetchall() if cursor.description else []
@@ -102,7 +109,8 @@ class Box1902CorrectionV2PostgreSQLTests(
     @classmethod
     def use_django_role(cls, user):
         connection.close()
-        config = {"NAME": DATABASE, "USER": user, "PASSWORD": ""}
+        config = (cls.service.django_config(cls.database_name, user) if cls.service is not None
+                  else {"NAME": DATABASE, "USER": user, "PASSWORD": ""})
         settings.DATABASES["default"].update(config)
         connection.settings_dict.update(config)
 
@@ -124,6 +132,26 @@ class Box1902CorrectionV2PostgreSQLTests(
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.service = active()
+        cls.database_name = cls.service.prefix + "box" if cls.service is not None else DATABASE
+        cls.template_name = cls.service.prefix + "box_template" if cls.service is not None else TEMPLATE
+        cls.original_settings = deepcopy(settings.DATABASES["default"])
+        cls.original_connection_settings = deepcopy(connection.settings_dict)
+        cls.roles_provisioned = False
+        cls.created_databases = set()
+        cls.addClassCleanup(cls.cleanup_cluster)
+        if cls.service is not None:
+            if settings.SETTINGS_MODULE != "config.backend_postgres_ci_settings" or not settings.RUNNING_TESTS:
+                raise RuntimeError("Refuse Box 1902 outside the service test runner")
+            cls.service.create_runtime_role()
+            cls.service.create_database(cls.database_name, owner=contract.RUNTIME)
+            cls.created_databases.add(cls.database_name)
+        else:
+            cls.setup_leased_database()
+        cls.populate_and_install()
+
+    @classmethod
+    def setup_leased_database(cls):
         config = settings.DATABASES["default"]
         lease = Path(LEASE).resolve()
         if (settings.SETTINGS_MODULE != "ht_disposable_settings"
@@ -143,10 +171,7 @@ class Box1902CorrectionV2PostgreSQLTests(
             if (not 180000 <= version < 190000 or Path(directory).resolve() != lease
                     or login != "subculture_qa"):
                 raise RuntimeError("Fresh PostgreSQL 18 administrator lease mismatch")
-            cls.original_settings = deepcopy(settings.DATABASES["default"])
-            cls.original_connection_settings = deepcopy(connection.settings_dict)
-            cls.roles_provisioned = False
-            cls.addClassCleanup(cls.cleanup_cluster)
+
             # Provisioning itself must create all reserved technical identities.
             # Precreating them would now correctly fail the collision preflight.
             if not admin.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", [contract.RUNTIME]).fetchone():
@@ -160,6 +185,9 @@ class Box1902CorrectionV2PostgreSQLTests(
                     raise RuntimeError(f"Disposable test database already exists: {name}")
             admin.execute(sql.SQL("CREATE DATABASE {} OWNER polypbase").format(sql.Identifier(DATABASE)))
             cls.created_databases = {DATABASE}
+
+    @classmethod
+    def populate_and_install(cls):
         print("Box 1902 v2: creating the real pre-0018 Django schema", flush=True)
         cls.migrate_baseline_schema()
         print("Box 1902 v2: populating immutable scientific evidence", flush=True)
@@ -197,7 +225,10 @@ class Box1902CorrectionV2PostgreSQLTests(
         if cls.science_snapshot() != cls.preinstall_science:
             raise AssertionError("Refused unsafe installation changed science")
         print("Box 1902 v2: independent privilege transition and installation", flush=True)
-        cls.execute(contract.provision_sql())
+        if cls.service is not None:
+            cls.service.provision_box_roles(cls.database_name)
+        else:
+            cls.execute(contract.provision_sql())
         cls.roles_provisioned = True
         cls.use_django_role(contract.MIGRATOR)
         with connection.cursor() as cursor:
@@ -220,9 +251,12 @@ class Box1902CorrectionV2PostgreSQLTests(
         if cls.science_snapshot() != cls.preinstall_science:
             raise AssertionError("0018 changed populated historical science")
         connection.close()
-        cls.execute(sql.SQL("ALTER DATABASE {} RENAME TO {}").format(
-            sql.Identifier(DATABASE), sql.Identifier(TEMPLATE)), database="subculture_qa")
-        cls.created_databases = {TEMPLATE}
+        if cls.service is not None:
+            cls.service.rename_database(cls.database_name, cls.template_name)
+        else:
+            cls.execute(sql.SQL("ALTER DATABASE {} RENAME TO {}").format(
+                sql.Identifier(DATABASE), sql.Identifier(TEMPLATE)), database="subculture_qa")
+        cls.created_databases = {cls.template_name}
         print("Box 1902 v2: actual schema, 41 populated readings, independent provision and migrator installation", flush=True)
 
     @classmethod
@@ -267,8 +301,7 @@ class Box1902CorrectionV2PostgreSQLTests(
         try:
             connection.close()
             for name in getattr(cls, "created_databases", set()):
-                cls.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)),
-                            database="subculture_qa")
+                cls.drop_database(name)
             # Only our committed provisioning grants authority to restore this role.
             if cls.roles_provisioned:
                 cls.execute("ALTER ROLE box1902_executor LOGIN", database="subculture_qa")
@@ -281,9 +314,12 @@ class Box1902CorrectionV2PostgreSQLTests(
     def setUp(self):
         super().setUp()
         self.execute("ALTER ROLE box1902_executor LOGIN", database="subculture_qa")
-        self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
-            sql.Identifier(DATABASE), sql.Identifier(TEMPLATE)), database="subculture_qa")
-        self.created_databases.add(DATABASE)
+        if self.service is not None:
+            self.service.create_database(self.database_name, owner=contract.OWNER, template=self.template_name)
+        else:
+            self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
+                sql.Identifier(DATABASE), sql.Identifier(TEMPLATE)), database="subculture_qa")
+        self.created_databases.add(self.database_name)
         self.addCleanup(self.drop_working_database)
         self.working_acl()
         self.use_django_role(contract.EXECUTOR)
@@ -300,17 +336,24 @@ class Box1902CorrectionV2PostgreSQLTests(
         self.execute(sql.SQL(
             "REVOKE ALL ON DATABASE {} FROM PUBLIC, polypbase, box1902_approver, "
             "box1902_executor, box1902_migrator"
-        ).format(sql.Identifier(DATABASE)), database="subculture_qa")
+        ).format(sql.Identifier(self.database_name)), database="subculture_qa")
         self.execute(sql.SQL(
             "GRANT CONNECT ON DATABASE {} TO polypbase, box1902_approver, "
             "box1902_executor, box1902_migrator"
-        ).format(sql.Identifier(DATABASE)), database="subculture_qa")
+        ).format(sql.Identifier(self.database_name)), database="subculture_qa")
+
+    @classmethod
+    def drop_database(cls, name):
+        if cls.service is not None:
+            cls.service.drop_database(name)
+        else:
+            cls.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)),
+                        database="subculture_qa")
 
     def drop_working_database(self):
         connection.close()
-        self.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(DATABASE)),
-                     database="subculture_qa")
-        self.created_databases.discard(DATABASE)
+        self.drop_database(self.database_name)
+        self.created_databases.discard(self.database_name)
         self.execute("ALTER ROLE box1902_executor LOGIN", database="subculture_qa")
 
     @classmethod
@@ -420,19 +463,12 @@ class Box1902CorrectionV2PostgreSQLTests(
                          [MIGRATION])
         self.assertEqual(contract.attest(connection, allow_retired=False),
                          {"operation": contract.OPERATION, "retired": False})
-        from historical_temperature_cluster_lease import connect_leased
-
         privilege_query = (
             "SELECT has_function_privilege(%s, 'pg_catalog.pg_control_system()', 'EXECUTE'), "
             "has_function_privilege(%s, 'pg_catalog.pg_read_file(text)', 'EXECUTE')"
         )
         privileges_before = self.execute(privilege_query, [contract.MIGRATOR, contract.MIGRATOR])
-        with connect_leased(
-            host="127.0.0.1", port=self.port, dbname=DATABASE,
-            user=contract.MIGRATOR, password="", sslmode="disable", connect_timeout=5,
-            autocommit=True, options="-c role=box1902_owner -c statement_timeout=60000",
-            expected_role=contract.OWNER,
-        ) as migrator:
+        with self.connect(contract.MIGRATOR, role=contract.OWNER) as migrator:
             self.assertEqual(migrator.execute("SELECT session_user, current_user").fetchone(),
                              (contract.MIGRATOR, contract.OWNER))
         self.assertEqual(self.execute(privilege_query, [contract.MIGRATOR, contract.MIGRATOR]),

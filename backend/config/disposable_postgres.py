@@ -39,7 +39,10 @@ def disposable_postgres_declared():
     """True when a disposable cluster is declared; checked again before cleanup."""
     if connection.vendor != "postgresql":
         return False
-    return _launcher_lease() is not None
+    from .backend_postgres_ci import active
+
+    service = active()
+    return _launcher_lease() is not None or (service is not None and service.test_template is not None)
 
 
 def require_disposable_cluster():
@@ -129,7 +132,11 @@ class DisposablePostgresFlushMixin:
     """
 
     def _fixture_teardown(self):
-        if connection.vendor != "postgresql" or _ORIGINAL_TEARDOWN is not None:
+        from .backend_postgres_ci import active
+
+        service = active()
+        if (connection.vendor != "postgresql" or _ORIGINAL_TEARDOWN is not None
+                or (service is not None and service.test_template is not None)):
             return super()._fixture_teardown()
         parent = super()._fixture_teardown
         return _verified_flush(self, lambda _test: parent())

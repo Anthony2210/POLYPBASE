@@ -38,9 +38,9 @@ class HistoricalMovementsPostgresCITests(TestCase):
     def setUpClass(cls):
         # vendor is metadata: the decorator does not open a SQLite/default DB.
         # Refuse any other PostgreSQL environment before fixtures can write.
-        _validation.check_environment()
-        _validation.check_database_config(connection, test_database=True)
-        _validation.server_identity(connection, test_database=True)
+        from config.backend_postgres_ci import require_service
+
+        require_service().verify_test_database("movements")
         super().setUpClass()
 
     def setUp(self):

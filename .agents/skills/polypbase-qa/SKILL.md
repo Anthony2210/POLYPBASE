@@ -53,8 +53,10 @@ labels, including `apps.sharing` and `config.test_api_defaults`. It sets
 `PYTHON_DOTENV_DISABLED=1` before invoking it: the script does not set it itself.
 
 The runner also checks Git whitespace and builds the frontend. It is not the
-full CI workflow: CI discovers Django tests without labels, has separate
-PostgreSQL jobs, and runs frontend `test:all`. See the
+full CI workflow: GitHub Actions discovers the Django SQLite suite without labels,
+runs targeted PostgreSQL regressions in one disposable PostgreSQL 18 service,
+and runs frontend `test:all` when selected. Keep full suites on CI; run focused
+checks locally. The final branch-protection check is `ci-ok`. See the
 [development and QA guide](../../../docs/operations/developpement-qa.md) for discovery
 and isolation. Select frontend checks from [`frontend/package.json`](../../../frontend/package.json).
 Stop and report the exact failing command when a check fails.

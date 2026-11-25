@@ -297,8 +297,8 @@ PostgreSQL environment was used.
 ## Local and PostgreSQL validation
 
 Use the [isolated QA settings](../../operations/developpement-qa.md) for local
-`apps.cultures.test_historical_movements` tests. The dedicated
-[PostgreSQL CI workflow](../../../.github/workflows/historical-movements-postgres.yml)
+`apps.cultures.test_historical_movements` tests. The `backend-postgres` job in the
+[CI workflow](../../../.github/workflows/ci.yml)
 checks the migration graph, reconstruction constraints and audit indexes, plus
 read-only planning, API scoping and audit lookup on a disposable PostgreSQL
 instance. This tests synthetic data, not production conditions or a write path.
