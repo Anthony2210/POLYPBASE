@@ -9,8 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'docs/translation-review/application'))
 from test_check_register import (  # noqa: E402
-    B49_ADDED_KEYS, B49_REMOVED_KEYS, SPECIES_EVIDENCE, b44_events, b45_events, b47_events, b48_events,
-    before_species_integration,
+    ADMIN_RETIRED_KEYS, B49_ADDED_KEYS, B49_REMOVED_KEYS, SPECIES_EVIDENCE,
+    b44_events, b45_events, b47_events, b48_events, before_admin_removal,
+    before_species_integration, pre_b50_catalog_source,
 )
 import check_register as reg  # noqa: E402
 
@@ -38,7 +39,8 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
         rows = reg.load_register()
         unmanifested = {row['key_or_msgid'] for events in (b44_events, b45_events, b47_events, b48_events)
                         for row in events(rows) if row['status'] != 'REMOVED'}
-        self.assertEqual([row['identity'] for row in react], [key for key in fr if key not in unmanifested])
+        self.assertEqual([row['identity'] for row in react if row['identity'] not in ADMIN_RETIRED_KEYS],
+                         [key for key in fr if key not in unmanifested])
         self.assertEqual(set(fr), set(en))
         added = [row for row in react if row['identity'] in self.added]
         self.assertEqual(len(added), 266 - len(B49_REMOVED_KEYS))
@@ -49,9 +51,12 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
             self.assertEqual((row['status'], row['reason_code'], row['takeru_review'], row['ja_validated'],
                               row['ja_ai_reviewed']), ('FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', 'no', '', ''), key)
         self.assertEqual({row['identity'] for row in added}, self.added)
+        baseline = {language: reg.parse_catalog(pre_b50_catalog_source(language, rows), language)
+                    for language in ('fr', 'en')}
         for row in added:
             key = row['identity']
-            self.assertEqual((row['current_fr'], row['current_en']), (fr[key], en[key]), key)
+            self.assertEqual((row['current_fr'], row['current_en']),
+                             (baseline['fr'][key], baseline['en'][key]), key)
             self.assertEqual((row['status'], row['reason_code'], row['takeru_review']),
                              ('FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', 'no'), key)
             for field in ('sheet_row', 'sheet_section', 'sheet_fr', 'sheet_en', 'ja_validated', 'ja_ai_reviewed'):
@@ -73,16 +78,20 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
         digest = hashlib.sha256(json.dumps(before_thermal, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
         self.assertEqual(digest, PRE_THERMAL_MAIN_MANIFEST_SHA256)
 
-    def test_japanese_catalog_is_byte_unchanged_and_new_keys_have_no_japanese(self):
-        source = (ROOT / 'frontend/src/i18n/ja.ts').read_bytes().replace(b'\r\n', b'\n')
-        self.assertEqual(hashlib.sha256(source).hexdigest(), MAIN_JA_SHA256)
-        ja = reg.parse_catalog(source.decode(), 'ja')
-        self.assertFalse((self.added | set(B49_ADDED_KEYS)) & ja.keys())
+    def test_historical_japanese_is_frozen_and_retired_keys_do_not_ship(self):
+        source = (ROOT / 'frontend/src/i18n/ja.ts').read_text(encoding='utf-8')
+        validated = {row['identity']: row['ja_validated'] for row in self.manifest
+                     if row['surface'] == 'react' and row['status'] == 'REUSED'}
+        historical = before_admin_removal(source, 'JA', [], japanese_values=validated)
+        self.assertEqual(hashlib.sha256(historical.encode('utf-8')).hexdigest(), MAIN_JA_SHA256)
+        ja = reg.parse_catalog(source, 'ja')
+        self.assertFalse((self.added | set(B49_ADDED_KEYS) | ADMIN_RETIRED_KEYS.keys()) & ja.keys())
+        self.assertEqual(len(validated.keys() & ADMIN_RETIRED_KEYS.keys()), 78)
 
     def test_feature_reconstruction_keeps_unknown_changes_and_rejects_changed_values(self):
         rows = reg.load_register()
         for language in ('fr', 'en'):
-            source = (ROOT / f'frontend/src/i18n/{language}.ts').read_text(encoding='utf-8')
+            source = pre_b50_catalog_source(language, rows)
             restored = before_species_integration(source, rows, language)
             extra = "  unknownAddition: 'Unapproved',\n"
             self.assertEqual(before_species_integration(source + extra, rows, language), restored + extra)

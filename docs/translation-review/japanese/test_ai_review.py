@@ -15,7 +15,7 @@ from test_ja_manifest import (
     POTENTIAL_MOVEMENT_KEYS, PROBE_AVERAGE_KEYS, ROOT, THERMAL_PERIOD_KEYS, ZONE_CHART_KEYS, b24_events, b25_events,
     before_b25, post_baseline_react_keys, rows,
 )
-from test_check_register import b26_events, b27_events, before_b24, before_b26, before_b27
+from test_check_register import b26_events, b27_events, before_b24, before_b26, before_b27, pre_b50_catalog_source
 
 
 def digest(value):
@@ -150,7 +150,7 @@ class AiReviewTests(unittest.TestCase):
             "fr": "1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc",
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
         }.items():
-            source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            source = pre_b50_catalog_source(lang)
             self.assertEqual(set(added), LATER_FALLBACK_KEYS)
             self.assertEqual(hashlib.sha256(historical_source(source, lang).encode()).hexdigest(), expected)
             register = builder.check_register.load_register()
@@ -169,7 +169,7 @@ class AiReviewTests(unittest.TestCase):
         register = builder.check_register.load_register()
         b27_events(register)
         for lang in ("fr", "en"):
-            source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            source = pre_b50_catalog_source(lang)
             explicit = before_b24(before_b25(before_b26(before_b27(source, register, lang.upper()),
                                                           register, lang.upper()), register, lang.upper()),
                                   register, lang.upper())
@@ -181,7 +181,7 @@ class AiReviewTests(unittest.TestCase):
     def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
         register = builder.check_register.load_register()
         for lang in ("fr", "en"):
-            source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            source = pre_b50_catalog_source(lang)
             fingerprint = hashlib.sha256(historical_source(source, lang, register).encode()).hexdigest()
             for key in getattr(self, lang):
                 line = next(line for line in source.split("\n") if line.lstrip().startswith(f"{key}: "))

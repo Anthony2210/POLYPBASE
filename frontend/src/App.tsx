@@ -86,7 +86,6 @@ import type {
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
   ManualTemperaturePayload,
-  OrganizationPayload,
   ThermalZoneDeletionEligibility,
   ThermalZonePayload,
   ThermalZoneUpdatePayload,
@@ -212,11 +211,9 @@ const ADMIN_SECTION_PATHS: Record<AdminSectionKey, string> = {
   accounts: '/administration/team',
   inventory: '/administration/box-inventory',
   species: '/administration/species-strains',
-  references: '/administration/reference-data',
   environment: '/administration/laboratory',
   transfers: '/administration/transfers',
   history: '/administration/history',
-  organizations: '/administration/institutions',
 };
 
 // Species detail pages: an institutional profile, or a historical reference
@@ -2130,43 +2127,6 @@ export default function App() {
     return zone;
   }
 
-  async function createOrganization(payload: OrganizationPayload) {
-    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiPost<Organization>('/api/organizations/', payload);
-    assertCurrent();
-    // Refresh linked lists so the new organization is usable immediately.
-    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
-    assertCurrent();
-    const profile = await apiGet<UserProfile>('/api/profile/');
-    assertCurrent();
-    setData((current) => ({ ...current, exportOptions, profile }));
-    assertCurrent();
-  }
-
-  async function updateOrganization(organizationId: number, payload: OrganizationPayload) {
-    const { apiGet, apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiPatch<Organization>(`/api/organizations/${organizationId}/`, payload);
-    assertCurrent();
-    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
-    assertCurrent();
-    const profile = await apiGet<UserProfile>('/api/profile/');
-    assertCurrent();
-    setData((current) => ({ ...current, exportOptions, profile }));
-    assertCurrent();
-  }
-
-  async function deleteOrganization(organizationId: number) {
-    const { apiGet, apiDelete, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiDelete<void>(`/api/organizations/${organizationId}/`);
-    assertCurrent();
-    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
-    assertCurrent();
-    const profile = await apiGet<UserProfile>('/api/profile/');
-    assertCurrent();
-    setData((current) => ({ ...current, exportOptions, profile }));
-    assertCurrent();
-  }
-
   function handleAuthenticated() {
     const nextPath = new URLSearchParams(window.location.search).get('next');
     // Access is checked by the existing guards after profile bootstrap. Recognize
@@ -2567,21 +2527,15 @@ export default function App() {
                 boxes={data.boxes}
                 boxCollectionStatus={boxCollection.status}
                 onRetryBoxCollection={() => void requestBoxCollection({ retry: true, force: route.adminSection === 'species' })}
-                exportOptions={data.exportOptions}
                 isLoading={isLoading}
-                isOptionsLoading={isExportOptionsLoading}
                 language={language}
                 profile={data.profile}
                 onResponsableChange={updateProfileMembershipResponsable}
                 onSelectSection={openAdminSection}
-                onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
                 onUpdateZone={updateThermalZone}
                 onLoadZoneDeletion={getThermalZoneDeletion}
                 onDeleteZone={deleteThermalZone}
-                onCreateOrganization={createOrganization}
-                onUpdateOrganization={updateOrganization}
-                onDeleteOrganization={deleteOrganization}
                 onAssignBoxLocation={assignBoxInitialLocation}
                 onOpenBox={openBox}
                 onOpenZone={openZone}

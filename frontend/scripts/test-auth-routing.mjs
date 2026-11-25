@@ -47,15 +47,6 @@ test('offers sign-in for an expired session after bootstrap', () => {
   assert.equal(authRouting.requiresSignInRecovery(403, 403), true);
 });
 
-test('shared references navigation and section remain disabled', () => {
-  assert.match(adminViewSource, /\{ key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', scope: 'shared' \}/);
-  assert.match(adminViewSource, /const DISABLED_ADMIN_SECTIONS[\s\S]*?'references'[\s\S]*?\n\]\);/);
-  assert.match(adminViewSource, /const isDisabled = DISABLED_ADMIN_SECTIONS\.has\(item\.key\)[\s\S]*?disabled=\{isDisabled\}/);
-  assert.match(adminViewSource, /if \(DISABLED_ADMIN_SECTIONS\.has\(section\)\) return;/);
-  assert.match(adminViewSource, /const displayedSection = DISABLED_ADMIN_SECTIONS\.has\(activeSection\) \? 'accounts' : activeSection/);
-  assert.match(adminViewSource, /displayedSection === 'references' && activeOrganizationId != null[\s\S]*?<TaxonomyAdminSection/);
-});
-
 test('Administration permissions and desktop-only guard remain in place', () => {
   assert.match(adminViewSource, /if \(!profile \|\| !userHasAdminRole\(profile\)\) return null/);
   assert.match(appSource, /activeTab === 'admin' && !isDesktopApp/);

@@ -52,9 +52,7 @@
 
 :where(
   .account-management,
-  .taxonomy-admin-section,
   .admin-environment-section,
-  .admin-organizations-section,
   .admin-transfer-section,
   .admin-audit-page,
   .box-inventory-section,
@@ -68,9 +66,7 @@
 :where(
   .admin-section-heading,
   .admin-environment-topbar,
-  .admin-organizations-topbar,
-  .transfer-admin-hero,
-  .taxonomy-admin-heading
+  .transfer-admin-hero
 ) {
   margin-bottom: var(--space-5);
 }
@@ -78,26 +74,21 @@
 :where(
   .admin-section-heading,
   .admin-environment-topbar,
-  .admin-organizations-topbar,
   .transfer-admin-hero,
-  .taxonomy-admin-heading,
   .environment-settings-heading,
-  .organization-directory-heading,
   .transfer-work-card-head
 ) :is(h2, h3, p) {
   margin: 0;
 }
 
-:where(.admin-section-heading, .admin-environment-topbar, .admin-organizations-topbar) p {
+:where(.admin-section-heading, .admin-environment-topbar) p {
   color: var(--color-muted);
 }
 
 :where(
   .account-overview,
   .admin-environment-summary,
-  .admin-organizations-summary,
-  .transfer-admin-metrics,
-  .taxonomy-counts
+  .transfer-admin-metrics
 ) {
   display: flex;
   flex-wrap: wrap;
@@ -107,12 +98,9 @@
 :where(
   .account-overview-card,
   .admin-environment-summary span,
-  .admin-organizations-summary span,
   .transfer-admin-metrics span,
-  .taxonomy-counts span,
   .account-visible-count,
   .environment-visible-count,
-  .organization-visible-count,
   .transfer-box-result-count
 ) {
   min-width: 84px;
@@ -126,9 +114,7 @@
 :where(
   .account-overview-card,
   .admin-environment-summary span,
-  .admin-organizations-summary span,
-  .transfer-admin-metrics span,
-  .taxonomy-counts span
+  .transfer-admin-metrics span
 ) strong {
   display: block;
   color: var(--color-ink);
@@ -142,30 +128,24 @@ button.account-overview-card {
 
 :where(
   .member-add-form,
-  .taxonomy-form,
   .environment-action-panel,
   .environment-settings-panel,
   .organization-create-panel,
-  .organization-directory-panel,
   .transfer-work-card
 ) {
   padding: var(--admin-panel-padding);
 }
 
-:where(.admin-form, .admin-transfer-form, .member-add-grid, .taxonomy-form) :is(input, select, textarea) {
+:where(.admin-transfer-form, .member-add-grid) :is(input, select, textarea) {
   color: var(--color-ink);
   background: var(--color-surface);
 }
 
-:where(.admin-form, .admin-transfer-form, .taxonomy-form) textarea {
+:where(.admin-transfer-form) textarea {
   min-height: 84px;
 }
 
-:where(.admin-form, .admin-transfer-form) button[type='submit'],
-.taxonomy-add-button,
-.taxonomy-form-actions button[type='submit'],
-.environment-zone-save,
-.admin-audit-load-more {
+:where(.admin-transfer-form) button[type='submit'], .environment-zone-save, .admin-audit-load-more {
   min-height: var(--control-height);
   padding: 0 var(--space-4);
   color: #fff;
@@ -176,15 +156,8 @@ button.account-overview-card {
   cursor: pointer;
 }
 
-:where(.admin-form, .admin-transfer-form) button[type='submit']:hover,
-.taxonomy-add-button:hover,
-.environment-zone-save:hover,
-.admin-audit-load-more:hover:not(:disabled) {
+:where(.admin-transfer-form) button[type='submit']:hover, .environment-zone-save:hover, .admin-audit-load-more:hover:not(:disabled) {
   background: var(--color-primary-hover);
-}
-
-.admin-wide-field {
-  grid-column: 1 / -1;
 }
 
 /* Accounts */
@@ -248,8 +221,7 @@ button.account-overview-card {
 }
 
 .account-list-toolbar,
-.environment-directory-toolbar,
-.organization-directory-toolbar {
+.environment-directory-toolbar {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) auto auto auto;
   align-items: end;
@@ -261,8 +233,6 @@ button.account-overview-card {
   .account-search-field,
   .account-compact-filter,
   .environment-search-field,
-  .organization-search-field,
-  .organization-country-filter,
   .transfer-box-search-field,
   .admin-audit-filters label
 ) {
@@ -273,41 +243,8 @@ button.account-overview-card {
   font-weight: 750;
 }
 
-.admin-suggest-field {
-  position: relative;
-}
-
-.admin-suggest-menu {
-  position: absolute;
-  z-index: 8;
-  top: calc(100% + var(--space-1));
-  right: 0;
-  left: 0;
-  max-height: 240px;
-  padding: var(--space-1);
-  overflow: auto;
-  background: var(--color-surface);
-  border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
-}
-
-.admin-suggest-menu button {
-  width: 100%;
-  min-height: 38px;
-  padding-inline: var(--space-3);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-}
-
-.admin-suggest-menu button:hover { background: var(--color-primary-faint); }
-
 .account-status-filter,
-.environment-action-tabs,
-.taxonomy-tabs {
+.environment-action-tabs {
   display: flex;
   padding: 3px;
   background: var(--color-surface-subtle);
@@ -315,7 +252,7 @@ button.account-overview-card {
   border-radius: var(--radius-pill);
 }
 
-:where(.account-status-filter, .taxonomy-tabs) button {
+:where(.account-status-filter) button {
   min-height: 36px;
   padding: 0 var(--space-3);
   color: var(--color-muted);
@@ -326,14 +263,13 @@ button.account-overview-card {
   cursor: pointer;
 }
 
-:where(.account-status-filter, .taxonomy-tabs) button:is(:hover, .is-active, .active) {
+:where(.account-status-filter) button:is(:hover, .is-active, .active) {
   color: #fff;
   background: var(--color-primary);
 }
 
 .account-visible-count,
 .environment-visible-count,
-.organization-visible-count,
 .transfer-box-result-count {
   align-self: center;
   min-width: auto;
@@ -397,9 +333,7 @@ button.account-overview-card {
 .member-state,
 .probe-chip,
 .zone-occupancy,
-.environment-zone-type,
-.reference-code,
-.reference-language-coverage span {
+.environment-zone-type {
   display: inline-flex;
   min-height: 28px;
   padding: 0 var(--space-2);
@@ -426,8 +360,6 @@ button.account-overview-card {
 }
 
 .member-toggle,
-.admin-organization-actions button,
-.taxonomy-edit-button,
 .admin-transfer-open-box {
   min-height: 36px;
   padding: 0 var(--space-3);
@@ -440,122 +372,7 @@ button.account-overview-card {
 }
 
 /* Taxonomy */
-.taxonomy-admin-section,
-.taxonomy-reference-grid {
-  display: grid;
-  gap: var(--space-4);
-}
 
-.taxonomy-admin-heading {
-  align-items: flex-start;
-}
-
-.taxonomy-toolbar {
-  padding: var(--space-2);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
-}
-
-.taxonomy-search {
-  width: min(360px, 100%);
-}
-
-.taxonomy-form {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.taxonomy-form-columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-.taxonomy-form fieldset {
-  display: grid;
-  align-content: start;
-  gap: var(--space-3);
-  min-width: 0;
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
-}
-
-.taxonomy-form legend {
-  padding: 0 var(--space-2);
-  font-weight: 800;
-}
-
-.taxonomy-checkbox {
-  display: flex;
-  align-items: center;
-}
-
-.taxonomy-checkbox input {
-  width: 18px;
-  min-height: 18px;
-}
-
-.localized-reference-fields,
-.language-tabs {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.language-tabs {
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-}
-
-.language-tabs button {
-  min-height: 38px;
-  color: var(--color-muted);
-  font-weight: 750;
-  background: var(--color-surface-subtle);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.language-tabs button.active {
-  color: var(--color-primary-hover);
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary);
-}
-
-.taxonomy-form-actions {
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-line);
-}
-
-.taxonomy-reference-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.taxonomy-reference-card {
-  padding: var(--space-4);
-}
-
-.taxonomy-reference-card header,
-.taxonomy-card-actions,
-.reference-language-coverage {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.taxonomy-reference-card :is(h3, p) {
-  margin: 0;
-}
-
-.taxonomy-reference-card p {
-  color: var(--color-muted);
-}
-
-.taxonomy-reference-card dl,
-.organization-contact-grid,
 .transfer-selected-box-card dl,
 .transfer-import-preview dl {
   display: grid;
@@ -564,57 +381,31 @@ button.account-overview-card {
   margin: var(--space-3) 0 0;
 }
 
-:where(.taxonomy-reference-card, .organization-card, .transfer-selected-box-card, .transfer-import-preview) dl > div {
+:where(.transfer-selected-box-card, .transfer-import-preview) dl > div {
   min-width: 0;
   padding: var(--space-2);
   background: var(--color-surface-subtle);
   border-radius: var(--radius-sm);
 }
 
-:where(.taxonomy-reference-card, .organization-card, .transfer-selected-box-card, .transfer-import-preview) :is(dt, dd) {
+:where(.transfer-selected-box-card, .transfer-import-preview) :is(dt, dd) {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-:where(.taxonomy-reference-card, .organization-card, .transfer-selected-box-card, .transfer-import-preview) dt {
+:where(.transfer-selected-box-card, .transfer-import-preview) dt {
   color: var(--color-muted);
   font-size: .7rem;
   font-weight: 750;
 }
 
-:where(.taxonomy-reference-card, .organization-card, .transfer-selected-box-card, .transfer-import-preview) dd {
+:where(.transfer-selected-box-card, .transfer-import-preview) dd {
   margin-top: 2px;
   font-weight: 700;
 }
 
-.taxonomy-local-code {
-  display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-line);
-}
-
-.taxonomy-local-code__value {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.reference-language-coverage {
-  justify-content: flex-start;
-  margin-top: var(--space-3);
-}
-
-.reference-language-coverage span.complete {
-  color: var(--color-success);
-  background: var(--color-success-soft);
-}
-
 /* Thermal locations and probes */
 .admin-environment-workspace,
-.admin-organizations-workspace,
 .transfer-admin-workspace {
   display: grid;
   grid-template-columns: minmax(260px, .36fr) minmax(0, 1fr);
@@ -638,14 +429,12 @@ button.account-overview-card {
 
 .environment-action-body,
 .environment-settings-panel,
-.environment-directory,
-.organization-directory-panel {
+.environment-directory {
   display: grid;
   gap: var(--space-4);
 }
 
-.environment-zone-grid,
-.admin-organization-list {
+.environment-zone-grid {
   display: grid;
   gap: var(--space-3);
 }
@@ -654,23 +443,18 @@ button.account-overview-card {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.environment-zone-editor,
-.organization-card {
+.environment-zone-editor {
   padding: var(--space-4);
 }
 
-.environment-zone-editor-head,
-.organization-card-head,
-.organization-card-head-actions,
-.admin-organization-actions {
+.environment-zone-editor-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
 
-.environment-zone-editor-head :is(h3, p),
-.organization-card-head :is(h3, p) {
+.environment-zone-editor-head :is(h3, p) {
   margin: 0;
 }
 
@@ -764,34 +548,6 @@ button.account-overview-card {
 }
 
 /* Organizations */
-.organization-card {
-  border-left: 4px solid var(--color-primary);
-}
-
-.organization-card.is-editing {
-  background: var(--color-primary-faint);
-  border-color: var(--color-primary);
-}
-
-.organization-card-head-actions {
-  align-items: flex-start;
-}
-
-.organization-edit-heading span { color: var(--color-muted); }
-
-.organization-edit-button {
-  display: grid;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
-  padding: 0;
-  place-items: center;
-  color: var(--color-primary-hover);
-  background: var(--color-primary-faint);
-  border: 1px solid var(--color-line);
-  border-radius: 50%;
-  cursor: pointer;
-}
 
 .organization-country {
   padding: 3px var(--space-2);
@@ -800,28 +556,6 @@ button.account-overview-card {
   font-weight: 800;
   background: var(--color-primary-soft);
   border-radius: var(--radius-pill);
-}
-
-.organization-note {
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3);
-  color: var(--color-ink-soft);
-  background: var(--color-surface-subtle);
-  border-radius: var(--radius-sm);
-}
-
-.admin-organization-actions {
-  justify-content: flex-end;
-  margin-top: var(--space-3);
-}
-
-.admin-organization-actions button.is-danger {
-  color: var(--color-danger-hover);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, white);
-}
-
-.admin-organization-actions button.is-secondary {
-  color: var(--color-ink-soft);
 }
 
 /* Transfers */
@@ -1321,9 +1055,7 @@ button.account-overview-card {
 
 :where(
   .account-management,
-  .taxonomy-admin-section,
   .admin-environment-section,
-  .admin-organizations-section,
   .admin-transfer-section,
   .admin-audit-page
 ) {
@@ -1333,9 +1065,7 @@ button.account-overview-card {
 :where(
   .admin-section-heading,
   .admin-environment-topbar,
-  .admin-organizations-topbar,
-  .transfer-admin-hero,
-  .taxonomy-admin-heading
+  .transfer-admin-hero
 ) {
   min-height: 52px;
   margin-bottom: 0;
@@ -1347,9 +1077,7 @@ button.account-overview-card {
 :where(
   .admin-section-heading,
   .admin-environment-topbar,
-  .admin-organizations-topbar,
-  .transfer-admin-hero,
-  .taxonomy-admin-heading
+  .transfer-admin-hero
 ) h2 {
   font-size: 1.18rem;
 }
@@ -1358,9 +1086,7 @@ button.account-overview-card {
 .admin-primary-action,
 .admin-secondary-action,
 .admin-mode-switch,
-.admin-mode-switch button,
-.taxonomy-add-button,
-.taxonomy-edit-button {
+.admin-mode-switch button {
   display: flex;
   align-items: center;
 }
@@ -1400,7 +1126,7 @@ button.account-overview-card {
   border-color: var(--color-primary);
 }
 
-:where(.account-overview, .admin-environment-summary, .admin-organizations-summary, .transfer-admin-metrics) {
+:where(.account-overview, .admin-environment-summary, .transfer-admin-metrics) {
   display: grid;
   width: 100%;
   margin: 0;
@@ -1413,12 +1139,10 @@ button.account-overview-card {
 .account-overview { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .admin-environment-summary,
 .transfer-admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.admin-organizations-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 :where(
   .account-overview-card,
   .admin-environment-summary span,
-  .admin-organizations-summary span,
   .transfer-admin-metrics span
 ) {
   min-width: 0;
@@ -1434,14 +1158,12 @@ button.account-overview-card {
 :where(
   .account-overview-card,
   .admin-environment-summary span,
-  .admin-organizations-summary span,
   .transfer-admin-metrics span
 ):last-child { border-right: 0; }
 
 :where(
   .account-overview-card,
   .admin-environment-summary span,
-  .admin-organizations-summary span,
   .transfer-admin-metrics span
 ) strong {
   display: inline;
@@ -1451,8 +1173,6 @@ button.account-overview-card {
 
 .account-list-toolbar,
 .environment-directory-toolbar,
-.organization-directory-toolbar,
-.taxonomy-toolbar,
 .admin-audit-filters {
   padding: var(--space-3) 0;
   background: transparent;
@@ -1461,9 +1181,7 @@ button.account-overview-card {
   border-radius: 0;
 }
 
-.member-card-list,
-.admin-organization-list,
-.taxonomy-reference-grid {
+.member-card-list {
   gap: 0;
   overflow: hidden;
   background: var(--color-surface);
@@ -1471,15 +1189,13 @@ button.account-overview-card {
   border-radius: var(--radius-sm);
 }
 
-.member-card,
-.organization-card,
-.taxonomy-reference-card {
+.member-card {
   border: 0;
   border-bottom: 1px solid var(--color-line);
   border-radius: 0;
 }
 
-:where(.member-card, .organization-card, .taxonomy-reference-card):last-child {
+:where(.member-card):last-child {
   border-bottom: 0;
 }
 
@@ -1497,44 +1213,12 @@ button.account-overview-card {
 .member-card-controls { gap: var(--space-3); }
 .member-last-login { min-width: 124px; }
 
-.taxonomy-reference-grid { grid-template-columns: minmax(0, 1fr); }
-.taxonomy-reference-card { padding: var(--space-3) var(--space-4); }
-.taxonomy-reference-card dl { grid-template-columns: repeat(2, minmax(120px, 220px)); }
-
-.taxonomy-toolbar {
-  display: grid;
-  grid-template-columns: auto minmax(240px, 380px);
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.taxonomy-search {
-  position: relative;
-  width: 100%;
-}
-
-.taxonomy-search > svg {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: var(--space-3);
-  color: var(--color-muted);
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.taxonomy-search input { padding-left: 38px; }
-.taxonomy-add-button,
-.taxonomy-edit-button { gap: var(--space-2); }
-
 .admin-environment-workspace,
-.admin-organizations-workspace,
 .transfer-admin-workspace {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.environment-settings-panel,
-.organization-directory-panel {
+.environment-settings-panel {
   padding: 0;
   background: transparent;
   border: 0;
@@ -1548,13 +1232,6 @@ button.account-overview-card {
 }
 
 .environment-zone-metrics > div { background: var(--color-surface-subtle); }
-
-.organization-card { padding: var(--space-3) var(--space-4); border-left: 0; }
-.organization-card.is-editing { border: 1px solid var(--color-primary); }
-
-.organization-edit-button {
-  border-radius: var(--radius-sm);
-}
 
 .admin-mode-switch {
   padding: 3px;
@@ -1639,18 +1316,14 @@ button.account-overview-card {
   padding: var(--space-4);
 }
 
-.admin-action-panel :where(.member-add-form, .taxonomy-form, .admin-form) {
+.admin-action-panel :where(.member-add-form) {
   padding: 0;
   background: transparent;
   border: 0;
 }
-
-.admin-action-panel .taxonomy-form-heading { display: none; }
-.admin-action-panel .taxonomy-form-columns { grid-template-columns: minmax(0, 1fr); }
-.admin-action-panel .taxonomy-form fieldset { padding: var(--space-3); }
 .admin-action-panel .member-add-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-.admin-action-panel :where(.member-add-form, .admin-form) > button[type='submit'] {
+.admin-action-panel :where(.member-add-form) > button[type='submit'] {
   display: flex;
   width: 100%;
   min-height: 44px;
@@ -1726,31 +1399,6 @@ button.account-overview-card {
   gap: var(--space-2);
 }
 
-.admin-pagination {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  color: var(--color-muted);
-}
-
-.admin-pagination button {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  place-items: center;
-  color: var(--color-primary-hover);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line-strong);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.admin-pagination span { font-size: .78rem; }
-.admin-pagination strong { color: var(--color-ink); }
-
 @media (max-width: 1180px) {
   .admin-workspace { grid-template-columns: 200px minmax(0, 1fr); }
   .admin-sidebar { padding-right: var(--space-3); }
@@ -1814,16 +1462,6 @@ button.account-overview-card {
   font-weight: 720;
   line-height: 1.25;
   border-left-width: 2px;
-}
-
-.admin-flow-step:disabled,
-.admin-flow-step:disabled:hover,
-.admin-flow-step:disabled:focus-visible {
-  color: color-mix(in srgb, var(--color-muted) 62%, var(--color-surface));
-  background: transparent;
-  border-left-color: transparent;
-  cursor: not-allowed;
-  opacity: 1;
 }
 
 .admin-flow-panel {

@@ -236,14 +236,10 @@ test('WoRMS query rule, accepted names and service failures follow the server', 
 
 // Source contracts ---------------------------------------------------------------
 
-test('Administration keeps one desktop Species entry; disabled sections stay disabled', () => {
-  assert.match(adminView, /\{ key: 'species', panelId: 'admin-species', label: 'adminTabSpecies', scope: 'aquarium' \}/);
-  const disabled = adminView.match(/DISABLED_ADMIN_SECTIONS[^;]+;/s)[0];
-  assert.doesNotMatch(disabled, /'species'/);
-  for (const key of ['references', 'organizations']) assert.match(disabled, new RegExp(`'${key}'`));
-  for (const key of ['environment', 'transfers']) assert.doesNotMatch(disabled, new RegExp(`'${key}'`));
+test('Administration keeps one desktop Species entry', () => {
+  assert.match(adminView, /\{ key: 'species', panelId: 'admin-species', label: 'adminTabSpecies' \}/);
   assert.match(adminView, /<LabConfigurationAdminSection\b/);
-  assert.match(adminView, /displayedSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
+  assert.match(adminView, /activeSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
   assert.doesNotMatch(adminView, /<(?:BoxSharingAdminSection|TransfersAdminSection)\b/);
   assert.match(adminView, /<SpeciesStrainsAdminSection\s+key=\{activeOrganizationId\}\s+target=\{speciesTarget\}/);
   assert.match(app, /species: '\/administration\/species-strains',/);
@@ -2107,7 +2103,7 @@ test('the Species page offers no unsupported control and no mutation of strains 
   // No WoRMS status is claimed, and no code-change apply exists.
   assert.doesNotMatch(section + strainsPanel, /mutation_available|code-change\/apply|species_code_change_apply/);
   // The page is a full entity page: the Administration section list is not kept beside it.
-  assert.match(adminView, /const isSpeciesPage = displayedSection === 'species' && speciesTarget !== null;/);
+  assert.match(adminView, /const isSpeciesPage = activeSection === 'species' && speciesTarget !== null;/);
   assert.match(adminView, /\{isSpeciesPage \? null : \(\s*<AdminFlowNav/);
   assert.match(fr, /adminTabSpecies: 'Espèces',/);
   assert.match(en, /adminTabSpecies: 'Species',/);

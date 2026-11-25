@@ -6,11 +6,8 @@ label {
 :where(
   .subculture-form,
   .move-form,
-  .admin-form,
   .admin-transfer-form,
   .member-add-grid,
-  .taxonomy-form,
-  .admin-organization-edit-form,
   .probe-create-form
 ) label {
   display: grid;

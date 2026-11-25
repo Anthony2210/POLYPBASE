@@ -142,23 +142,6 @@ class SpeciesCodeSerializer(serializers.ModelSerializer):
         fields = ["id", "species", "species_scientific_name", "code"]
 
 
-class SpeciesCodeWriteSerializer(serializers.ModelSerializer):
-    code = serializers.CharField(max_length=3, trim_whitespace=False)
-
-    class Meta:
-        model = OrganizationSpeciesCode
-        fields = ["species", "code"]
-
-    def to_internal_value(self, data):
-        allowed = {"code"} if self.instance is not None else {"species", "code"}
-        if not isinstance(data, dict):
-            raise serializers.ValidationError("Expected an object.")
-        unexpected = set(data) - allowed
-        if unexpected:
-            raise serializers.ValidationError({field: "This field is not allowed." for field in unexpected})
-        return super().to_internal_value(data)
-
-
 class StrainReferenceSerializer(serializers.ModelSerializer):
     translations = serializers.SerializerMethodField()
     species_scientific_name = serializers.CharField(

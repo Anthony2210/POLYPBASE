@@ -4,8 +4,7 @@ import io
 import json
 import socket
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier, Event
-from time import sleep
+from threading import Barrier
 from unittest import skipUnless
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
@@ -13,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from django.contrib.admin.sites import site as admin_site
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.db import close_old_connections, connection, transaction
+from django.db import close_old_connections, connection
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
@@ -810,57 +809,10 @@ class InstitutionSpeciesReadTests(InstitutionSpeciesApiBase):
         self.assertFalse(AuditLog.objects.exists())
 
 
-class LegacySharedSpeciesProtectionTests(InstitutionSpeciesApiBase):
+class DjangoAdminSpeciesProtectionTests(InstitutionSpeciesApiBase):
     def setUp(self):
         super().setUp()
         self.shared = Species.objects.create(scientific_name="Aurelia aurita", worms_aphia_id=135306)
-
-    def patch_species(self, organization, species, payload):
-        self.client.force_login(self.admin if organization == self.a else self.b_admin)
-        return self.client.patch(
-            reverse("api_taxonomy_species_detail", args=[species.pk]), data=json.dumps(payload),
-            content_type="application/json", **self.headers(organization),
-        )
-
-    def test_reference_used_by_another_institution_cannot_be_modified(self):
-        foreign_evidence = (
-            lambda: OrganizationSpeciesCode.objects.create(organization=self.b, species=self.shared, code="AAU"),
-            lambda: Strain.objects.create(species=self.shared, organization=self.b, code="B-1"),
-            lambda: Box.objects.create(organization=self.b, strain=Strain.objects.create(species=self.shared, code="L"),
-                                       global_code="L.001", box_number="001"),
-            lambda: InstitutionSpecies.objects.create(organization=self.b, species=self.shared, scientific_name="B name"),
-        )
-        for create_evidence in foreign_evidence:
-            with self.subTest(evidence=create_evidence):
-                InstitutionSpecies.objects.all().delete()
-                Box.objects.all().delete()
-                Strain.objects.all().delete()
-                OrganizationSpeciesCode.objects.all().delete()
-                create_evidence()
-                for payload in ({"scientific_name": "Aurelia coerulea"}, {"worms_aphia_id": 1},
-                                {"notes": "x"}, {"translations": {"fr": {"name": "Méduse"}}}):
-                    response = self.patch_species(self.a, self.shared, payload)
-                    self.assertEqual(response.status_code, 409, response.content)
-                    self.assertEqual(response.json()["error"], "shared_species_used_by_another_institution")
-        self.shared.refresh_from_db()
-        self.assertEqual((self.shared.scientific_name, self.shared.worms_aphia_id, self.shared.notes),
-                         ("Aurelia aurita", 135306, ""))
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_reference_with_institutional_information_keeps_name_and_aphia(self):
-        InstitutionSpecies.objects.create(organization=self.a, species=self.shared, scientific_name="Local name")
-        for payload in ({"scientific_name": "Aurelia coerulea"}, {"worms_aphia_id": 1}):
-            response = self.patch_species(self.a, self.shared, payload)
-            self.assertEqual((response.status_code, response.json()["error"]), (409, "shared_species_reference_frozen"))
-        response = self.patch_species(self.a, self.shared, {"notes": "Single institution note"})
-        self.assertEqual(response.status_code, 200, response.content)
-        self.shared.refresh_from_db()
-        self.assertEqual((self.shared.scientific_name, self.shared.worms_aphia_id), ("Aurelia aurita", 135306))
-
-    def test_single_institution_legacy_edit_keeps_current_behavior(self):
-        OrganizationSpeciesCode.objects.create(organization=self.a, species=self.shared, code="AAU")
-        response = self.patch_species(self.a, self.shared, {"scientific_name": "Aurelia coerulea"})
-        self.assertEqual(response.status_code, 200, response.content)
 
     def test_django_admin_is_superuser_only_and_keeps_reference_identity(self):
         species_admin = admin_site._registry[Species]
@@ -982,143 +934,6 @@ class InstitutionSpeciesServiceConcurrencyTests(SpeciesReviewTransactionTestCase
                 return conflict.code
 
         self.assertEqual(sorted(self.race(edit, first.pk, second.pk)), ["institution_species_name_exists", "updated"])
-
-
-@skipUnless(connection.vendor == "postgresql", "Requires a new verified disposable PostgreSQL instance.")
-class LegacySharedSpeciesConcurrencyTests(SpeciesReviewTransactionTestCase):
-    """Legacy shared PATCH vs a concurrent attachment by another institution.
-
-    Each attacher is paused inside its transaction; the other side must wait
-    for it instead of acting on a stale guard. Without the PATCH locks, the
-    PATCH completes while the attacher is paused and renames the reference.
-    """
-
-    BLOCKED_FOR = 0.5
-
-    def setUp(self):
-        self.a = Organization.objects.create(name="Legacy race A")
-        self.b = Organization.objects.create(name="Legacy race B")
-        users = get_user_model().objects
-        self.admins = {}
-        for organization in (self.a, self.b):
-            admin = users.create_user(username=f"lr-{organization.pk}", email=f"lr{organization.pk}@example.org")
-            OrganizationMembership.objects.create(user=admin, organization=organization,
-                                                  role=OrganizationMembership.Role.ADMIN)
-            self.admins[organization.pk] = admin
-        self.shared = Species.objects.create(scientific_name="Aurelia aurita")
-        OrganizationSpeciesCode.objects.create(organization=self.a, species=self.shared, code="AAU")
-        self.attached = Event()
-        self.release = Event()
-        self.pool = ThreadPoolExecutor(max_workers=2)
-        self.addCleanup(self.pool.shutdown, wait=True)
-        self.addCleanup(self.release.set)
-
-    def in_thread(self, function, *args):
-        def run():
-            close_old_connections()
-            try:
-                return function(*args)
-            finally:
-                close_old_connections()
-        return self.pool.submit(run)
-
-    def legacy_patch(self, payload):
-        from rest_framework.test import APIRequestFactory, force_authenticate
-
-        from .api_views import SpeciesReferenceDetailAPIView
-
-        request = APIRequestFactory().patch(
-            f"/api/taxonomy/species/{self.shared.pk}/", payload, format="json",
-            HTTP_X_ORGANIZATION_ID=str(self.a.pk),
-        )
-        force_authenticate(request, user=self.admins[self.a.pk])
-        response = SpeciesReferenceDetailAPIView.as_view()(request, pk=self.shared.pk)
-        response.render()
-        return response.status_code, json.loads(response.content)
-
-    def assert_patch_waits_for_attacher_then_refuses(self, attacher):
-        attacher_future = self.in_thread(attacher)
-        self.assertTrue(self.attached.wait(10), "attacher did not reach its paused state")
-        patch_future = self.in_thread(self.legacy_patch, {"scientific_name": "Aurelia coerulea"})
-        sleep(self.BLOCKED_FOR)
-        self.assertFalse(patch_future.done(), "legacy PATCH evaluated its guard before the attachment committed")
-        self.release.set()
-        attacher_future.result(timeout=30)
-        status_code, body = patch_future.result(timeout=30)
-        self.assertEqual((status_code, body["error"]), (409, "shared_species_used_by_another_institution"))
-        self.shared.refresh_from_db()
-        self.assertEqual(self.shared.scientific_name, "Aurelia aurita")
-        self.assertFalse(AuditLog.objects.filter(organization=self.a, object_type="species").exists())
-
-    def test_patch_waits_for_institutional_registration(self):
-        original = services._audit
-
-        def pause_after_profile(**kwargs):
-            if kwargs["object_type"] == "institution_species":
-                self.attached.set()
-                self.release.wait(10)
-            return original(**kwargs)
-
-        def register_b():
-            return services.register_institution_species(
-                user=self.admins[self.b.pk], organization=self.b, data={"scientific_name": "Aurelia aurita"},
-            )
-
-        with patch.object(services, "_audit", side_effect=pause_after_profile):
-            self.assert_patch_waits_for_attacher_then_refuses(register_b)
-        self.assertTrue(InstitutionSpecies.objects.filter(organization=self.b, species=self.shared).exists())
-
-    def test_patch_waits_for_gated_code_assignment(self):
-        from .species_codes import allocate_species_code
-
-        def assign_b_code():
-            with transaction.atomic():
-                allocate_species_code(organization=self.b, species=self.shared)
-                self.attached.set()
-                self.release.wait(10)
-
-        self.assert_patch_waits_for_attacher_then_refuses(assign_b_code)
-
-    def test_patch_waits_for_transfer_v1_species_row_lock(self):
-        def import_into_b():
-            # Mirrors transfer_v1._import_transfer_v1: Species row lock, then a B Strain.
-            with transaction.atomic():
-                Species.objects.select_for_update().get(pk=self.shared.pk)
-                Strain.objects.create(species=self.shared, organization=self.b, code="AAU-JPN-1")
-                self.attached.set()
-                self.release.wait(10)
-
-        self.assert_patch_waits_for_attacher_then_refuses(import_into_b)
-
-    def test_registration_after_a_pending_rename_does_not_attach_to_the_renamed_reference(self):
-        from . import api_views
-
-        original = api_views._write_audit_log
-
-        def pause_before_commit(request, **kwargs):
-            self.attached.set()
-            self.release.wait(10)
-            return original(request, **kwargs)
-
-        def register_b():
-            return services.register_institution_species(
-                user=self.admins[self.b.pk], organization=self.b, data={"scientific_name": "Aurelia aurita"},
-            )
-
-        with patch.object(api_views, "_write_audit_log", side_effect=pause_before_commit):
-            patch_future = self.in_thread(self.legacy_patch, {"scientific_name": "Aurelia coerulea"})
-            self.assertTrue(self.attached.wait(10))
-            register_future = self.in_thread(register_b)
-            sleep(self.BLOCKED_FOR)
-            self.assertFalse(register_future.done(), "registration resolved the name during a pending rename")
-            self.release.set()
-            self.assertEqual(patch_future.result(timeout=30)[0], 200)
-            profile, code = register_future.result(timeout=30)
-        self.shared.refresh_from_db()
-        self.assertEqual(self.shared.scientific_name, "Aurelia coerulea")
-        # The old name is now a different, new shared reference: nothing is merged.
-        self.assertNotEqual(profile.species_id, self.shared.pk)
-        self.assertEqual(Species.objects.get(pk=profile.species_id).scientific_name, "Aurelia aurita")
 
 
 class InstitutionSpeciesCodeReadTests(InstitutionSpeciesApiBase):

@@ -3,8 +3,7 @@
 export const retainedSpeciesCopy = Object.freeze({
   ...Object.fromEntries([
     'quickStrainBackToStrain', 'quickStrainCreateAndUse', 'quickStrainNewSpecies', 'quickStrainTitle',
-    'taxonomyCreateSpeciesFirst', 'taxonomyGoToSharedReferences', 'taxonomyNewStrain', 'taxonomyStrainMissingAAA',
-  ].map(key => [key, 'Species integration (2026-11-17): the legacy QuickStrainCreator and direct taxonomy strain-creation consumers were retired in favor of the institutional Species workflow. Preserve existing catalog and Japanese provenance pending an explicit removal batch.'])),
+  ].map(key => [key, 'Species integration (2026-11-17): the legacy QuickStrainCreator was retired in favor of the institutional Species workflow. Preserve existing catalog and Japanese provenance pending an explicit removal batch.'])),
   ...Object.fromEntries([
     'speciesCodeChangeBoxPreviewHint', 'speciesCodeChangeBreakdown', 'speciesCodeChangeCodeLabel',
     'speciesCodeChangeConsequence', 'speciesCodeChangeDependencyActions', 'speciesCodeChangeDependencyLabels',

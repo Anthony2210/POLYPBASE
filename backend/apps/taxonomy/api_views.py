@@ -1,4 +1,4 @@
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -7,7 +7,6 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.validators import UniqueValidator
 
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
@@ -17,11 +16,9 @@ from apps.accounts.permissions import (
 )
 from apps.audit.models import AuditLog
 from apps.cultures.box_codes import lock_local_id_registry
-from apps.cultures.models import Box
 
 from .models import (
     BiologicalProvenance,
-    InstitutionSpecies,
     LocalStrainIdentity,
     OrganizationProvenanceCode,
     OrganizationSpeciesCode,
@@ -36,9 +33,7 @@ from .serializers import (
     BiologicalProvenanceSerializer,
     ProvenanceCodeSerializer,
     SpeciesCodeSerializer,
-    SpeciesCodeWriteSerializer,
     SpeciesReferenceSerializer,
-    SpeciesReferenceWriteSerializer,
     StrainReferenceSerializer,
     StrainReferenceWriteSerializer,
     available_content_languages,
@@ -129,34 +124,6 @@ def _species_code_queryset(organization):
     return OrganizationSpeciesCode.objects.filter(organization=organization).select_related("species")
 
 
-def _check_species_code_conflicts(organization, *, species=None, code=None, exclude_pk=None):
-    assignments = _species_code_queryset(organization)
-    if exclude_pk is not None:
-        assignments = assignments.exclude(pk=exclude_pk)
-    if species is not None and assignments.filter(species=species).exists():
-        raise ValidationError({"species": "This species already has a code in this organization."})
-    if code is not None and assignments.filter(code=code).exists():
-        raise ValidationError({"code": "This code is already used in this organization."})
-
-
-def _raise_species_code_conflict(error):
-    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
-    # SQLite test databases report unique columns rather than constraint names.
-    if constraint is None:
-        constraint = str(error)
-    if constraint in (
-        "unique_species_code_per_organization_species",
-        "UNIQUE constraint failed: taxonomy_organizationspeciescode.organization_id, taxonomy_organizationspeciescode.species_id",
-    ):
-        raise ValidationError({"species": "This species already has a code in this organization."}) from error
-    if constraint in (
-        "unique_species_code_per_organization_code",
-        "UNIQUE constraint failed: taxonomy_organizationspeciescode.organization_id, taxonomy_organizationspeciescode.code",
-    ):
-        raise ValidationError({"code": "This code is already used in this organization."}) from error
-    raise error
-
-
 def _visible_provenances(organization):
     """Provenances explicitly associated with the active institution.
 
@@ -201,7 +168,7 @@ class ProvenanceCodeListAPIView(APIView):
         ).data)
 
 
-class SpeciesCodeListCreateAPIView(APIView):
+class SpeciesCodeListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -210,29 +177,6 @@ class SpeciesCodeListCreateAPIView(APIView):
             raise PermissionDenied("Laboratory access is required.")
         assignments = _species_code_queryset(organization).order_by("pk")
         return Response(SpeciesCodeSerializer(assignments, many=True).data)
-
-    @transaction.atomic
-    def post(self, request):
-        organization = _require_active_admin(request)
-        lock_species_code_allocation()
-        serializer = SpeciesCodeWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        species = serializer.validated_data["species"]
-        code = serializer.validated_data["code"]
-        _check_species_code_conflicts(organization, species=species, code=code)
-        try:
-            with transaction.atomic():
-                assignment = serializer.save(organization=organization)
-        except IntegrityError as error:
-            _raise_species_code_conflict(error)
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.CREATION,
-            object_type="organization_species_code",
-            instance=assignment,
-            description=f"Species code created for species {species.pk}",
-        )
-        return Response(SpeciesCodeSerializer(assignment).data, status=status.HTTP_201_CREATED)
 
 
 class SpeciesCodeDetailAPIView(APIView):
@@ -244,133 +188,6 @@ class SpeciesCodeDetailAPIView(APIView):
             raise PermissionDenied("Laboratory access is required.")
         assignment = get_object_or_404(_species_code_queryset(organization), pk=pk)
         return Response(SpeciesCodeSerializer(assignment).data)
-
-    @transaction.atomic
-    def patch(self, request, pk):
-        organization = _require_active_admin(request)
-        lock_species_code_allocation()
-        assignment = get_object_or_404(_species_code_queryset(organization), pk=pk)
-        serializer = SpeciesCodeWriteSerializer(assignment, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        if "code" not in serializer.validated_data:
-            raise ValidationError({"code": "This field is required."})
-        if serializer.validated_data["code"] != assignment.code:
-            # Assigned codes prefix issued Strain and Box identifiers: immutable.
-            return Response(
-                {"detail": "An assigned species code cannot be changed.", "error": "species_code_immutable"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        return Response(SpeciesCodeSerializer(assignment).data)
-
-
-def _save_species_reference(serializer):
-    try:
-        with transaction.atomic():
-            return serializer.save()
-    except IntegrityError as error:
-        constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
-        if constraint in (
-            "taxonomy_species_scientific_name_key",
-            "unique_species_scientific_name_ci",
-            "unique_species_scientific_name_normalized",
-        ) or any(name in str(error) for name in (
-            "taxonomy_species.scientific_name",
-            "unique_species_scientific_name_ci",
-            "unique_species_scientific_name_normalized",
-        )):
-            raise ValidationError({"scientific_name": [UniqueValidator.message]}) from error
-        raise
-
-
-def _shared_species_update_refusal(organization, species, validated_data):
-    """Return why the legacy shared-reference edit is refused, or None.
-
-    Shared information (name, AphiaID, translations, notes) is visible to every
-    institution using the reference, so an institution may not change it once
-    another institution uses it. A reference carrying institutional information
-    is frozen: local corrections go through the institutional edit service.
-    Legacy single-institution edits otherwise keep their current behavior.
-    """
-    used_elsewhere = (
-        OrganizationSpeciesCode.objects.filter(species=species).exclude(organization=organization).exists()
-        or InstitutionSpecies.objects.filter(species=species).exclude(organization=organization).exists()
-        or Strain.objects.filter(species=species, organization__isnull=False)
-        .exclude(organization=organization).exists()
-        or Box.objects.filter(strain__species=species, organization__isnull=False)
-        .exclude(organization=organization).exists()
-    )
-    if used_elsewhere:
-        return "shared_species_used_by_another_institution"
-    identity_changed = any(
-        field in validated_data and validated_data[field] != getattr(species, field)
-        for field in ("scientific_name", "worms_aphia_id")
-    )
-    if identity_changed and InstitutionSpecies.objects.filter(species=species).exists():
-        return "shared_species_reference_frozen"
-    return None
-
-
-class SpeciesReferenceListCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request):
-        organization = _require_active_admin(request)
-        serializer = SpeciesReferenceWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        species = _save_species_reference(serializer)
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.CREATION,
-            object_type="species",
-            instance=species,
-            description=f"Species created: {species.scientific_name}",
-        )
-        species = _species_queryset(organization).get(pk=species.pk)
-        return Response(
-            SpeciesReferenceSerializer(species).data,
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class SpeciesReferenceDetailAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def patch(self, request, pk):
-        organization = _require_active_admin(request)
-        # The guard below reads other institutions' use of this reference, so it
-        # must not race a concurrent attachment. Every product path that can
-        # newly attach an institution already serializes on one of these locks:
-        # institutional registration and code assignment take the allocation
-        # gate; the Transfer v1 import row-locks the Species it resolves. Box
-        # and Strain creation require a prior attachment. Gate before row lock,
-        # matching registration's gate-first order.
-        lock_species_code_allocation()
-        get_object_or_404(Species.objects.select_for_update(no_key=True), pk=pk)
-        species = get_object_or_404(_species_queryset(organization), pk=pk)
-        serializer = SpeciesReferenceWriteSerializer(
-            species,
-            data=request.data,
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        refusal = _shared_species_update_refusal(organization, species, serializer.validated_data)
-        if refusal is not None:
-            return Response(
-                {"detail": "This shared species reference cannot be modified here.", "error": refusal},
-                status=status.HTTP_409_CONFLICT,
-            )
-        species = _save_species_reference(serializer)
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.UPDATE,
-            object_type="species",
-            instance=species,
-            description=f"Species updated: {species.scientific_name}",
-        )
-        species = _species_queryset(organization).get(pk=species.pk)
-        return Response(SpeciesReferenceSerializer(species).data)
 
 
 class StrainReferenceListCreateAPIView(APIView):

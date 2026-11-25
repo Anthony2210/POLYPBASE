@@ -170,12 +170,12 @@ stays at 410; the old resolution service has been removed.
 | Path | Current state |
 |---|---|
 | `POST /api/admin/species-catalog/species/`, `.../species/<id>/code/` | Closed: 410 `superseded_by_institution_species` (not used by the Species workspace) |
-| `PATCH /api/taxonomy/species-codes/<id>/` | Changing an assigned code → 409 `species_code_immutable`; same value is a no-op |
-| `PATCH /api/taxonomy/species/<id>/` | 409 when another institution uses the reference; name/AphiaID frozen once any profile exists; single-institution legacy edits otherwise unchanged. The guard runs after the allocation gate and a `FOR NO KEY UPDATE` Species row lock, to coordinate with registration, code assignment (gate) and the internal legacy Transfer v1 service (Species row lock) |
+| Legacy writes to `/api/taxonomy/species/` and `/api/taxonomy/species/<id>/` | Routes removed; use the institution-scoped Species workflow |
+| Legacy writes to `/api/taxonomy/species-codes/` and `/api/taxonomy/species-codes/<id>/` | Methods removed; scoped reads remain available |
 | Django admin `SpeciesAdmin` + translation inline | Superuser-only writes; existing name/AphiaID read-only |
-| `POST /api/taxonomy/strains/` | Closed: 410 `superseded_by_institution_species_strains` (manual code/number no longer accepted). The legacy References UI no longer offers Strain creation (its Strains tab points to Species and strains) and the unmounted `QuickStrainCreator` was removed |
-| `PATCH /api/taxonomy/strains/<id>/` | Owned Strains only (foreign or unowned legacy → 404). Any requested `code`, `number` or `origin_code` that differs from the stored value after normalization (`0` ≠ `null`; unreadable value = change) → 409 `strain_identity_immutable` with `fields`, before any write or audit. Same values, notes, translations and the existing species rule are unchanged. The legacy edit form shows identity read-only and never sends it. Superuser Django admin `StrainAdmin` is not restricted |
-| `POST /api/taxonomy/species/`, `POST /api/taxonomy/species-codes/` | **Still open — activation blocker.** No mounted UI consumer: the References tab (`TaxonomyAdminSection`) is in `DISABLED_ADMIN_SECTIONS` on HEAD. Manual first code assignment remains possible through the API |
+| `POST /api/taxonomy/strains/` | Closed: 410 `superseded_by_institution_species_strains` (manual code/number no longer accepted). |
+| `PATCH /api/taxonomy/strains/<id>/` | Owned Strains only (foreign or unowned legacy → 404). Any requested `code`, `number` or `origin_code` that differs from the stored value after normalization (`0` ≠ `null`; unreadable value = change) → 409 `strain_identity_immutable` with `fields`, before any write or audit. Same values, notes, translations and the existing species rule are unchanged. The retired References screen is no longer a consumer. Superuser Django admin `StrainAdmin` is not restricted |
+
 | `GET /api/admin/species-catalog/`, `GET /api/taxonomy/references/` | Still shared-name views — activation blocker for the naming switch; no longer read by the Species workspace |
 | WoRMS search `local_species` | Institution-scoped: own profiles (local name/AphiaID) and historical references used here; never another institution's information |
 | `import_bdd_csv`, `seed_demo_data`, historical importers | Technical writers of shared references; the public Transfer v1 prepare/import routes now return `410` |

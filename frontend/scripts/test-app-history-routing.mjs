@@ -33,12 +33,7 @@ function harness(initialPath = '/zones', organization = 1) {
   const context = {
     URL, URLSearchParams, exports: {},
     window: { location, history },
-    ADMIN_SECTION_PATHS: {
-      accounts: '/administration/team', inventory: '/administration/box-inventory',
-      references: '/administration/reference-data', environment: '/administration/laboratory',
-      transfers: '/administration/transfers', history: '/administration/history',
-      organizations: '/administration/institutions',
-    },
+
     inAppHistoryRef: { current: null }, navigationOrganizationRef: { current: organization },
     navigationPolicyRef: { current: { isDesktopApp: true, canUseAdmin: true } },
     navigationGenerationRef: { current: 0 }, organizationRequestGenerationRef: { current: 0 },
@@ -406,6 +401,20 @@ test('Species detail routes are desktop Administration paths with a strict ident
   assert.deepEqual(route('/administration/species-strains'), {
     tab: 'admin', boxCode: null, boxId: null, adminSection: 'species',
   });
+});
+
+test('retired Administration URLs are unrecognized and resolve to home', () => {
+  const { context } = harness();
+  for (const section of ['reference-data', 'institutions']) {
+    for (const suffix of ['', '/']) {
+      const path = `/administration/${section}${suffix}`;
+      assert.equal(context.isRecognizedAppPath(path, true, true), false, path);
+      context.window.location.pathname = path;
+      assert.deepEqual(JSON.parse(JSON.stringify(context.getCurrentRoute())), {
+        tab: 'pilotage', boxCode: null, boxId: null,
+      });
+    }
+  }
 });
 
 test('Species detail opens as an in-app page and Back returns to the list', () => {

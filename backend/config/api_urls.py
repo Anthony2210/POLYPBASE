@@ -87,10 +87,7 @@ from apps.measurements.import_api import (
     MeasurementImportApplyAPIView, MeasurementImportReceiptAPIView,
     MeasurementImportSourceAPIView,
 )
-from apps.organizations.api_views import (
-    OrganizationCreateAPIView,
-    OrganizationDetailAPIView,
-)
+from apps.organizations.api_views import OrganizationDetailAPIView
 from apps.sharing.api_views import (
     BoxShareDetailAPIView,
     BoxShareInvitationReissueAPIView,
@@ -123,9 +120,7 @@ from apps.taxonomy.api_views import (
     BiologicalProvenanceListAPIView,
     ProvenanceCodeListAPIView,
     SpeciesCodeDetailAPIView,
-    SpeciesCodeListCreateAPIView,
-    SpeciesReferenceDetailAPIView,
-    SpeciesReferenceListCreateAPIView,
+    SpeciesCodeListAPIView,
     StrainReferenceDetailAPIView,
     StrainReferenceListCreateAPIView,
     TaxonomyReferenceListAPIView,
@@ -353,7 +348,6 @@ urlpatterns = [
         BoxDonationCancelAPIView.as_view(),
         name="api_box_donation_cancel",
     ),
-    path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),
     path(
@@ -426,17 +420,11 @@ urlpatterns = [
         ProvenanceCodeListAPIView.as_view(),
         name="api_taxonomy_provenance_codes",
     ),
-    path("taxonomy/species-codes/", SpeciesCodeListCreateAPIView.as_view(), name="api_taxonomy_species_codes"),
+    path("taxonomy/species-codes/", SpeciesCodeListAPIView.as_view(), name="api_taxonomy_species_codes"),
     path(
         "taxonomy/species-codes/<int:pk>/",
         SpeciesCodeDetailAPIView.as_view(),
         name="api_taxonomy_species_codes_detail",
-    ),
-    path("taxonomy/species/", SpeciesReferenceListCreateAPIView.as_view(), name="api_taxonomy_species"),
-    path(
-        "taxonomy/species/<int:pk>/",
-        SpeciesReferenceDetailAPIView.as_view(),
-        name="api_taxonomy_species_detail",
     ),
     path("taxonomy/strains/", StrainReferenceListCreateAPIView.as_view(), name="api_taxonomy_strains"),
     path(

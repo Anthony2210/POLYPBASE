@@ -61,6 +61,12 @@ Règles vérifiées par `check_register.py` :
 - **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
 - Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
 
+## Retrait des anciennes sections d’administration (B50, 2026-11-24)
+
+Le lot `B50-2026-11-24` (`T1865–T2030`) enregistre 83 paires `REMOVED` à partir d’`origin/main` (`9e00e2c6e0eb581334f9238ce041a7d3d2fafb19`). Il couvre les 79 clés devenues sans usage et quatre clés déjà retenues de l’ancienne section Taxonomie. Les anciennes exceptions sans lien direct avec ce retrait restent en place. L’empreinte de feuille déjà enregistrée sert de référence documentaire, sans nouvelle revue du classeur.
+
+Les 78 valeurs japonaises validées retirées du catalogue d’exécution restent dans les manifestes historiques, qui ne sont pas modifiés. Les tests distinguent l’absence dans l’interface de la provenance historique. `admin-removal-test-fixture.json` contient uniquement les indices de ligne et empreintes nécessaires pour reconstruire les catalogues de référence à partir des valeurs du registre et du manifeste.
+
 ## ADN : ajout puis retrait du chip d'état (2026-11-16)
 
 La clé React `dnaStateValidated` a été ajoutée en FR (`Validée`) et EN (`Validated`) dans le lot B30 en préparation, puis retirée avec le chip redondant du popover. Les événements d'ajout `T1452/T1453`, supprimés pendant la session précédente, sont rétablis dans leur position chronologique : leur suppression n'est pas une manière de tracer un retrait applicatif. Les événements suivants `T1454–T1457` ne sont pas renumérotés.

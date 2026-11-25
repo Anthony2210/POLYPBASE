@@ -59,10 +59,11 @@ la transmet ni à l'espèce, ni à la souche, ni aux boîtes enfants.
 ## Administration sur ordinateur
 
 Les sections Équipe, Inventaire, Espèces, Emplacements, Envois et réceptions et
-Historique sont accessibles aux administrateurs. Les sections Référentiels
-partagés et Institutions sont désactivées. Une fiche Espèce historique sans
-profil est consultable, mais ne permet ni de modifier le nom ou la référence
-WoRMS, ni de créer une souche.
+Historique sont accessibles aux administrateurs. Les anciennes sections
+Référentiels partagés et Institutions ont été retirées. Une espèce déjà utilisée
+par la structure présente les mêmes actions avec ou sans profil. Ouvrir sa fiche
+n’enregistre rien. La modification du nom ou de la référence WoRMS et la création
+d’une souche passent par leurs formulaires et les validations du serveur.
 
 ## Proposer le don d'une boîte entière
 
@@ -90,7 +91,7 @@ retiré. Cela ne retire pas l'export CSV de suivi des relevés.
 
 La préparation d'une release se valide localement avec des données synthétiques :
 création/correction de relevé, zéro, historique Actions, déplacement/correction,
-repiquage et export CSV. Ne pas tester un parcours désactivé comme s'il était actif.
+repiquage et export CSV. Ne pas tester un parcours retiré comme s'il était actif.
 Après un déploiement explicitement autorisé, les contrôles de service ne doivent
 pas créer de donnée scientifique uniquement pour un smoke test. Vérifier
 l'absence de parcours d'alertes et d'avertissements inférés des mesures sur les
