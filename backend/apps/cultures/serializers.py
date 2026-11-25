@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db.models import Max, Min
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -1039,9 +1040,11 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         ]
 
     def get_latest_temperature(self, obj):
-        temperature = _first_prefetched(obj, "daily_temperatures")
-        if temperature is None:
-            temperature = obj.daily_temperatures.order_by("-date").first()
+        temperatures = _prefetched_list(obj, "daily_temperatures")
+        temperature = (
+            obj.daily_temperatures.order_by("-date", "-id").first()
+            if temperatures is None else next(iter(temperatures), None)
+        )
         if not temperature:
             return None
         return {
@@ -1054,9 +1057,11 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         }
 
     def get_latest_salinity(self, obj):
-        salinity = _first_prefetched(obj, "salinity_measurements")
-        if salinity is None:
-            salinity = obj.salinity_measurements.order_by("-measured_on").first()
+        salinities = _prefetched_list(obj, "salinity_measurements")
+        salinity = (
+            obj.salinity_measurements.order_by("-measured_on", "-id").first()
+            if salinities is None else next(iter(salinities), None)
+        )
         if not salinity:
             return None
         data = SalinityMeasurementSerializer(salinity, context=self.context).data
@@ -1078,7 +1083,35 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         ]
 
     def get_probe_monitoring(self, obj):
-        return zone_probe_monitoring(obj)
+        probes = _prefetched_list(obj, "probes")
+        if probes is None:
+            return zone_probe_monitoring(obj)
+        collected = [
+            probe for probe in probes
+            if probe.is_active and probe.is_collected and probe.probe_type == Probe.ProbeType.IMINILIDE
+            and probe.organization_id == obj.organization_id
+        ]
+        if not all(hasattr(probe, "latest_bucket_reading_at") for probe in collected):
+            return zone_probe_monitoring(obj)
+        # The summary only falls back to condensed readings when no raw reading exists.
+        last_reading_at = max(
+            (probe.latest_reading_at for probe in collected if probe.latest_reading_at is not None),
+            default=None,
+        )
+        if last_reading_at is None:
+            last_reading_at = max(
+                (probe.latest_bucket_reading_at for probe in collected if probe.latest_bucket_reading_at is not None),
+                default=None,
+            )
+        if last_reading_at is not None:
+            return zone_probe_monitoring(obj, last_reading_at=last_reading_at)
+        # The annotations already established that neither storage tier has a reading.
+        return {
+            "has_collected_probes": bool(collected),
+            "last_reading_at": None,
+            "manual_entry_available": True,
+            "fallback_after_hours": settings.PROBE_MANUAL_FALLBACK_HOURS,
+        }
 
     def get_thermal_control(self, obj):
         return zone_thermal_control(obj)
@@ -1346,12 +1379,6 @@ def _prefetched_list(obj, related_name):
     cache = getattr(obj, "_prefetched_objects_cache", {})
     return cache.get(related_name)
 
-
-def _first_prefetched(obj, related_name):
-    values = _prefetched_list(obj, related_name)
-    if values is None:
-        return None
-    return next(iter(values), None)
 
 
 def _serialize_lineage_relation(lineage, related_box):

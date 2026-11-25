@@ -388,6 +388,8 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
 
 def thermal_zone_summary_queryset(queryset):
     """Attach only the latest readings needed by the zone summary serializer."""
+    from apps.measurements.models import ProbeTemperatureBucket
+
     latest_temperature_id = Subquery(
         DailyTemperature.objects.filter(thermal_zone_id=OuterRef("thermal_zone_id"))
         .order_by("-date", "-id")
@@ -399,10 +401,21 @@ def thermal_zone_summary_queryset(queryset):
         .values("id")[:1]
     )
 
+    # Explicit lookups avoid Django re-traversing the original reverse one-to-one
+    # after the nested prefetch has already stored it under a different attribute.
+    state_prefetches = [
+        Prefetch(
+            f"current_state_boxes__{prefetch.prefetch_through}",
+            queryset=prefetch.queryset,
+            to_attr=prefetch.to_attr,
+        )
+        for prefetch in current_state_prefetches()
+    ]
     return queryset.select_related("organization").prefetch_related(
         Prefetch("boxes", queryset=Box.objects.filter(
             status=Box.Status.ACTIVE, organization_id=F("thermal_zone__organization_id"),
-        ).prefetch_related(*current_state_prefetches()), to_attr="current_state_boxes"),
+        ), to_attr="current_state_boxes"),
+        *state_prefetches,
         Prefetch(
             "daily_temperatures",
             queryset=DailyTemperature.objects.filter(id__in=latest_temperature_id).order_by("-date", "-id"),
@@ -423,11 +436,18 @@ def thermal_zone_summary_queryset(queryset):
                     TemperatureMeasurement.objects.filter(probe_id=OuterRef("pk"))
                     .order_by("-measured_at")
                     .values("measured_at")[:1]
-                )
+                ),
+                latest_bucket_reading_at=Subquery(
+                    ProbeTemperatureBucket.objects.filter(probe_id=OuterRef("pk"))
+                    .order_by("-last_measured_at")
+                    .values("last_measured_at")[:1]
+                ),
             ),
         ),
     ).annotate(
-        box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE))
+        box_count=Count("boxes", filter=Q(
+            boxes__status=Box.Status.ACTIVE, boxes__organization_id=F("organization_id"),
+        ))
     )
 
 
@@ -527,7 +547,7 @@ class DashboardAPIView(APIView):
 
 
 class OverviewActiveBoxesAPIView(APIView):
-    """Return every active box with its recent biological and temperature history."""
+    """Return active boxes with biological history and recent temperatures."""
 
     def get(self, request):
         months = self._get_months(request)
@@ -545,44 +565,56 @@ class OverviewActiveBoxesAPIView(APIView):
             .order_by("starts_at")
         )
         boxes = list(
-            box_list_queryset_for_user(request.user, organization_ids=organization_ids)
-            .filter(status=Box.Status.ACTIVE)
+            Box.objects.filter(
+                organization_id__in=organization_ids,
+                status=Box.Status.ACTIVE,
+                merged_into__isnull=True,
+            )
+            .select_related("strain__species", "thermal_zone")
+            .only(
+                "global_code", "strain__code", "strain__species__scientific_name",
+                "thermal_zone__name", "polyp_state_revision",
+            )
             .prefetch_related(
-                Prefetch("locations", queryset=location_history, to_attr="overview_locations")
+                *current_state_prefetches(),
+                Prefetch("locations", queryset=location_history, to_attr="overview_locations"),
             )
             .order_by("strain__species__scientific_name", "global_code")
         )
         box_ids = [box.id for box in boxes]
         zone_ids = {box.thermal_zone_id for box in boxes if box.thermal_zone_id}
-        app_tracked_box_ids = set(
-            BiologicalMeasurement.objects.canonical().filter(
-                box_id__in=box_ids,
-                user__isnull=False,
-            )
-            .values_list("box_id", flat=True)
-            .distinct()
-        )
-
-        earliest_measurement_by_box = dict(
-            BiologicalMeasurement.objects.canonical().filter(box_id__in=box_ids)
-            .order_by()
-            .values("box_id")
-            .annotate(earliest_measured_on=Min("measured_on"))
-            .values_list("box_id", "earliest_measured_on")
-        )
-
         measurements_by_box = defaultdict(list)
+        app_tracked_box_ids = set()
+        earliest_measurement_by_box = {}
         measurements = BiologicalMeasurement.objects.canonical().filter(box_id__in=box_ids)
         if not complete_history:
+            # Metadata still covers the entire canonical history in a windowed response.
+            metadata = (
+                measurements.order_by().values("box_id")
+                .annotate(earliest=Min("measured_on"), tracked_count=Count("user_id"))
+                .values_list("box_id", "earliest", "tracked_count")
+            )
+            for box_id, earliest, tracked_count in metadata:
+                earliest_measurement_by_box[box_id] = earliest
+                if tracked_count:
+                    app_tracked_box_ids.add(box_id)
             measurements = measurements.filter(measured_on__gte=history_start_date)
-        measurements = measurements.order_by("box_id", "measured_on", "created_at")
-        for measurement in measurements:
-            measurements_by_box[measurement.box_id].append(
+
+        points = measurements.order_by("box_id", "measured_on", "created_at").values_list(
+            "box_id", "measured_on", "polyp_count", "ephyrae_count", "salinity_psu", "user_id"
+        )
+        for box_id, measured_on, polyp_count, ephyrae_count, salinity_psu, user_id in points:
+            if complete_history:
+                # The first chart point is also the earliest canonical measurement.
+                earliest_measurement_by_box.setdefault(box_id, measured_on)
+                if user_id is not None:
+                    app_tracked_box_ids.add(box_id)
+            measurements_by_box[box_id].append(
                 {
-                    "date": measurement.measured_on.isoformat(),
-                    "polyp_count": measurement.polyp_count,
-                    "ephyrae_count": measurement.ephyrae_count,
-                    "salinity_psu": _json_value(measurement.salinity_psu),
+                    "date": measured_on.isoformat(),
+                    "polyp_count": polyp_count,
+                    "ephyrae_count": ephyrae_count,
+                    "salinity_psu": _json_value(salinity_psu),
                 }
             )
 
@@ -593,12 +625,13 @@ class OverviewActiveBoxesAPIView(APIView):
                 date__gte=history_start_date,
             )
             .order_by("thermal_zone_id", "date")
+            .values_list("thermal_zone_id", "date", "average_temperature_c")
         )
-        for temperature in temperatures:
-            temperatures_by_zone[temperature.thermal_zone_id].append(
+        for zone_id, sample_date, average_temperature_c in temperatures:
+            temperatures_by_zone[zone_id].append(
                 {
-                    "date": temperature.date.isoformat(),
-                    "average_temperature_c": float(temperature.average_temperature_c),
+                    "date": sample_date.isoformat(),
+                    "average_temperature_c": float(average_temperature_c),
                 }
             )
 
