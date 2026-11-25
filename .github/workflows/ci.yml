@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
@@ -38,8 +39,53 @@ jobs:
 
         run: python3 -B scripts/ci_changes.py
 
-      - name: Test path detection
-        run: python3 -B -m unittest discover -s scripts -p test_ci_changes.py
+      - name: Test path detection and commit message checks
+        run: |
+          python3 -B -m unittest discover -s scripts -p test_ci_changes.py
+          python3 -B -m unittest discover -s scripts -p test_check_commit_messages.py
+
+      - name: Check PR title and commit subjects
+        if: github.event_name == 'pull_request'
+        run: python3 -B scripts/check_commit_messages.py
+
+  changed-quality:
+    name: Changed-file lint and format checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12.13"
+          version: "0.11.16"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.15.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install development tools
+        run: |
+          uv sync --python 3.12.13 --locked --only-group quality
+          npm ci --prefix frontend --include=dev --include=optional --ignore-scripts --no-audit --no-fund
+
+      - name: Check changed source files
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          uv run --no-sync python -B -m unittest discover -s scripts -p test_check_changed_quality.py
+          uv run --no-sync python -B scripts/check_changed_quality.py --base "$PR_BASE_SHA"
 
   documentation:
     name: Documentation checks and context bundle
@@ -280,7 +326,7 @@ jobs:
 
   ci-ok:
     name: ci-ok
-    needs: [changes, documentation, frontend, backend, backend-postgres, deploy-scripts]
+    needs: [changes, changed-quality, documentation, frontend, backend, backend-postgres, deploy-scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

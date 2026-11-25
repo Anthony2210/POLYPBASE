@@ -9,10 +9,15 @@ Polypbase uses Django REST Framework and React to track cultures across institut
 3. The references below for contracts, [Status](STATUS.md) for dated findings and caveats, and [Decisions](DECISIONS.md) for product and technical decisions.
 4. [Archives](archive/README.md) are dated evidence, not current instructions. [Design sources](sources/) do not describe the deployed schema.
 
+Use [Contributor conventions](CONVENTIONS.md) for coding and review standards.
+Update this index when adding, moving, or retiring a current guide, and link
+straight to the canonical page rather than through a compatibility stub.
+
 ## Find the relevant guide
 
 | Task | Authoritative guide |
 |---|---|
+| Write or review code, commits, PRs, or documentation | [Contributor conventions](CONVENTIONS.md) |
 | Understand the product, applications, and repository | [Architecture](reference/architecture.md) |
 | Look up a Django route | [Generated API reference](reference/api.md) |
 | Accounts, roles, invitations, scope, and external sharing | [Organizations, permissions, and sharing](reference/organizations-permissions-sharing.md) |
@@ -35,7 +40,3 @@ Polypbase uses Django REST Framework and React to track cultures across institut
 - [Historical movements](reference/annexes/historical-movements.md)
 - [Institutional species foundation](reference/annexes/institution-species-foundation.md)
 - [Quantitative subculture](reference/annexes/quantitative-subculture.md)
-
-### Links retained for the unchanged root README
-
-The old URLs for [status](ETAT.md), [development and QA](operations/developpement-qa.md), [deployment](operations/deploiement-exploitation.md), and [terminology](reference/terminologie-i18n.md) forward to the English guides.

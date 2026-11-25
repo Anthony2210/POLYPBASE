@@ -15,7 +15,7 @@
 - Never invent a biological, scientific, operational, or authorization rule. If the requirements, code, tests, and documentation do not settle a question, ask for a product decision.
 - Keep changes within scope. Avoid opportunistic refactoring and check every consumer before changing an API contract.
 - Write code, comments, docstrings, documentation, agent instructions, skills, commit messages, and PR descriptions in English. Leave `README.md` unchanged. All user-facing text goes through FR/EN/JA i18n.
-- Use one comment standard for agents and developers. Look for existing code to reuse or extend before writing a duplicate.
+- Follow the shared [contributor conventions](docs/CONVENTIONS.md) for code, comments, tests, and review. Look for existing code to reuse or extend before writing a duplicate.
 
 ## Non-negotiable invariants
 
@@ -40,6 +40,7 @@
 - Avoid having two agents edit the same files. Do not silently rewrite another agent's work.
 - Reviews are read-only by default: inspect invariants, diffs, and tests, then classify findings before making requested corrections.
 - Do not commit, push, or deploy unless explicitly asked. Review the final diff before committing.
+- Use [Conventional Commit headlines](docs/CONVENTIONS.md#commits-and-pull-requests) for commits and PR titles. Keep PRs small and non-stacked against `main`; follow the [PR template](.github/pull_request_template.md) and use a merge commit when authorized to merge.
 
 ## Validation and production
 

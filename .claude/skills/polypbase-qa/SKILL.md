@@ -9,7 +9,8 @@ Verify the requested behavior without risking shared or production data.
 
 ## Establish scope
 
-1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
+1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md) and the
+   relevant [contributor conventions](../../../docs/CONVENTIONS.md).
 2. Inspect `git status --short`, the relevant diff, and the files involved in the
    changed workflow. Read additional documentation only when that workflow needs it.
 3. Preserve every pre-existing change. Never reset, clean, restore, or overwrite
@@ -43,7 +44,9 @@ browser matrix as a shared data-flow or permissions change.
 
 ## Run deterministic checks
 
-Prefer targeted checks first. For broader local QA, run
+Prefer targeted behavior and regression checks first. Use `assertNumQueries` to
+verify query budgets; do not add tests that match source code with regexes.
+For broader local QA, run
 [`scripts/run_checks.ps1`](scripts/run_checks.ps1) from the repository root as
 `./.agents/skills/polypbase-qa/scripts/run_checks.ps1` in the verified child
 session above. It selects `config.preflight_settings` for `check` and
@@ -76,10 +79,13 @@ For user-facing behavior:
    when the request explicitly concerns phone behavior.
 5. Inspect console errors, failed requests, overflow, clipped text, focus, keyboard,
    touch, loading, empty, error, success, and disabled states as applicable.
-6. Stop temporary servers and remove temporary screenshots, traces, and scripts.
+6. For UI PRs, attach 1–3 before/after screenshots using demo-only data; never
+   commit the images. Stop temporary servers and remove local QA artifacts.
 
 ## Finish
 
 Run `git diff --check` and `git status --short`. Report the behavior verified, checks
-run, failures or skipped checks, viewports exercised, and remaining risks. Do not
-commit, push, or deploy unless the user explicitly asks.
+run, failures or skipped checks, viewports exercised, and remaining risks. In PRs,
+use **Not verified** for skipped checks and **To confirm by Anthony** for specific
+manual checks or decisions. Do not commit, push, or deploy unless the user explicitly
+asks.

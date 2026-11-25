@@ -10,7 +10,8 @@ by the repository.
 
 ## Read the source of truth
 
-1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
+1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md) and the
+   relevant [contributor conventions](../../../docs/CONVENTIONS.md).
 2. Read the [deployment and operations guide](../../../docs/operations/deployment-operations.md)
    and the deployment scripts relevant to the requested operation. Do not load
    unrelated project history.
@@ -25,7 +26,8 @@ by the repository.
 - Never mutate Neon as part of a production operation.
 - Keep application, database, and organization scopes explicit.
 - Use a fresh verified backup before migrations, data repair, account intervention, or
-  another production data mutation where rollback matters.
+  another production data mutation where rollback matters. Review migration reversibility
+  and the recovery plan before a production migration; this is not approval to roll back.
 - Stop on the first failed backup, build, migration, restart, or health check.
 - Do not restore a database or roll back migrations without a separate explicit
   approval after presenting the observed failure and recovery options.
