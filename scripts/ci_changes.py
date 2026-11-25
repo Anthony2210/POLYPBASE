@@ -42,22 +42,15 @@ def commit_sha(value):
 
 
 def changed_paths(env):
-    event = env.get("GITHUB_EVENT_NAME")
     head = commit_sha(env.get("GITHUB_SHA", ""))
     if git("rev-parse", "HEAD").strip() != head.encode("ascii"):
         raise ValueError("checkout does not match the event commit")
-    if event == "pull_request":
-        base = commit_sha(env.get("PR_BASE_SHA", ""))
-        pr_head = commit_sha(env.get("PR_HEAD_SHA", ""))
-        # Compare the merge result we actually test to its base, not a moving ref.
-        parents = git("rev-list", "--parents", "-n", "1", head).split()
-        if parents != [sha.encode("ascii") for sha in (head, base, pr_head)]:
-            raise ValueError("checkout is not the expected PR merge commit")
-    elif event == "push":
-        # A force push can also remove changes; compare trees even if unrelated.
-        base = commit_sha(env.get("PUSH_BEFORE_SHA", ""))
-    else:
-        raise ValueError("unsupported event")
+    base = commit_sha(env.get("PR_BASE_SHA", ""))
+    pr_head = commit_sha(env.get("PR_HEAD_SHA", ""))
+    # Compare the merge result we actually test to its base, not a moving ref.
+    parents = git("rev-list", "--parents", "-n", "1", head).split()
+    if parents != [sha.encode("ascii") for sha in (head, base, pr_head)]:
+        raise ValueError("checkout is not the expected PR merge commit")
 
     # Keep filenames as bytes and treat renames as deletion + addition so both
     # sides of a move can trigger their checks. No filenames enter the output.
@@ -68,7 +61,8 @@ def changed_paths(env):
 
 
 def select_checks(env):
-    if env.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+    if env.get("GITHUB_EVENT_NAME") != "pull_request":
+        # A main push must provide a complete CI result for the release commit.
         return set(CHECKS)
     try:
         return classify(changed_paths(env))

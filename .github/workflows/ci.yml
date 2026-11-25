@@ -35,7 +35,7 @@ jobs:
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
+
         run: python3 -B scripts/ci_changes.py
 
       - name: Test path detection
@@ -89,7 +89,7 @@ jobs:
   frontend:
     name: Frontend checks
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -121,7 +121,7 @@ jobs:
   backend:
     name: Backend checks
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

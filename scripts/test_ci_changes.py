@@ -37,7 +37,7 @@ class EventTests(unittest.TestCase):
             "GITHUB_SHA": HEAD,
             "PR_BASE_SHA": BASE,
             "PR_HEAD_SHA": PR_HEAD,
-            "PUSH_BEFORE_SHA": BASE,
+
         }
 
     def test_pr_uses_verified_merge_result(self):
@@ -50,12 +50,11 @@ class EventTests(unittest.TestCase):
         self.assertIn("--no-renames", args)
         self.assertEqual(args[-3:], (f"{BASE}^{{commit}}", f"{HEAD}^{{commit}}", "--"))
 
-    def test_push_compares_before_and_after_trees_without_ancestry_check(self):
-        self.env["GITHUB_EVENT_NAME"] = "push"
-        with patch.object(ci_changes, "git", side_effect=[HEAD.encode(), b"docs/example.md\0"]) as git:
-            self.assertEqual(ci_changes.select_checks(self.env), set())
-        self.assertEqual(git.call_count, 2)
-        self.assertEqual(git.call_args.args[-3:], (f"{BASE}^{{commit}}", f"{HEAD}^{{commit}}", "--"))
+    def test_main_push_selects_all_checks_without_a_diff(self):
+        env = self.env | {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main"}
+        with patch.object(ci_changes, "changed_paths", return_value=[b"docs/example.md"]) as diff:
+            self.assertEqual(ci_changes.select_checks(env), set(ci_changes.CHECKS))
+        diff.assert_not_called()
 
     def test_dispatch_needs_no_git(self):
         with patch.object(ci_changes, "git") as git:
@@ -64,12 +63,12 @@ class EventTests(unittest.TestCase):
 
     def test_unverified_comparisons_run_all_checks(self):
         cases = (
-            ({"GITHUB_EVENT_NAME": "push", "PUSH_BEFORE_SHA": "0" * 40}, [HEAD.encode()]),
+
             ({"PR_BASE_SHA": "--bad-option"}, [HEAD.encode()]),
             ({}, [BASE.encode()]),
             ({}, [HEAD.encode(), f"{HEAD} {PR_HEAD} {BASE}".encode()]),
-            ({"GITHUB_EVENT_NAME": "push"}, [HEAD.encode(), subprocess.CalledProcessError(128, "git diff")]),
-            ({"GITHUB_EVENT_NAME": "push"}, [subprocess.TimeoutExpired("git rev-parse", 60)]),
+            ({}, [HEAD.encode(), f"{HEAD} {BASE} {PR_HEAD}".encode(), subprocess.CalledProcessError(128, "git diff")]),
+            ({}, [subprocess.TimeoutExpired("git rev-parse", 60)]),
         )
         for overrides, replies in cases:
             with self.subTest(overrides=overrides, replies=replies), contextlib.redirect_stderr(io.StringIO()):
