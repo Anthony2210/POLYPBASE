@@ -2,6 +2,7 @@ import re
 from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
+from functools import cached_property
 
 from django.conf import settings
 from django.db.models import Max, Min
@@ -224,6 +225,11 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
         """Return recorded source periods only; null means no source identity."""
         if obj.environment_source_box_id is None:
             return None
+        box_list_locations = self.context.get("box_list_environment_locations")
+        if box_list_locations is not None:
+            key = (obj.environment_source_box_id, obj.box.organization_id)
+            if key in box_list_locations:
+                return box_list_locations[key]
         cache = self.context.setdefault("environment_locations_by_box", {})
         if obj.environment_source_box_id not in cache:
             locations = BoxLocation.objects.filter(
@@ -269,7 +275,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
 
 class BoxListSerializer(serializers.ModelSerializer):
     organization = OrganizationSummarySerializer(read_only=True)
-    species = serializers.SerializerMethodField()
+    species = SpeciesSummarySerializer(source="strain.species", read_only=True)
     strain = StrainSummarySerializer(read_only=True)
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     latest_measurement = serializers.SerializerMethodField()
@@ -306,8 +312,9 @@ class BoxListSerializer(serializers.ModelSerializer):
             "current_polyp_state",
         ]
 
-    def get_species(self, obj):
-        return SpeciesSummarySerializer(obj.strain.species).data
+    @cached_property
+    def _latest_measurement_serializer(self):
+        return BiologicalMeasurementSerializer(context=self.context)
 
     def _measurement_date(self, obj, name):
         annotation = f"{name}_annotation"
@@ -363,7 +370,7 @@ class BoxListSerializer(serializers.ModelSerializer):
         else:
             measurement = obj.biological_measurements.canonical().order_by("-week_start", "-created_at", "-pk").first()
         return (
-            BiologicalMeasurementSerializer(measurement, context=self.context).data
+            self._latest_measurement_serializer.to_representation(measurement)
             if measurement
             else None
         )

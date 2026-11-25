@@ -18,7 +18,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
 from apps.accounts.permissions import get_authorized_organization_ids
@@ -621,6 +621,60 @@ class BoxListQueryTests(TestCase):
         self.assertEqual(large_count, small_count)
         self.assertLessEqual(large_count, 6)
         self.assert_equivalent()
+
+    def test_collection_batches_environment_locations_for_the_returned_page(self):
+        self.membership.role = OrganizationMembership.Role.VIEWER
+        self.membership.save(update_fields=["role"])
+        boxes = [self.box() for _ in range(101)]
+        self.box(foreign=True)
+        source = boxes[1]
+        recent = BoxLocation.objects.create(box=source, thermal_zone=self.zone, starts_at=self.now)
+        earlier = BoxLocation.objects.create(
+            box=source, thermal_zone=self.zone, starts_at=self.now - timedelta(days=7), ends_at=self.now,
+        )
+        foreign_zone = ThermalZone.objects.create(organization=self.foreign_org, name="Foreign zone")
+        # Legacy inconsistent source history must not expose foreign zone data.
+        BoxLocation.objects.create(
+            box=source, thermal_zone=foreign_zone, starts_at=self.now - timedelta(days=14), ends_at=earlier.starts_at,
+        )
+        for box in boxes[2:99]:
+            BoxLocation.objects.create(box=box, thermal_zone=self.zone, starts_at=self.now)
+
+        self.measurement(boxes[0], environment_source_box=source, polyp_count=0)
+        for box in boxes[1:100]:
+            self.measurement(box, environment_source_box=box)
+        self.measurement(boxes[100])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        headers = {"HTTP_X_ORGANIZATION_ID": str(self.org.pk)}
+
+        with self.assertNumQueries(9):
+            one = client.get("/api/boxes/", {"limit": 1}, **headers)
+        with self.assertNumQueries(9):
+            full = client.get("/api/boxes/", {"limit": 100}, **headers)
+        with self.assertNumQueries(8):
+            last = client.get("/api/boxes/", {"limit": 100, "offset": 100}, **headers)
+        for response in (one, full, last):
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data["count"], 101)
+        rows = full.data["results"]
+        self.assertEqual([row["id"] for row in rows], [box.pk for box in boxes[:100]])
+        self.assertEqual(one.data["results"], rows[:1])
+        self.assertIsNotNone(full.data["next"])
+        self.assertEqual(last.data["results"][0]["id"], boxes[100].pk)
+        self.assertIsNone(last.data["results"][0]["latest_measurement"]["environment_locations"])
+        self.assertEqual(rows[99]["latest_measurement"]["environment_locations"], [])
+        first = rows[0]["latest_measurement"]
+        self.assertFalse(first["can_edit"])
+        self.assertEqual(first["polyp_count"], 0)
+        self.assertEqual([period["id"] for period in first["environment_locations"]], [earlier.pk, recent.pk])
+        self.assertEqual(first["environment_locations"], rows[1]["latest_measurement"]["environment_locations"])
+        self.assertEqual(
+            rows, BoxListSerializer(self.queryset()[:100], many=True, context=self.context()).data,
+        )
+        self.assertEqual(client.get(
+            "/api/boxes/", {"limit": 100}, HTTP_X_ORGANIZATION_ID=str(self.foreign_org.pk),
+        ).status_code, 403)
 
     def test_paginated_payload_matches_oracle_with_page_local_prefetches(self):
         for index in range(7):

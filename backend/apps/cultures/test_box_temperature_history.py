@@ -4,9 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connection
 from django.test import TestCase, override_settings
-from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
@@ -160,6 +158,27 @@ class BoxTemperatureHistoryTests(TestCase):
                                    HTTP_X_ORGANIZATION_ID="invalid")
         self.assertEqual(response.status_code, 403)
 
+    def test_only_recorded_zones_for_the_requested_box_enter_the_page(self):
+        unrelated = Box.objects.create(
+            organization=self.organization, strain=self.box.strain, global_code="TMP-A.003", box_number="003",
+        )
+        BoxLocation.objects.create(
+            box=unrelated, thermal_zone=self.next_zone,
+            starts_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        self.location(self.zone, "2024-01-02T23:59:59", "2024-01-03T00:00:00")
+        for day in range(1, 5):
+            for zone in (self.zone, self.next_zone):
+                self.reading(zone, date(2024, 1, day))
+        first = self.get(limit=1).json()
+        second = self.get(limit=1, offset=1).json()
+        self.assertEqual(first["count"], 2)
+        self.assertEqual(second["count"], 2)
+        self.assertEqual(
+            [(p["date"], p["zone_id"]) for p in first["results"] + second["results"]],
+            [("2024-01-02", self.zone.pk), ("2024-01-03", self.zone.pk)],
+        )
+
     def test_pagination_bounds_rows_and_stable_order(self):
         self.location(self.zone, "2024-01-01T00:00:00")
         self.location(self.next_zone, "2024-01-01T00:00:00")
@@ -179,18 +198,19 @@ class BoxTemperatureHistoryTests(TestCase):
         self.assertIsNotNone(second["previous"])
         self.assertEqual(self.get(offset=9999).json()["results"], [])
 
-    def test_query_counts_do_not_grow_with_location_count(self):
+    def test_query_budget_does_not_grow_with_locations_or_rows(self):
         self.location(self.zone, "2024-01-01T00:00:00")
         self.reading(self.zone, date(2024, 1, 2))
-        self.get()  # Warm session initialization before comparing request queries.
-        with CaptureQueriesContext(connection) as before:
-            self.assertEqual(self.get().status_code, 200)
-        for day in range(2, 25):
+        # Warm the session and interface language before counting requests.
+        self.assertEqual(self.get().status_code, 200)
+        with self.assertNumQueries(10):
+            self.assertEqual(self.get().json()["count"], 1)
+        for day in range(3, 25):
             self.location(self.zone, f"2024-01-{day:02d}T00:00:00")
-        with CaptureQueriesContext(connection) as after:
-            self.assertEqual(self.get().status_code, 200)
-        self.assertEqual(len(before), len(after))
+            self.reading(self.zone, date(2024, 1, day))
+        with self.assertNumQueries(10):
+            self.assertEqual(self.get().json()["count"], 23)
         with self.assertNumQueries(1):
-            self.assertEqual(len(list(box_temperature_queryset(self.box, date(2024, 1, 1), date(2024, 1, 31)))), 1)
+            self.assertEqual(len(list(box_temperature_queryset(self.box, date(2024, 1, 1), date(2024, 1, 31)))), 23)
         with self.assertNumQueries(1):
             BoxDetailSerializer().get_temperature_history(self.box)
