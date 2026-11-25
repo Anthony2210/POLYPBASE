@@ -1,13 +1,11 @@
-"""Canonical PCA navigation and scientific API contracts on disposable PostgreSQL."""
+"""Canonical PCA navigation and scientific API contracts with recorded merged history."""
 
 
 from datetime import date
-from unittest import skipUnless
 
 from django.core.exceptions import ValidationError
-from django.db import connection
 from django.db.models import Sum
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
@@ -19,18 +17,16 @@ from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 from . import qr
 from .models import Box, BoxLocation, BoxMovement
 from .services import reactivate_box
-from .test_pca_identity_unification import PcaFixtureMixin
+from .pca_test_fixtures import PcaFixtureMixin
 
 
-@skipUnless(connection.vendor == "postgresql", "Run only on independent PostgreSQL QA.")
-class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
-    reset_sequences = True
+class PcaIdentityApiTests(PcaFixtureMixin, TestCase):
 
     def setUp(self):
         super().setUp()
         self.stale_donor = Box.objects.get(pk=2141)
         self.stale_canonical = Box.objects.get(pk=2135)
-        self.apply()
+        self.record_merged_history()
         self.client.force_login(self.admin)
         self.headers = {"HTTP_X_ORGANIZATION_ID": "1"}
 
@@ -262,7 +258,7 @@ class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
         self.assertEqual(Box.objects.get(pk=2141).merged_into_id, 2135)
         self.assertEqual(Box.objects.get(pk=2135).global_code, "PCA-JKA-1.005")
 
-    def test_qr_image_helpers_target_canonical_pk_and_no_resolution_chain_is_followed(self):
+    def test_qr_image_helpers_target_canonical_pk_without_cross_org_access(self):
         self.donor.refresh_from_db()
         self.canonical.refresh_from_db()
         self.assertEqual(qr.box_scan_url(self.donor), qr.box_scan_url(self.canonical))
@@ -271,7 +267,7 @@ class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
             self.assertEqual(svg.status_code, 200)
             self.assertIn("svg", svg["Content-Type"])
         OrganizationMembership.objects.create(organization=self.other_org, user=self.admin, role="admin")
-        Box.objects.filter(pk=2141).update(organization=self.other_org)
+
         self.assertEqual(self.client.get("/api/boxes/2141/", HTTP_X_ORGANIZATION_ID="2").status_code, 404)
 
     def test_old_code_and_date_audits_resolve_to_the_correct_preserved_record(self):

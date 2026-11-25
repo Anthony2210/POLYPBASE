@@ -8,7 +8,7 @@ fixture cleanup is owner-only and confined to the authorized disposable target.
 import os
 from importlib import import_module
 from queue import Queue
-from threading import Barrier, Event, Thread
+from threading import Event, Thread
 from time import monotonic, sleep
 from unittest import skipUnless
 
@@ -19,13 +19,11 @@ from django.test import TransactionTestCase
 from apps.cultures.models import Box
 from apps.taxonomy.models import Strain
 
-from .historical_temperature_apply import _accept_locked, _current_snapshot
-from .historical_temperature_partial import PartialImportError
+from .historical_temperature_test_fixtures import HistoricalTemperatureFixture, evidence
 from .models import (
     BiologicalMeasurement, HistoricalTemperatureEvidence,
     HistoricalTemperatureImportReceipt, HistoricalTemperatureReading,
 )
-from . import test_historical_temperature_apply as apply_tests
 
 
 _ENABLED = (os.getenv("POLYPBASE_HISTORICAL_POSTGRES_QA") == "1"
@@ -33,15 +31,13 @@ _ENABLED = (os.getenv("POLYPBASE_HISTORICAL_POSTGRES_QA") == "1"
             and getattr(settings, "HISTORICAL_TEMPERATURE_PGQA", False))
 _GUARDS = import_module("apps.measurements.migrations.0012_historical_temperature_guards")
 _RECEIPT = import_module("apps.measurements.migrations.0013_historical_temperature_receipt")
-_LOCK_SQL = "LOCK TABLE cultures_box, measurements_biologicalmeasurement, measurements_historicaltemperaturereading, measurements_historicaltemperatureevidence, measurements_historicaltemperatureimportreceipt IN SHARE ROW EXCLUSIVE MODE"
 
 
 GUARD_MESSAGE = "Historical relationship writes require READ COMMITTED"
 
 
 @skipUnless(_ENABLED, "PostgreSQL proof requires explicit disposable-database opt-in")
-class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
-    accept = apply_tests.AcceptanceTests.accept
+class PostgreSQLHistoricalTemperatureTests(HistoricalTemperatureFixture, TransactionTestCase):
 
     def _assert_disposable(self):
         from config.historical_temperature_pgqa import assert_disposable
@@ -57,7 +53,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
             with connection.schema_editor() as editor:
                 _GUARDS.forwards(None, editor)
                 _RECEIPT.guards(None, editor)
-        apply_tests.AcceptanceTests.setUp(self)
+        self.set_up_biology()
 
     def _fixture_teardown(self):
         from config.historical_temperature_pgqa import cleanup_test_data
@@ -94,8 +90,6 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
 
     def test_raw_cho_evidence_accepts_only_the_explicit_canonical_pca_identity(self):
         self._sql("UPDATE cultures_box SET global_code='PCA-JKA-1.005' WHERE id=%s", [self.box.pk])
-        from .test_historical_temperature_plan import evidence
-
         with transaction.atomic():
             reading = HistoricalTemperatureReading.objects.create(
                 biological_measurement=self.biology, iso_year=2026, iso_week=1, temperature_c="0",
@@ -111,7 +105,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
 
     def test_sql_duplicate_cannot_receive_reading_or_retire_an_accepted_measurement(self):
-        self.accept()
+        self.seed_history()
         duplicate = BiologicalMeasurement.objects.create(
             box=self.box, measured_on=self.biology.measured_on, polyp_count=0, ephyrae_count=0,
             duplicate_of=self.biology,
@@ -128,7 +122,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "confirmed")
 
     def test_sql_update_delete_and_truncate_cannot_bypass_orm(self):
-        self.accept()
+        self.seed_history()
         for table in ("measurements_historicaltemperaturereading", "measurements_historicaltemperatureevidence", "measurements_historicaltemperatureimportreceipt"):
             for sql in (f"UPDATE {table} SET id=id", f"DELETE FROM {table}", f"TRUNCATE {table} CASCADE"):
                 with self.subTest(sql=sql), self.assertRaises(IntegrityError):
@@ -136,7 +130,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
                         cursor.execute(sql)
 
     def test_raw_evidence_inserts_preserve_scientific_consistency(self):
-        self.accept()
+        self.seed_history()
         for column, bad in (("polyp_value", "1"), ("ephyrae_value", "1"), ("source_value", "99"),
                             ("source_iso_week", 2), ("source_iso_year", 2025), ("week_value", "2"),
                             ("source_box", "ABC-DEF-1.002")):
@@ -147,7 +141,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 3)
 
     def test_sql_biology_corrections_invalidate_without_changing_provenance(self):
-        self.accept()
+        self.seed_history()
         original = HistoricalTemperatureReading.objects.values().get()
         evidence = list(HistoricalTemperatureEvidence.objects.order_by("pk").values())
         receipt = HistoricalTemperatureImportReceipt.objects.values().get()
@@ -168,7 +162,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual((self.biology.polyp_count, self.biology.ephyrae_count), (0, 0))
 
     def test_same_week_dates_and_metadata_do_not_invalidate(self):
-        self.accept()
+        self.seed_history()
         self._sql("UPDATE measurements_biologicalmeasurement SET measured_on=measured_on+1, "
                   "notes='Corrected note', strobila_count=1, salinity_psu=30 WHERE id=%s", [self.biology.pk])
         self._sql("UPDATE measurements_biologicalmeasurement SET measured_on=DATE '2025-12-31', "
@@ -179,7 +173,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 3)
 
     def test_box_identity_corrections_invalidate_all_linked_readings(self):
-        self.accept()
+        self.seed_history()
         strain = Strain.objects.create(species=self.box.strain.species, code="ABC-XYZ-1")
         second = BiologicalMeasurement.objects.create(box=self.box, measured_on="2026-01-08", polyp_count=0, ephyrae_count=0)
         with transaction.atomic():
@@ -199,7 +193,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertFalse(HistoricalTemperatureReading.objects.exclude(association_status="pending_review").exists())
 
     def test_institution_and_biological_box_reassignment_remain_blocked_when_pending(self):
-        self.accept()
+        self.seed_history()
         same = Box.objects.create(organization=self.organization, strain=self.box.strain,
                                   global_code="ABC-DEF-1.002", box_number="002")
         foreign = Box.objects.create(organization=self.other, strain=self.box.strain,
@@ -218,7 +212,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
             self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, status)
 
     def test_only_status_invalidation_is_allowed_never_payload_changes_or_reapproval(self):
-        self.accept()
+        self.seed_history()
         original = HistoricalTemperatureReading.objects.values().get()
         alternative = BiologicalMeasurement.objects.create(
             box=self.box, measured_on="2026-01-08", polyp_count=0, ephyrae_count=0,
@@ -262,7 +256,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
                 transaction.set_rollback(True)
 
     def test_evidence_checks_both_week_representations_under_lock(self):
-        self.accept()
+        self.seed_history()
         for change in ("measured_on=measured_on+7", "week_start=week_start+7", "week_start=week_start+1"):
             with self.subTest(change=change), transaction.atomic():
                 # Test-only corruption isolates evidence validation from the
@@ -281,47 +275,10 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
                 HistoricalTemperatureReading.objects.create(biological_measurement=self.biology, iso_year=2026, iso_week=1, temperature_c="0")
         self.assertFalse(HistoricalTemperatureReading.objects.exists())
 
-    def test_competing_imports_commit_once_and_replay_once(self):
-        gate, output = Barrier(2), Queue()
-        snapshot, partial = self.snapshot, self.partial
-        organization, actor = self.organization, self.actor
-
-        def worker():
-            close_old_connections()
-            try:
-                gate.wait(timeout=10)
-                with transaction.atomic():
-                    with connection.cursor() as cursor:
-                        cursor.execute("SET LOCAL lock_timeout = '10s'")
-                        cursor.execute(_LOCK_SQL)
-                    receipt, replay = _accept_locked(snapshot, partial, b"synthetic-original-workbooks", organization, actor)
-                output.put((receipt.pk, replay))
-            except Exception as exc:
-                output.put(exc)
-            finally:
-                connection.close()
-
-        threads = [Thread(target=worker, daemon=True) for _ in range(2)]
-        for thread in threads:
-            thread.start()
-        from config.historical_temperature_pgqa import join_workers
-
-        join_workers(threads, timeout=20)
-        results = [output.get_nowait() for _ in threads]
-        for result in results:
-            if isinstance(result, Exception):
-                raise result
-        self.assertEqual(results[0][0], results[1][0])
-        self.assertEqual(sorted(row[1] for row in results), [False, True])
-        self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
-        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-
     def test_old_snapshot_isolation_cannot_hide_new_relationships(self):
         strain = Strain.objects.create(species=self.box.strain.species, code="ABC-XYZ-1")
         alternative = Box.objects.create(organization=self.organization, strain=self.box.strain,
                                          global_code="ABC-DEF-1.002", box_number="002")
-        # The extra Box is fixture state, not drift: re-baseline before the strict stale check.
-        self.snapshot = {**_current_snapshot(self.organization.pk), "historical_temperatures": []}
         for isolation in ("REPEATABLE READ", "SERIALIZABLE"):
             for sql in (
                 f"UPDATE measurements_biologicalmeasurement SET polyp_count=1 WHERE id={self.biology.pk}",
@@ -341,7 +298,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
             with self.subTest(isolation=isolation), self.assertRaisesMessage(IntegrityError, GUARD_MESSAGE), transaction.atomic():
                 self._sql(f"SET TRANSACTION ISOLATION LEVEL {isolation}")
                 self._insert_reading()
-        self.accept()
+        self.seed_history()
         for isolation in ("REPEATABLE READ", "SERIALIZABLE"):
             with self.subTest(evidence_isolation=isolation), self.assertRaisesMessage(IntegrityError, GUARD_MESSAGE), transaction.atomic():
                 self._sql(f"SET TRANSACTION ISOLATION LEVEL {isolation}")
@@ -402,89 +359,8 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
             join_workers([first, second], timeout=20)
         return dict(output.get_nowait() for _ in range(2))
 
-    def _import_with_table_locks(self):
-        self._sql(_LOCK_SQL)
-        receipt, replay = _accept_locked(self.snapshot, self.partial, b"synthetic-original-workbooks", self.organization, self.actor)
-        return receipt.pk, replay
-
-    def _assert_correction_import_order(self, sql, *, import_first):
-        def correction():
-            self._sql(sql)
-            return "corrected"
-
-        if import_first:
-            results = self._ordered_transactions(self._import_with_table_locks, correction)
-            for result in results.values():
-                if isinstance(result, Exception):
-                    raise result
-            self.assertFalse(results["first"][1])
-            self.assertEqual(results["second"], "corrected")
-            self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "pending_review")
-            self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-        else:
-            results = self._ordered_transactions(correction, self._import_with_table_locks)
-            if isinstance(results["first"], Exception):
-                raise results["first"]
-            self.assertIsInstance(results["second"], PartialImportError)
-            self.assertIn("stale_baseline", str(results["second"]))
-            self.assertFalse(HistoricalTemperatureReading.objects.exists())
-            self.assertFalse(HistoricalTemperatureEvidence.objects.exists())
-
-    def test_table_locked_import_then_count_correction_commits_pending(self):
-        self._assert_correction_import_order(
-            f"UPDATE measurements_biologicalmeasurement SET polyp_count=1 WHERE id={self.biology.pk}", import_first=True,
-        )
-
-    def test_count_correction_then_table_locked_import_rejects_stale_baseline(self):
-        self._assert_correction_import_order(
-            f"UPDATE measurements_biologicalmeasurement SET polyp_count=1 WHERE id={self.biology.pk}", import_first=False,
-        )
-
-    def test_table_locked_import_then_week_correction_commits_pending(self):
-        self._assert_correction_import_order(
-            "UPDATE measurements_biologicalmeasurement SET measured_on=measured_on+7,week_start=week_start+7 "
-            f"WHERE id={self.biology.pk}", import_first=True,
-        )
-
-    def test_week_correction_then_table_locked_import_rejects_stale_baseline(self):
-        self._assert_correction_import_order(
-            "UPDATE measurements_biologicalmeasurement SET measured_on=measured_on+7,week_start=week_start+7 "
-            f"WHERE id={self.biology.pk}", import_first=False,
-        )
-
-    def test_table_locked_import_then_identity_correction_commits_pending(self):
-        self._assert_correction_import_order(
-            f"UPDATE cultures_box SET global_code='ABC-DEF-1.002' WHERE id={self.box.pk}", import_first=True,
-        )
-
-    def test_identity_correction_then_table_locked_import_rejects_stale_baseline(self):
-        self._assert_correction_import_order(
-            f"UPDATE cultures_box SET global_code='ABC-DEF-1.002' WHERE id={self.box.pk}", import_first=False,
-        )
-
-    def test_table_locked_import_then_institution_reassignment_is_rejected(self):
-        results = self._ordered_transactions(self._import_with_table_locks, lambda: self._sql(
-            f"UPDATE cultures_box SET organization_id={self.other.pk} WHERE id={self.box.pk}",
-        ))
-        if isinstance(results["first"], Exception):
-            raise results["first"]
-        self.assertIsInstance(results["second"], IntegrityError)
-        self.box.refresh_from_db()
-        self.assertEqual(self.box.organization_id, self.organization.pk)
-        self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "confirmed")
-
-    def test_institution_reassignment_then_table_locked_import_rejects_stale_baseline(self):
-        results = self._ordered_transactions(lambda: self._sql(
-            f"UPDATE cultures_box SET organization_id={self.other.pk} WHERE id={self.box.pk}",
-        ), self._import_with_table_locks)
-        if isinstance(results["first"], Exception):
-            raise results["first"]
-        self.assertIsInstance(results["second"], PartialImportError)
-        self.assertIn("stale_baseline", str(results["second"]))
-        self.assertFalse(HistoricalTemperatureReading.objects.exists())
-
     def test_direct_evidence_insert_then_count_correction_commits_pending(self):
-        self.accept()
+        self.seed_history()
         results = self._ordered_transactions(self._insert_evidence, lambda: self._sql(
             f"UPDATE measurements_biologicalmeasurement SET polyp_count=1 WHERE id={self.biology.pk}",
         ))
@@ -495,7 +371,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "pending_review")
 
     def test_direct_count_correction_then_evidence_insert_refuses_pending(self):
-        self.accept()
+        self.seed_history()
         results = self._ordered_transactions(lambda: self._sql(
             f"UPDATE measurements_biologicalmeasurement SET polyp_count=1 WHERE id={self.biology.pk}",
         ), self._insert_evidence)
@@ -506,7 +382,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "pending_review")
 
     def test_direct_evidence_insert_then_identity_correction_commits_pending(self):
-        self.accept()
+        self.seed_history()
         results = self._ordered_transactions(self._insert_evidence, lambda: self._sql(
             f"UPDATE cultures_box SET global_code='ABC-DEF-1.002' WHERE id={self.box.pk}",
         ))
@@ -517,7 +393,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "pending_review")
 
     def test_direct_identity_correction_then_evidence_insert_refuses_pending(self):
-        self.accept()
+        self.seed_history()
         results = self._ordered_transactions(lambda: self._sql(
             f"UPDATE cultures_box SET global_code='ABC-DEF-1.002' WHERE id={self.box.pk}",
         ), self._insert_evidence)
@@ -527,9 +403,6 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
         self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
         self.assertEqual(HistoricalTemperatureReading.objects.get().association_status, "pending_review")
 
-    def test_failure_rolls_back_real_postgres_transaction(self):
-        apply_tests.AcceptanceTests.test_audit_failure_rolls_back_all_readings_evidences_and_receipt(self)
-
     def test_empty_guard_migration_round_trip_and_nonempty_rollback_rejection(self):
         # This does not apply/reverse 0011; it exercises only guard DDL on empty storage.
         with connection.schema_editor() as editor:
@@ -537,7 +410,7 @@ class PostgreSQLHistoricalTemperatureTests(TransactionTestCase):
             _GUARDS.backwards(None, editor)
             _GUARDS.forwards(None, editor)
             _RECEIPT.guards(None, editor)
-        self.accept()
+        self.seed_history()
         with self.assertRaises(RuntimeError), connection.schema_editor() as editor:
             _GUARDS.backwards(None, editor)
         self._sql("UPDATE measurements_historicaltemperaturereading SET association_status='pending_review'")

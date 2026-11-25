@@ -12,22 +12,17 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
-from io import StringIO
 from pathlib import Path
 from threading import Barrier
-from time import monotonic, sleep
 from unittest import TestCase, skipUnless
-from unittest.mock import patch
 
 import psycopg
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.management import call_command
 from django.db import DatabaseError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.exceptions import IrreversibleError
-from django.test import TestCase as DjangoTestCase
 from psycopg import sql
 
 from config.migration_test_utils import historical_targets
@@ -38,9 +33,7 @@ from apps.measurements.models import (
 )
 from apps.taxonomy.models import OrganizationSpeciesCode, Species, Strain
 
-from .historical_2026 import cla_box_1902 as correction
-from .test_cla_box_1902 import ClaBox1902Fixture, ClaBox1902Tests
-from .test_cla_box_1902_postgres import ClaBox1902PostgreSQLTests
+from .box_1902_test_fixtures import ClaBox1902Fixture
 from .test_box_1902_preservation_postgres import Box1902PreservationPostgreSQLTests
 
 
@@ -56,18 +49,10 @@ SCOPE = {"organization_id": 1, "box_id": 1902, "source_strain_id": 213,
 
 @skipUnless(LEASE, "Requires scripts/test_historical_temperature_production.py and its fresh PG18 lease")
 class Box1902CorrectionV2PostgreSQLTests(
-    ClaBox1902Tests, ClaBox1902PostgreSQLTests,
     Box1902PreservationPostgreSQLTests, ClaBox1902Fixture, TestCase,
 ):
-    """All legacy acceptance assertions execute here with real v2 logins.
+    """Exercise the installed SQL contract without the retired Python workflow."""
 
-    Assertion mapping: the 33 single-Box tests, 13 PostgreSQL tests and five
-    preservation-prototype tests retain their names in the imported mixins.
-    Their docstrings identify the superseded v1 expectations. The 28 original
-    v2 tests below remain independent acceptance/security proofs.
-    """
-
-    assertNumQueries = DjangoTestCase.assertNumQueries
     correction_tables = {
         "public.cultures_box", "public.cultures_boxcodenamespace", "public.audit_auditlog",
         *(f"box1902_private.{name}" for name in contract.PRIVATE_TABLES),
@@ -75,20 +60,6 @@ class Box1902CorrectionV2PostgreSQLTests(
 
     def assertRaisesMessage(self, exception, message):
         return self.assertRaisesRegex(exception, re.escape(message))
-
-    def assert_planner_read_only(self, observed):
-        self.assertTrue(connection.in_atomic_block)
-        with connection.cursor() as cursor:
-            cursor.execute("SHOW transaction_read_only")
-            self.assertEqual(cursor.fetchone(), ("on",))
-            cursor.execute(
-                "SELECT locktype, mode FROM pg_locks WHERE pid=pg_backend_pid() "
-                "AND (locktype='tuple' OR (locktype='relation' AND mode IN "
-                "('RowShareLock','RowExclusiveLock','ShareRowExclusiveLock',"
-                "'ExclusiveLock','AccessExclusiveLock')))"
-            )
-            self.assertEqual(cursor.fetchall(), [])
-        observed.append(True)
 
     def install_receipt_failure(self):
         """The trusted disposable administrator injects a real receipt-only fault."""
@@ -112,178 +83,6 @@ class Box1902CorrectionV2PostgreSQLTests(
             REVOKE ALL ON FUNCTION public.box1902_receipt_failure() FROM PUBLIC;
         """)
 
-    def install_dependency_mutation(self):
-        self.execute("""
-            CREATE FUNCTION public.box1902_dependency_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN
-                UPDATE public.measurements_observation SET notes='Unexpected synthetic dependency mutation'
-                    WHERE box_id=1902;
-                RETURN NEW;
-            END $$;
-            CREATE TRIGGER box1902_dependency_mutation AFTER UPDATE ON public.cultures_box
-            FOR EACH ROW EXECUTE FUNCTION public.box1902_dependency_mutation();
-            ALTER FUNCTION public.box1902_dependency_mutation() OWNER TO box1902_owner;
-            REVOKE ALL ON FUNCTION public.box1902_dependency_mutation() FROM PUBLIC;
-        """)
-
-    def install_audit_barrier(self):
-        self.execute("""
-            CREATE FUNCTION public.box1902_test_audit_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN
-                PERFORM pg_advisory_xact_lock(19021902);
-                RETURN NEW;
-            END $$;
-            CREATE TRIGGER box1902_test_audit_barrier BEFORE INSERT ON public.audit_auditlog
-            FOR EACH ROW EXECUTE FUNCTION public.box1902_test_audit_barrier();
-            ALTER FUNCTION public.box1902_test_audit_barrier() OWNER TO box1902_owner;
-            REVOKE ALL ON FUNCTION public.box1902_test_audit_barrier() FROM PUBLIC;
-        """)
-
-    def concurrent_python_correction(self, reviewed):
-        """Hold the first real SQL audit while a second Python writer fails NOWAIT."""
-        def worker():
-            connection.close()
-            try:
-                return correction.apply_plan(**SCOPE, actor=self.admin,
-                                             expected_plan_hash=correction.fingerprint(reviewed))
-            finally:
-                connection.close()
-
-        with self.role(contract.EXECUTOR), self.connect() as holder:
-            holder.execute("SELECT pg_advisory_lock(19021902)")
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                first = pool.submit(worker)
-                try:
-                    deadline = monotonic() + 20
-                    while monotonic() < deadline:
-                        waiting = holder.execute(
-                            "SELECT count(*) FROM pg_stat_activity WHERE datname=%s "
-                            "AND usename=%s AND wait_event='advisory' AND pid<>pg_backend_pid()",
-                            [DATABASE, contract.EXECUTOR],
-                        ).fetchone()[0]
-                        if waiting:
-                            break
-                        if first.done():
-                            first.result()
-                            self.fail("First correction did not reach the transactional audit barrier")
-                        sleep(0.02)
-                    else:
-                        self.fail("First correction did not hold its transactional audit")
-                    second = pool.submit(worker)
-                    with self.assertRaises(DatabaseError) as raised:
-                        second.result(timeout=20)
-                    cause = raised.exception
-                    while cause.__cause__ is not None:
-                        cause = cause.__cause__
-                    self.assertEqual(getattr(cause, "sqlstate", None), "55P03")
-                    self.assertFalse(first.done())
-                finally:
-                    holder.execute("SELECT pg_advisory_unlock(19021902)")
-                self.assertEqual(first.result(timeout=20), reviewed)
-
-    def create_extra_reading(self, biology):
-        year, week, _ = biology.measured_on.isocalendar()
-        with transaction.atomic():
-            reading = HistoricalTemperatureReading.objects.create(
-                biological_measurement=biology, iso_year=year, iso_week=week, temperature_c="0.0000",
-            )
-            HistoricalTemperatureEvidence.objects.create(
-                reading=reading, source_file="synthetic-1902.xlsx", source_sha256="a" * 64,
-                sheet="Synthetic", temperature_cell="C3", temperature_merged_range="C3:C4",
-                source_value="0.0000", source_box=biology.box.global_code,
-                polyp_cell="F3", polyp_value=str(biology.polyp_count),
-                ephyrae_cell="F4", ephyrae_value=str(biology.ephyrae_count),
-                week_cell="F1", week_value=str(week), source_iso_year=year, source_iso_week=week,
-            )
-        return reading
-
-    @contextmanager
-    def role(self, user):
-        previous = connection.settings_dict["USER"]
-        if user == previous:
-            yield
-            return
-        if connection.in_atomic_block:
-            raise AssertionError("Commit fixture mutations before switching genuine logins")
-        self.use_django_role(user)
-        try:
-            yield
-        finally:
-            self.use_django_role(previous)
-
-    @contextmanager
-    def fixture_case(self):
-        """Restore a whole cloned database, never bypass immutable-row guards."""
-        saved = "box1902_case_template"
-        connection.close()
-        self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
-            sql.Identifier(saved), sql.Identifier(DATABASE)), database="subculture_qa")
-        self.created_databases.add(saved)
-        self._fixture_case_active = True
-        try:
-            yield
-        finally:
-            self._fixture_case_active = False
-            self.drop_working_database()
-            self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
-                sql.Identifier(DATABASE), sql.Identifier(saved)), database="subculture_qa")
-            self.created_databases.add(DATABASE)
-            self.working_acl()
-            self.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(saved)),
-                         database="subculture_qa")
-            self.created_databases.discard(saved)
-
-    def write_legacy_local_id_conflict(self, box_id, **fields):
-        """Recreate a conflicting pre-0023 Local ID state in this disposable case only.
-
-        The 0023 backfill deliberately leaves conflicting historical codes on
-        Box fields for review instead of rewriting them, so such rows can exist
-        in a migrated database. The current guard refuses to create them, which
-        is correct for application writes. Here the exact row is written by the
-        leased administrator inside fixture_case's cloned database, with
-        ordinary triggers suppressed only for this transaction; the database
-        is restored from its template afterwards. No trigger or function changes.
-        """
-        allowed = {"global_code", "previous_global_code"}
-        if not fields or set(fields) - allowed or not getattr(self, "_fixture_case_active", False):
-            raise AssertionError("Legacy Local ID injection is limited to fixture_case code fields")
-        connection.close()
-        with self.connect(database=DATABASE) as admin:
-            database, directory = admin.execute(
-                "SELECT current_database(), current_setting('data_directory')").fetchone()
-            if database != DATABASE or Path(directory).resolve() != Path(LEASE).resolve():
-                raise RuntimeError("Refuse legacy injection outside the leased disposable database")
-            with admin.transaction():
-                admin.execute("SET LOCAL session_replication_role = replica")
-                assignments = sql.SQL(", ").join(
-                    sql.SQL("{} = %s").format(sql.Identifier(name)) for name in sorted(fields))
-                updated = admin.execute(sql.SQL("UPDATE cultures_box SET {} WHERE id = %s").format(assignments),
-                                        [fields[name] for name in sorted(fields)] + [box_id]).rowcount
-                if updated != 1:
-                    raise AssertionError("Legacy Local ID injection must change exactly one Box")
-            if admin.execute("SHOW session_replication_role").fetchone() != ("origin",):
-                raise RuntimeError("Trigger execution was not restored after legacy injection")
-
-    def plan(self, **overrides):
-        options = self.options(**overrides)
-        correction._scope(**options)
-        with self.role(contract.EXECUTOR):
-            return correction.build_plan(**options)
-
-    def apply(self, *, plan=None, actor=None, **overrides):
-        """Never approve implicitly: positive tests must call approve themselves."""
-        options = self.options()
-        options.update(actor=self.admin if actor is None else actor,
-                       expected_plan_hash=correction.fingerprint(self.plan() if plan is None else plan))
-        options.update(overrides)
-        with self.role(contract.EXECUTOR):
-            return correction.apply_plan(**options)
-
-    def family_plan(self):
-        from .historical_2026 import identity_reconciliation
-        with self.role("subculture_qa"):
-            return identity_reconciliation.build_plan(1, family="cla", target_strain_id=self.target.pk)
-
     @classmethod
     def connect(cls, user="subculture_qa", database=DATABASE):
         from historical_temperature_cluster_lease import connect_leased
@@ -306,6 +105,21 @@ class Box1902CorrectionV2PostgreSQLTests(
         config = {"NAME": DATABASE, "USER": user, "PASSWORD": ""}
         settings.DATABASES["default"].update(config)
         connection.settings_dict.update(config)
+
+    @contextmanager
+    def role(self, user):
+        """Use a genuine login for fixture operations and restore the previous one."""
+        previous = connection.settings_dict["USER"]
+        if user == previous:
+            yield
+            return
+        if connection.in_atomic_block:
+            raise AssertionError("Commit fixture mutations before switching genuine logins")
+        self.use_django_role(user)
+        try:
+            yield
+        finally:
+            self.use_django_role(previous)
 
     @classmethod
     def setUpClass(cls):
@@ -518,12 +332,24 @@ class Box1902CorrectionV2PostgreSQLTests(
     def manifest(self):
         return self.execute("SELECT public.box_1902_manifest_v2()", user=contract.EXECUTOR)[0][0]
 
+    def reviewed_plan(self, manifest=None):
+        """Build a synthetic approval envelope, not an operator planner."""
+        manifest = self.manifest() if manifest is None else manifest
+        return {
+            **SCOPE, "operation": contract.OPERATION, "preservation_contract": contract.OPERATION,
+            "classification": "READY", "conflicts": [], "manifest": manifest,
+            "proposed": {"global_code": "CLC-JKA-1.009", "strain_id": 285},
+            "before": manifest.get("box"), "schema_hash": "a" * 64,
+            "execution": {"mode": "disposable", "target_hash": "b" * 64},
+            "organization": {"id": self.org.pk},
+            "dependencies": {}, "boxes": [], "audits": [], "namespaces": [],
+            "strains": [], "species": [],
+        }
+
     def approve(self, *, manifest=None, actor=None, plan=None, expires=None):
         manifest = self.manifest() if manifest is None else manifest
-        # Even SQL-only negative tests use the dedicated workflow's full reviewed state.
         if plan is None:
-            plan = self.plan()
-            plan["manifest"] = manifest
+            plan = self.reviewed_plan(manifest)
         text = contract.canonical_plan(plan)
         self.execute(contract.approval_sql(
             text, self.admin.pk if actor is None else actor, manifest,
@@ -614,20 +440,6 @@ class Box1902CorrectionV2PostgreSQLTests(
         triggers = self.execute("SELECT tgenabled FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE 'historical_%%'")
         self.assertEqual(triggers, [("O",)] * 11)
 
-    def test_authorized_actual_command_preserves_science_dependencies_and_receipts(self):
-        plan = correction.build_plan(**SCOPE)
-        self.assertEqual(plan["classification"], "READY", plan.get("conflicts"))
-        self.assertEqual(plan["operation"], contract.OPERATION)
-        self.assertEqual(plan["manifest"], self.manifest())
-        digest = self.approve(plan=plan)
-        self.assertEqual(correction.fingerprint(plan), digest)
-        before = self.snapshot()
-        output = StringIO()
-        call_command("correct_cla_box_1902", **SCOPE, apply=True, actor_id=self.admin.pk,
-                     expected_plan_hash=digest, stdout=output)
-        self.assertIn("Applied atomically", output.getvalue())
-        self.assert_preserved(before)
-
     def test_sql_writer_preserves_all_science_and_full_clean_evidence(self):
         digest = self.approve()
         before = self.snapshot()
@@ -696,9 +508,9 @@ class Box1902CorrectionV2PostgreSQLTests(
         for overrides in ({"organization_id": 2}, {"box_id": self.foreign_box.pk},
                           {"target_strain_id": 214}, {"source_species_id": 164}):
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
-                correction.build_plan(**(SCOPE | overrides))
+                self.approve(plan=self.reviewed_plan() | overrides)
         # Even a complete independently supplied plan cannot authorize wrong taxonomy.
-        plan = correction.build_plan(**SCOPE)
+        plan = self.reviewed_plan()
         self.execute("UPDATE taxonomy_strain SET species_id=131 WHERE id=285", user=contract.RUNTIME)
         plan["manifest"] = self.manifest()
         digest = self.approve(plan=plan)
@@ -744,7 +556,7 @@ class Box1902CorrectionV2PostgreSQLTests(
         self.assertEqual(self.snapshot(), before)
 
     def test_approval_cannot_be_replayed_or_reissued(self):
-        plan = correction.build_plan(**SCOPE)
+        plan = self.reviewed_plan()
         digest = self.approve(plan=plan)
         self.write(digest)
         before = self.snapshot()
@@ -782,6 +594,31 @@ class Box1902CorrectionV2PostgreSQLTests(
         self.execute(sql.SQL("CREATE TRIGGER box1902_test_failure BEFORE {} ON {} "
                              "FOR EACH ROW EXECUTE FUNCTION public.box1902_test_failure()").format(
                                  sql.SQL(event), sql.Identifier(*table.split("."))))
+
+    def test_receipt_failure_rolls_back_box_namespaces_and_first_audit(self):
+        digest = self.approve()
+        self.install_receipt_failure()
+        before = self.snapshot()
+        with self.assertRaisesRegex(psycopg.Error, "Single-box receipt unavailable"):
+            self.write(digest)
+        self.assertEqual(self.snapshot(), before)
+
+    def assert_pending_readings_block_writer(self, ids):
+        self.execute(
+            "UPDATE measurements_historicaltemperaturereading SET association_status='pending_review' "
+            "WHERE id = ANY(%s)", [list(ids)], user=contract.RUNTIME,
+        )
+        digest = self.approve()
+        before = self.snapshot()
+        with self.assertRaisesRegex(psycopg.Error, "Exact 41 confirmed readings"):
+            self.write(digest)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_mixed_historical_statuses_reject_correction_without_writes(self):
+        self.assert_pending_readings_block_writer(self.reading_ids[:1])
+
+    def test_all_pending_historical_readings_reject_correction_without_writes(self):
+        self.assert_pending_readings_block_writer(self.reading_ids)
 
     def test_sql_audit_failure_rolls_back_science_context_registry_and_consumption(self):
         digest = self.approve()
@@ -914,34 +751,6 @@ class Box1902CorrectionV2PostgreSQLTests(
         before = self.snapshot()
         self.denied("SELECT public.box_1902_apply_v2(%s,%s)", [self.admin.pk, digest],
                     user=contract.EXECUTOR, state="23514")
-        self.assertEqual(self.snapshot(), before)
-
-    def test_application_postcondition_failure_rolls_back_real_sql_writer(self):
-        plan = correction.build_plan(**SCOPE)
-        self.assertEqual(plan["classification"], "READY", plan.get("conflicts"))
-        digest = self.approve(plan=plan)
-        before = self.snapshot()
-        dependencies = correction.reconciliation._dependencies
-        calls = 0
-        writer_observed = False
-
-        def changed_postcondition(*args, **kwargs):
-            nonlocal calls, writer_observed
-            calls += 1
-            result = dependencies(*args, **kwargs)
-            if calls == 2:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT global_code, strain_id FROM cultures_box WHERE id=1902")
-                    writer_observed = cursor.fetchone() == ("CLC-JKA-1.009", 285)
-                result = deepcopy(result)
-                result["synthetic_postcondition_mismatch"] = True
-            return result
-
-        with patch.object(correction.reconciliation, "_dependencies", side_effect=changed_postcondition):
-            with self.assertRaisesRegex(ValueError, "Scientific or historical state changed during correction"):
-                correction.apply_plan(**SCOPE, actor=self.admin, expected_plan_hash=digest)
-        self.assertEqual(calls, 2)
-        self.assertTrue(writer_observed, "The protected SQL writer must run before the fault")
         self.assertEqual(self.snapshot(), before)
 
     def test_guard_attestation_rejects_drift_instead_of_accepting_cca_schema_shortcut(self):

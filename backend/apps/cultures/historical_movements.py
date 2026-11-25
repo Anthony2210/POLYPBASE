@@ -8,19 +8,13 @@ import hashlib
 import json
 from datetime import datetime, time, timedelta
 
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import connection, transaction
 from django.utils import timezone
 
-from apps.accounts.models import OrganizationMembership
-from apps.accounts.permissions import user_can_administer_organization
 from apps.audit.box_lookup import box_audits
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
-from apps.organizations.models import Organization
 
 from .location_history_diagnostics import _read_only_snapshot
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone
@@ -249,69 +243,3 @@ def _plan(*, organization_id, box_ids, audit_rows=None):
                 row["reconciliation_status"] = "review_required"
     return {"version": VERSION, "policy": POLICY, "organization_id": organization_id, "box_ids": ids,
             "fingerprint": fingerprint(snapshot), "candidates": candidates, "assessments": assessments}
-
-
-def accept_historical_movements(*, organization_id, box_ids, candidate_ids, expected_fingerprint, actor, notes):
-    """Accept exact reviewed candidates atomically; never changes operational history."""
-    if (settings.SETTINGS_MODULE != "config.test_settings" or connection.vendor != "sqlite"
-            or not connection.is_in_memory_db()):
-        raise PermissionDenied("Acceptance is restricted to isolated in-memory test settings.")
-    return _accept_historical_movements(
-        organization_id=organization_id, box_ids=box_ids, candidate_ids=candidate_ids,
-        expected_fingerprint=expected_fingerprint, actor=actor, notes=notes,
-    )
-
-
-@transaction.atomic
-def _accept_historical_movements(*, organization_id, box_ids, candidate_ids, expected_fingerprint, actor, notes):
-    organization = Organization.objects.select_for_update().get(pk=organization_id)
-    list(OrganizationMembership.objects.select_for_update().filter(organization=organization, user_id=actor.pk).order_by("pk"))
-    actor = get_user_model().objects.select_for_update().get(pk=actor.pk)
-    if not actor.is_active or not user_can_administer_organization(actor, organization):
-        raise PermissionDenied("An active institution administrator is required.")
-    boxes = _scope(organization_id, box_ids)
-    ids = [box.pk for box in boxes]
-    list(Box.objects.select_for_update().filter(pk__in=ids).order_by("pk"))
-    list(BoxLocation.objects.select_for_update().filter(box_id__in=ids).order_by("pk"))
-    list(BoxMovement.objects.select_for_update().filter(box_id__in=ids).order_by("pk"))
-    list(BiologicalMeasurement.objects.select_for_update().filter(box_id__in=ids).order_by("pk"))
-    list(ThermalZone.objects.select_for_update().filter(organization=organization).order_by("pk"))
-    list(HistoricalBoxMovement.objects.select_for_update().filter(box_id__in=ids).order_by("pk"))
-    plan = _plan(organization_id=organization_id, box_ids=ids)
-    if not expected_fingerprint or plan["fingerprint"] != expected_fingerprint:
-        raise ValidationError("The historical movement preview has changed.")
-    selected = set(candidate_ids)
-    available = {candidate["id"]: candidate for candidate in plan["candidates"]}
-    if not selected or not selected <= available.keys() or not notes.strip():
-        raise ValidationError("Exact candidate IDs and a review note are required.")
-    if any(available[key]["blockers"] or available[key]["reconciliation_status"] not in ("review_required", "accepted")
-           for key in selected):
-        raise ValidationError("Blocked or already represented historical movement candidates cannot be accepted.")
-    weeks = [(available[key]["box_id"], available[key]["iso_year"], available[key]["iso_week"]) for key in selected]
-    if len(set(weeks)) != len(weeks):
-        raise ValidationError("Several candidates target the same box week.")
-    results = []
-    for key in sorted(selected):
-        candidate = available[key]
-        existing = HistoricalBoxMovement.objects.filter(candidate_key=key).first()
-        if existing:
-            results.append(existing.pk)
-            continue
-        evidence = candidate["evidence"]
-        event = HistoricalBoxMovement(
-            box_id=candidate["box_id"], iso_year=candidate["iso_year"], iso_week=candidate["iso_week"],
-            from_thermal_zone_id=candidate["from_thermal_zone_id"], to_thermal_zone_id=candidate["to_thermal_zone_id"],
-            origin_location_id=evidence["origin_location_id"], destination_location_id=evidence["destination_location_id"],
-            candidate_key=key, plan_fingerprint=expected_fingerprint, evidence=evidence, accepted_by=actor, notes=notes.strip(),
-        )
-        event.save(force_insert=True)
-        AuditLog.objects.create(
-            organization=organization, user=actor, action=AuditLog.Action.CREATION,
-            object_type="box", object_id=next(box.global_code for box in boxes if box.pk == event.box_id),
-            description="Historical week-only movement reconstruction accepted",
-            metadata={"event": VERSION, "policy": POLICY, "box_id": event.box_id,
-                      "historical_movement_id": event.pk, "candidate_id": key,
-                      "plan_fingerprint": expected_fingerprint, "evidence": evidence, "notes": event.notes},
-        )
-        results.append(event.pk)
-    return results

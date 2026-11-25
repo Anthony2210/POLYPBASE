@@ -10,7 +10,6 @@ from decimal import Decimal
 from unittest import skipUnless
 from unittest.mock import Mock, patch
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
@@ -21,8 +20,8 @@ from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box
 
-from . import services, test_historical_temperature_apply as apply_tests
-from .historical_temperature_partial import PartialImportError
+from . import services
+from .historical_temperature_test_fixtures import HistoricalTemperatureFixture, evidence
 from .models import (
     BiologicalMeasurement,
     HistoricalTemperatureEvidence,
@@ -30,27 +29,18 @@ from .models import (
     HistoricalTemperatureReading,
 )
 from .temperature_series import historical_temperature_point
-from .test_historical_temperature_plan import evidence
 
 
 @skipUnless(connection.vendor == "sqlite", "Requires isolated SQLite settings")
-class HistoricalTemperatureCorrectionTests(TestCase):
-    # Import the module, not its TestCase, to avoid collecting its tests again.
-    _set_up_acceptance = apply_tests.AcceptanceTests.setUp
-    accept = apply_tests.AcceptanceTests.accept
-
+class HistoricalTemperatureCorrectionTests(HistoricalTemperatureFixture, TestCase):
     def setUp(self):
-        self._set_up_acceptance()
+        self.set_up_biology()
         self.membership = OrganizationMembership.objects.create(
             user=self.actor,
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
-        self.receipt, replay = self.accept()
-        self.assertFalse(replay)
-        self.reading = HistoricalTemperatureReading.objects.get(
-            biological_measurement=self.biology,
-        )
+        self.reading = self.seed_history()
         self.assertEqual(self.reading.association_status, "confirmed")
         self.original_history = self.history()
         self.original_biology = BiologicalMeasurement.objects.values().get(pk=self.biology.pk)
@@ -461,28 +451,6 @@ class HistoricalTemperatureCorrectionTests(TestCase):
         )
         self.assertIsNone(historical_temperature_point(**self.projection_values()))
 
-    def test_pending_importer_replay_is_stale_then_requires_review_after_numbers_reset(self):
-        self.correct({"polyp_count": 7, "ephyrae_count": 3})
-        before = self.state()
-        with self.assertRaisesMessage(PartialImportError, "stale_baseline:biological_measurements"):
-            self.accept()
-        self.assertEqual(self.state(), before)
-        self.correct({"polyp_count": 0, "ephyrae_count": 0})
-        self.assertEqual(apply_tests._current_snapshot(self.organization.pk), {
-            key: self.snapshot[key] for key in ("boxes", "biological_measurements")
-        })
-        before = self.state()
-        for _ in range(2):
-            with self.assertRaisesMessage(PartialImportError, "pending_association_requires_review"):
-                self.accept()
-            self.assertEqual(self.state(), before)
-        self.assert_history_preserved("pending_review")
-        self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
-        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-        self.assertEqual(HistoricalTemperatureImportReceipt.objects.count(), 1)
-        self.assertEqual(AuditLog.objects.filter(object_type="historical_temperature_import").count(), 1)
-        self.assertEqual(AuditLog.objects.filter(action=AuditLog.Action.UPDATE).count(), 2)
-
     def test_projection_requires_persisted_status_and_rejects_unknown_status(self):
         values = self.projection_values()
         values.pop("association_status")
@@ -533,3 +501,57 @@ class HistoricalTemperatureCorrectionTests(TestCase):
                 reading=self.reading, **evidence(source_value="0.000", polyp_cell="F11", ephyrae_cell="F12"),
             )
         self.assertEqual(self.state(), before)
+
+
+class HistoricalTemperaturePersistedValidationTests(HistoricalTemperatureFixture, TestCase):
+    def setUp(self):
+        self.set_up_biology()
+
+    def test_direct_evidence_write_checks_stored_counts_even_with_stale_cache(self):
+        reading = HistoricalTemperatureReading.objects.create(biological_measurement=self.biology, iso_year=2026, iso_week=1, temperature_c="0")
+        values = evidence(source_value="0", polyp_value="1")
+        reading.biological_measurement.polyp_count = 1
+        with self.assertRaises(ValidationError):
+            HistoricalTemperatureEvidence.objects.create(reading=reading, **values)
+        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 0)
+
+    def test_direct_orm_evidence_rejects_mismatched_original_source_box(self):
+        reading = HistoricalTemperatureReading.objects.create(
+            biological_measurement=self.biology, iso_year=2026, iso_week=1, temperature_c="0",
+        )
+        for label in ("ABC-DEF-1.002", "ABC-XYZ-1.001", "ABC-DEF-1.0001", "abc-def-1.001"):
+            with self.subTest(label=label), self.assertRaises(ValidationError) as error:
+                HistoricalTemperatureEvidence.objects.create(reading=reading, **evidence(
+                    source_value="0", source_box=label,
+                ))
+            self.assertIn("source_box", error.exception.message_dict)
+        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 0)
+        # Even a fabricated cached Box identity must not validate an insertion.
+        reading.biological_measurement.box.global_code = "ABC-DEF-1.002"
+        with self.assertRaises(ValidationError):
+            HistoricalTemperatureEvidence.objects.create(reading=reading, **evidence(
+                source_value="0", source_box="ABC-DEF-1.002",
+            ))
+        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 0)
+        for index, label in enumerate(("ABC-DEF-1.1", "ABC-DEF-1.01", "ABC-DEF-1.001")):
+            HistoricalTemperatureEvidence.objects.create(reading=HistoricalTemperatureReading.objects.get(pk=reading.pk),
+                **evidence(source_value="0", source_box=label, polyp_cell=f"F{11 + 2 * index}",
+                           ephyrae_cell=f"F{12 + 2 * index}"))
+        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 3)
+
+    def test_receipt_preserves_actor_identity_without_blocking_account_removal(self):
+        self.seed_history()
+        receipt = self.receipt
+        actor_id = self.actor.pk
+        self.actor.delete()
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.actor_id, actor_id)
+
+    def test_evidence_and_receipt_orm_immutability(self):
+        self.seed_history()
+        receipt = self.receipt
+        for item in (receipt, HistoricalTemperatureEvidence.objects.first(), HistoricalTemperatureReading.objects.first()):
+            with self.assertRaises(ValidationError):
+                item.save()
+            with self.assertRaises(ValidationError):
+                item.delete()

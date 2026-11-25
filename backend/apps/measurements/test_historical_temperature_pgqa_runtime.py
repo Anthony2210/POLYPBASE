@@ -13,7 +13,6 @@ from queue import Queue
 from threading import Barrier, Event, Thread
 from time import monotonic, sleep
 from unittest import skipUnless
-from unittest.mock import patch
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
@@ -22,11 +21,9 @@ from django.conf import settings
 from django.db import DatabaseError, connection, connections, transaction
 from django.test import TransactionTestCase
 
-from . import test_historical_temperature_apply as apply_tests
 from . import test_historical_temperature_corrections as correction_tests
 from . import test_historical_temperature_postgres as postgres_tests
-from .historical_temperature_apply import _accept_locked, _validate_target
-from .historical_temperature_partial import PartialImportError
+from .historical_temperature_test_fixtures import HistoricalTemperatureFixture
 from .models import (
     BiologicalMeasurement,
     HistoricalTemperatureEvidence,
@@ -43,7 +40,6 @@ _ENABLED = (
 _REASON = "Requires the explicitly authorized disposable PG18 runtime-role harness"
 _OWNER = os.getenv("POLYPBASE_QA_OWNER")
 _RUNTIME = os.getenv("POLYPBASE_QA_RUNTIME")
-_LOCK_SQL = postgres_tests._LOCK_SQL
 _TRIGGER_TABLES = {
     "historical_box_guard": "cultures_box",
     "historical_biology_guard": "measurements_biologicalmeasurement",
@@ -82,13 +78,13 @@ def _runtime_test(method):
     return run
 
 
-class _RuntimePGTestCase(TransactionTestCase):
+class _RuntimePGTestCase(HistoricalTemperatureFixture, TransactionTestCase):
     """No inherited test methods: only explicitly selected proofs are collected."""
 
     _sql = postgres_tests.PostgreSQLHistoricalTemperatureTests._sql
     _insert_evidence = postgres_tests.PostgreSQLHistoricalTemperatureTests._insert_evidence
     _insert_reading = postgres_tests.PostgreSQLHistoricalTemperatureTests._insert_reading
-    _set_up_fixture = apply_tests.AcceptanceTests.setUp
+    _set_up_fixture = HistoricalTemperatureFixture.set_up_biology
 
     def setUp(self):
         _harness().assert_disposable(connection)
@@ -124,25 +120,6 @@ class _RuntimePGTestCase(TransactionTestCase):
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('lock_timeout', %s, true)", [lock_timeout])
             cursor.execute("SET LOCAL statement_timeout = '15s'")
-
-    def _accept_in_transaction(self, *, organization=None):
-        self._sql(_LOCK_SQL)
-        return _accept_locked(
-            self.snapshot, self.partial, b"synthetic-original-workbooks",
-            self.organization if organization is None else organization, self.actor,
-        )
-
-    def accept(self, partial=None, organization=None):
-        with transaction.atomic():
-            self.bounded_transaction()
-            self._sql(_LOCK_SQL)
-            result = _accept_locked(
-                self.snapshot, self.partial if partial is None else partial,
-                b"synthetic-original-workbooks",
-                self.organization if organization is None else organization, self.actor,
-            )
-            self._sql("SET CONSTRAINTS ALL IMMEDIATE")
-            return result
 
     def assert_aborted(self):
         # ORM failures can set needs_rollback. Probe the actual driver as well,
@@ -307,80 +284,8 @@ class HistoricalTemperatureRuntimePrivilegesTests(_RuntimePGTestCase):
         self._sql("SELECT 1")
 
 
-@skipUnless(_ENABLED, _REASON)
-class HistoricalTemperatureRuntimeAcceptanceTests(_RuntimePGTestCase):
-    test_sql_update_delete_and_truncate_cannot_bypass_orm = _runtime_test(
-        postgres_tests.PostgreSQLHistoricalTemperatureTests.test_sql_update_delete_and_truncate_cannot_bypass_orm)
-    test_raw_evidence_inserts_preserve_scientific_consistency = _runtime_test(
-        postgres_tests.PostgreSQLHistoricalTemperatureTests.test_raw_evidence_inserts_preserve_scientific_consistency)
-    test_orphan_reading_is_rejected_at_commit_and_rolled_back = _runtime_test(
-        postgres_tests.PostgreSQLHistoricalTemperatureTests.test_orphan_reading_is_rejected_at_commit_and_rolled_back)
-
-    @_runtime_test
-    def test_real_locked_acceptance_preserves_zero_evidence_receipt_and_replay(self):
-        before = BiologicalMeasurement.objects.values().get(pk=self.biology.pk)
-        receipt, replay = self.accept()
-        self.assertFalse(replay)
-        self.assertEqual(HistoricalTemperatureReading.objects.get().temperature_c, "0.000")
-        self.assertCountEqual(list(HistoricalTemperatureEvidence.objects.values_list("source_value", flat=True)),
-                              ["0", "0.000"])
-        self.assertEqual(HistoricalTemperatureImportReceipt.objects.count(), 1)
-        self.assertEqual(receipt.organization_id, self.organization.pk)
-        self.assertEqual(receipt.actor_id, self.actor.pk)
-        self.assertEqual(receipt.accepted_plan, self.partial)
-        self.assertEqual(bytes(receipt.source_archive), b"synthetic-original-workbooks")
-        self.assertEqual(receipt.results, [{
-            "biological_measurement_id": self.biology.pk,
-            "reading_id": HistoricalTemperatureReading.objects.get().pk,
-        }])
-        again, replay = self.accept()
-        self.assertTrue(replay)
-        self.assertEqual(again.pk, receipt.pk)
-        self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
-        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-        self.assertEqual(AuditLog.objects.filter(object_type="historical_temperature_import").count(), 1)
-        self.assertEqual(BiologicalMeasurement.objects.values().get(pk=self.biology.pk), before)
-        self.assertFalse(getattr(settings, "HISTORICAL_TEMPERATURE_LOCAL_UI_APPLY_ENABLED", False))
-        with self.assertRaisesMessage(PartialImportError, "unsafe_or_disabled_target"):
-            _validate_target()
-
-    @_runtime_test
-    def test_foreign_organization_cannot_resolve_acceptance_ids(self):
-        before = list(BiologicalMeasurement.objects.values())
-        with self.assertRaises(BiologicalMeasurement.DoesNotExist):
-            self.accept(organization=self.other)
-        self.assertEqual(list(BiologicalMeasurement.objects.values()), before)
-        self.assertFalse(HistoricalTemperatureReading.objects.exists())
-        self.assertFalse(HistoricalTemperatureEvidence.objects.exists())
-        self.assertFalse(HistoricalTemperatureImportReceipt.objects.exists())
-        self.assertFalse(AuditLog.objects.exists())
-
-    @_runtime_test
-    def test_import_audit_failure_rolls_back_all_staged_history_and_clean_retry(self):
-        create = AuditLog.objects.create
-
-        def fail_after_audit(**kwargs):
-            create(**kwargs)
-            self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
-            self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-            self.assertEqual(HistoricalTemperatureImportReceipt.objects.count(), 1)
-            raise RuntimeError("Synthetic runtime import audit failure")
-
-        with (
-            patch.object(AuditLog.objects, "create", side_effect=fail_after_audit),
-            self.assertRaisesMessage(RuntimeError, "Synthetic runtime import audit failure"),
-        ):
-            self.accept()
-        for model in (HistoricalTemperatureReading, HistoricalTemperatureEvidence,
-                      HistoricalTemperatureImportReceipt, AuditLog):
-            self.assertFalse(model.objects.exists())
-        self.assertFalse(self.accept()[1])
-        self.assertTrue(self.accept()[1])
-
-
 class _CorrectionFixture:
     _set_up_fixture = correction_tests.HistoricalTemperatureCorrectionTests.setUp
-    _set_up_acceptance = apply_tests.AcceptanceTests.setUp
     history = correction_tests.HistoricalTemperatureCorrectionTests.history
     state = correction_tests.HistoricalTemperatureCorrectionTests.state
     correct = correction_tests.HistoricalTemperatureCorrectionTests.correct
@@ -416,8 +321,6 @@ class HistoricalTemperatureRuntimeCorrectionTests(_CorrectionFixture, _RuntimePG
         correction_tests.HistoricalTemperatureCorrectionTests.test_pending_projection_stays_excluded_after_counts_reset_and_later_notes)
     test_return_to_original_date_does_not_reconfirm_association = _runtime_test(
         correction_tests.HistoricalTemperatureCorrectionTests.test_return_to_original_date_does_not_reconfirm_association)
-    test_pending_importer_replay_is_stale_then_requires_review_after_numbers_reset = _runtime_test(
-        correction_tests.HistoricalTemperatureCorrectionTests.test_pending_importer_replay_is_stale_then_requires_review_after_numbers_reset)
     test_pending_reading_evidence_and_receipt_remain_orm_immutable = _runtime_test(
         correction_tests.HistoricalTemperatureCorrectionTests.test_pending_reading_evidence_and_receipt_remain_orm_immutable)
 
@@ -434,61 +337,10 @@ class HistoricalTemperatureRuntimeCorrectionTests(_CorrectionFixture, _RuntimePG
         self.assertEqual(self.state(), before)
         self.assert_history_preserved("pending_review")
 
-
 @skipUnless(_ENABLED, _REASON)
-class HistoricalTemperatureRuntimeFailureTests(_RuntimePGTestCase):
-    def test_audit_lock_timeout_aborts_entire_import_then_clean_retry(self):
-        ready, release = Event(), Event()
-        original = BiologicalMeasurement.objects.values().get(pk=self.biology.pk)
-
-        def holder():
-            try:
-                with transaction.atomic():
-                    self.bounded_transaction()
-                    table = connection.ops.quote_name(AuditLog._meta.db_table)
-                    self._sql(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE")
-                    ready.set()
-                    if not release.wait(timeout=10):
-                        raise TimeoutError("Audit lock holder was not released")
-            finally:
-                ready.set()
-            return "released"
-
-        def importer():
-            try:
-                self.assertTrue(ready.wait(timeout=5), "Audit lock holder never became ready")
-                with transaction.atomic():
-                    self.bounded_transaction(lock_timeout="300ms")
-                    create = AuditLog.objects.create
-
-                    def blocked_audit(**kwargs):
-                        self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
-                        self.assertEqual(HistoricalTemperatureEvidence.objects.count(), 2)
-                        self.assertEqual(HistoricalTemperatureImportReceipt.objects.count(), 1)
-                        return create(**kwargs)
-
-                    with (
-                        patch.object(AuditLog.objects, "create", side_effect=blocked_audit),
-                        self.assertRaises(DatabaseError) as caught,
-                    ):
-                        self._accept_in_transaction()
-                    self.assertEqual(_sqlstate(caught.exception), "55P03")
-                    self.assert_aborted()
-                return "55P03"
-            finally:
-                release.set()
-
-        self.assertEqual(self.run_workers(holder, importer), ["released", "55P03"])
-        for model in (HistoricalTemperatureReading, HistoricalTemperatureEvidence,
-                      HistoricalTemperatureImportReceipt, AuditLog):
-            self.assertFalse(model.objects.exists())
-        self.assertEqual(BiologicalMeasurement.objects.values().get(pk=self.biology.pk), original)
-        with self.runtime_session():
-            self.assertFalse(self.accept()[1])
-            self.assertTrue(self.accept()[1])
-
+class HistoricalTemperatureRuntimeEvidenceTests(_RuntimePGTestCase):
     def test_duplicate_evidence_race_has_one_unique_violation_and_clean_retry(self):
-        self.accept()
+        self.seed_history()
         ready, release = Event(), Event()
         first_pid, second_pid = Queue(), Queue()
 

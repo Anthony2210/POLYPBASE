@@ -304,7 +304,7 @@ Avant d'ajouter une contrainte sur des données existantes, diagnostiquer en lec
 
 - Depuis `backend/`, lancer `uv run python manage.py test --settings=config.test_settings --noinput` pour la découverte Django; ajouter un module (par exemple `apps.sharing`) pour un contrôle ciblé.
 - Exécuter `check` et `makemigrations --check --dry-run` avec `--settings=config.preflight_settings`, dans la même session enfant vérifiée.
-- Un skip PostgreSQL ne valide ni les verrous, ni les contraintes, ni les migrations PostgreSQL. Consulter les workflows spécialisés (mouvements, révisions, PCA) pour les prérequis des suites jetables.
+- Un skip PostgreSQL ne valide ni les verrous, ni les contraintes, ni les migrations PostgreSQL. Consulter les workflows spécialisés des [mouvements](../../.github/workflows/historical-movements-postgres.yml) et des [révisions](../../.github/workflows/history-revision-postgres.yml) pour les prérequis de leurs suites jetables. Le workflow de campagne PCA est archivé.
 - Pour un changement transversal, vérifier permissions négatives, audit et rollback; sur les mesures couvrir zéro, absence, concurrence et conflit hebdomadaire.
 
 Voir la procédure distincte de [déploiement](deploiement-exploitation.md); ces contrôles n'autorisent pas d'action sur la VM.

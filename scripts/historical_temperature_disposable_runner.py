@@ -21,22 +21,6 @@ PREVIOUS = ("measurements", "0017_bucket_probe_last_measured_index")
 
 
 class DisposableCreation(DatabaseCreation):
-    def record_diagnostic(self, name, stage):
-        if os.environ.get("POLYPBASE_HT_DIAGNOSE_LEGACY_GUARDS") != "1":
-            return
-        from historical_temperature_guard_diagnostic import record_guard_diagnostic
-
-        original = deepcopy(self.connection.settings_dict)
-        self.connection.close()
-        self.connection.settings_dict.update(
-            NAME=name, USER=contract.RUNTIME,
-            OPTIONS={"options": "-c lock_timeout=10000 -c statement_timeout=120000"},
-        )
-        try:
-            record_guard_diagnostic(self.connection, stage)
-        finally:
-            self.connection.close()
-            self.connection.settings_dict.update(original)
 
     def admin_connection(self, database):
         launch = require_launch()
@@ -68,7 +52,7 @@ class DisposableCreation(DatabaseCreation):
         try:
             name = super().create_test_db(*args, **kwargs)
             contract.attest(self.connection, allow_retired=False)
-            self.record_diagnostic(name, "after_0018")
+
             print("Disposable QA: 0018 installed and SQL guards attested as "
                   "box1902_migrator SET ROLE box1902_owner", flush=True)
             return name
@@ -105,7 +89,7 @@ class DisposableCreation(DatabaseCreation):
             self.connection.settings_dict.update(original)
         with self.admin_connection(name) as admin:
             admin.execute(contract.provision_sql())
-        self.record_diagnostic(name, "before_0018")
+
         self.connection.settings_dict["USER"] = contract.MIGRATOR
         self.connection.settings_dict["OPTIONS"] = {
             **original["OPTIONS"],

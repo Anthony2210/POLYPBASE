@@ -27,7 +27,8 @@ from .effective_history import (
     AdjustEventKind, AdjustEventTemporal, AdjustEventZones, EventKind, EventTarget, InsertEvent,
     ModifyEvent, TemporalPosition,
 )
-from .historical_movements import accept_historical_movements, plan_historical_movements
+from .historical_movement_test_fixtures import record_reconstruction
+from .historical_movements import plan_historical_movements
 from .history_preview_api import BoxHistoryPreviewAPIView
 from .history_preview_serializers import HistoryPreviewResponseSerializer
 from .history_preview_validation import MAX_JUSTIFICATIONS, MAX_OPERATIONS, OperationJustification
@@ -376,11 +377,7 @@ class HistoryPreviewAPITests(TestCase):
         for instant in (boundary - timedelta(days=7), boundary):
             BiologicalMeasurement.objects.create(box=box, measured_on=instant.date(), polyp_count=0, ephyrae_count=0)
         plan = plan_historical_movements(organization_id=self.org.pk, box_ids=[box.pk])
-        accept_historical_movements(
-            organization_id=self.org.pk, box_ids=[box.pk], candidate_ids=[plan["candidates"][0]["id"]],
-            expected_fingerprint=plan["fingerprint"], actor=self.admin, notes="Synthetic reviewed week",
-        )
-        receipt = HistoricalBoxMovement.objects.get(box=box)
+        receipt = record_reconstruction(box=box, actor=self.admin, plan=plan, reviewed=True)
         before = self.snapshot()
         result = self.success(self.request(box=box, payload={"start": start.isoformat(), "end": boundary.isoformat()}))
         events = {item["identity"]["key"]: item for item in result["before"]["history"]["events"]}

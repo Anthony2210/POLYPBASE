@@ -33,61 +33,15 @@ Ne pas généraliser ce contrat à un autre import sans l'inspecter. Une valeur 
 
 `initialize_box_inventory` est une commande distincte pour qualifier un lot historique : institution obligatoire, simulation par défaut, contrôle du nombre et de l'empreinte attendus, puis marqueur empêchant une réinitialisation implicite. Elle ne constitue pas une règle générale pour les futurs imports.
 
-## Import historique 2026 (manifeste revu)
+## Campagnes ponctuelles archivées
 
-L'import du classeur `Suivi_2026_actualisé.xlsx` ne relit jamais Excel en production. Le code de `backend/apps/cultures/historical_2026/` sépare : lecteur XLSX en bibliothèque standard (`workbook.py`), décisions explicites (`decisions.py`), génération du manifeste (`source.py`, `manifest.py`) et service d'import (`importer.py`). Le manifeste `manifest_2026.json` est versionné et se régénère de façon déterministe :
+L’import du classeur 2026 (génération du manifeste, import, nettoyage ciblé et désactivations associées) et les correcteurs dédiés CLA/SME, Box 1902, PCA, espèces et températures historiques ne sont plus des procédures disponibles. Les commandes dédiées CCA-EOB avaient déjà été retirées. Les imports normalisés et l’applicateur exact-date décrits ci-dessus sont distincts de ces campagnes.
 
-```text
-uv run python manage.py build_historical_2026_manifest --workbook <chemin> [--write]
-```
-
-Sans `--write`, la commande vérifie seulement que le manifeste versionné est identique. Le SHA-256 du classeur est contrôlé avant tout traitement et tout autre classeur est refusé. Le manifeste porte une empreinte (`fingerprint`) recalculée à chaque chargement.
-
-Règles confirmées (aucune n'est généralisée) : la colonne E (récapitulatif 2025) est exclue; la colonne de `Semaestomeae` dont l'en-tête est « - » vaut S20; seuls `ASP-EVA1.01` et `CLA-JKA1.10` sont corrigés; pour les lignes `TTH-AVI-1.09` repérées, la ligne « Nb éphyrules » contient les polypes; seul le bloc continu à 15 °C de `CCO-JKA-1.04` est importé, le bloc isolé à 10 °C reste visible comme source exclue; `strobila = NULL`, `user = NULL`, `measured_on` = lundi ISO. Les valeurs cachées sous une cellule fusionnée (hors ancre) sont ignorées comme dans Excel.
-
-`import_historical_2026` classe chaque ligne contre l'état courant de la base : `EXACT_ALREADY_PRESENT`, `CREATE`, `EXPECTED_EXPLICIT_CORRECTION`, `CONFLICT`, `MISSING_BOX`, `IDENTITY_MISMATCH`, `EXCLUDED_SOURCE`. Le défaut est la simulation. `--apply` exige `--expected-fingerprint`, `--expected-plan-hash` (affiché par la simulation revue) et `--actor` (administrateur actif de l'institution). Tout `CONFLICT` ou `IDENTITY_MISMATCH` interrompt l'application sans écriture; une semaine déjà occupée avec les mêmes comptes est satisfaite, avec d'autres comptes elle est un conflit. Aucune boîte n'est réactivée. Les boîtes manquantes sont créées en `pending_review`, sans emplacement ni date inventés, avec Species/Strain opérationnelles issues de l'étiquette source. La seule correction de valeur est `LDR-JAP-1.001` S18 : 80/8 vers 80/0, sous garde de l'ancien état exact et avec audit. `COR-JIS-1.001` devient `ATO-JIS-1.001` par renommage de la même boîte (historique d'audit et étiquette QR suivent, aucun doublon); si les deux codes existent, l'import est refusé. L'exception d'étiquette `CLA-JKA-1` (D11) reste une preuve consignée : une boîte Chrysaora lactea dont la souche existante porte une autre espèce est un `IDENTITY_MISMATCH` bloquant jusqu'à décision, jamais une réaffectation silencieuse. De même, les boîtes existantes `CLA-JKA-1.009` et `CLA-JKA-1.010` ne reçoivent aucun relevé si l'espèce persistée de leur souche contredit la source; l'application revérifie boîte, souche et espèce sous verrou avant toute écriture. Les autres différences d'étiquette restent informatives.
-
-**Réconciliation CLA/SME, décision Anthony du 2026-10-27 — implémentation locale compatible PostgreSQL, pas prête pour exploitation :** `correct_historical_identities` réattribue les dix CLA historiques à lactea, conserve les codes `.001`–`.008` et permet uniquement les renommages V2 `.009/.010` vers CLC sur les mêmes PK. Cette dérogation à l'ancienne interdiction D11 ne concerne que ces deux correspondances démontrées. Les huit SME-JKA-1 approuvées sont réattribuées à `Stomolophus sp.2` en conservant tous leurs codes SME. Les SSP `.008`–`.010` coexistantes sont observationnelles et ne bloquent plus cette seule correction biologique ; leurs Box et historiques restent séparés et intacts. Leur équivalence physique avec les SME, une fusion ou un renommage SME → SSP restent non démontrés et bloqués (`physical_continuity = NOT_ASSERTED`). En revanche, ancienne CLA et cible CLC simultanément présentes pour `.009/.010` constituent une vraie collision de renommage bloquante. Codes réservés, références incompatibles et états cibles sans reçu exact bloquent toujours.
-
-La correction exige une **cible existante éligible**, pas nécessairement détenue : une souche globale peut être réutilisée grâce à des Box propres préexistantes, sans appropriation ni `LocalStrainIdentity` ajoutée à cette référence globale. La commande additive distincte `prepare_historical_identity_references --organization-id --family cla|sme --source-strain-id [--target-strain-id]` prépare les références exactes manquantes sans modifier aucune Box ou référence préexistante ; les deux commandes utilisent `--actor-id`, `--expected-plan-hash`, `--apply`, simulation par défaut. Faits **communiqués par l'utilisateur, non vérifiés par l'agent** pour l'organisation 1 : source CLA partagée 213 à préserver intégralement ; lactea / CLC manquants, préparation possible de Species, attributions AAA CLA/CLC, Strain détenue `CLC-JKA-1` et identité locale, provenance inconnue NULL sans inférence d'identité globale ; source SME 245, cible globale 247 / `Stomolophus sp.2` déjà éligible par cinq Box propres initiales, préparation des seules attributions AAA SME/SSP absentes. Ces faits doivent être revérifiés au préflight. Préparation et correction sont des opérations atomiques distinctes, chacune par famille, avec nouveau plan après préparation.
-
-La restriction initiale à SQLite en mémoire sous `config.test_settings` est dépassée. `identity_execution.py` implémente une simulation PostgreSQL **REPEATABLE READ READ ONLY sans verrous**, sous settings applicatifs existants `config.settings`, cible root attestée, runtime non privilégié et authentification peer par socket Unix local ; aucun accès VM de l'agent n'en découle. L'application exige maintenance, autorisation root séparée liée au hash exact, sauvegarde fraîche indépendamment restaurée pour chaque phase et famille (fraîcheur maximale d'une heure), puis barrière **EXCLUSIVE NOWAIT sur toutes les tables managed et `django_migrations`, avant les verrous de lignes**, revalidation du schéma, des permissions et du plan avant mutation. Tout échec de verrou ferme la transaction, sans politique de retry automatique. Données scientifiques, lifecycle, emplacements, lignées, `local_code`, `previous_global_code` et anciens audits restent inchangés ; seuls rattachement biologique, deux codes CLA autorisés, réservations et nouveaux audits / reçus sont concernés par la correction. Le manifeste scellé et le correcteur CAC/OCE restent inchangés ; le rejeu de l'import ancien ne doit pas recréer les deux anciennes CLA, et la protection HS suit `CLC-JKA-1.009` sans autoriser sa désactivation.
-
-Dernière validation **communiquée par le responsable d'intégration, non relancée ni vérifiée directement ici** : **39 tests réussis, 0 ignoré (17 PostgreSQL + 22 réservations)** sur un nouveau cluster PostgreSQL **18.6** jetable puis supprimé. L'échec transitoire NOWAIT du run précédent est un arrêt fermé, pas une autorisation de retry. Les 175 tests SQLite antérieurs ne valident pas les derniers changements ; suite finale élargie en attente du responsable. Preuves sources et contrat courant : [`../cla-sme-identity-reconciliation.md`](../archive/2026-11-cla-sme/cla-sme-identity-reconciliation.md). Procédure opérateur : [`../cla-sme-postgresql-operations.md`](../archive/2026-11-cla-sme/cla-sme-postgresql-operations.md), dont le tableau à 37 tests est un jalon antérieur. **Aucune autorisation de production** : revue finale, release approuvée, documents root, sauvegardes réellement restaurées et préflight réel séparément autorisé restent nécessaires.
-
-Catégories supplémentaires : `EXPECTED_TTH_CORRECTION` (la valeur stockée est exactement la lecture littérale inversée des mêmes cellules, à la même date; correction gardée et auditée, idempotente) et `EXPECTED_TEST_DATA_COLLISION` (créneau occupé par une mesure de test revue). Cette dernière bloque `--apply` tant que `cleanup_reviewed_test_data` n'a pas été exécuté; l'import ne supprime jamais de donnée de test. Séquence : simulation du nettoyage, application du nettoyage, nouvelle simulation de l'import (les créneaux deviennent `CREATE`), puis application de l'import.
-
-`cleanup_reviewed_test_data` (simulation par défaut) ne supprime que les neuf mesures, l'îlot de la boîte 2312 (emplacement, lignée, événement) et les entrées d'audit revues, après vérification de leurs champs et de la fermeture des dépendances sous verrou; tout écart bloque. Un reçu d'audit conserve l'instantané des objets retirés.
-
-`deactivate_hs_boxes` est une commande séparée (simulation par défaut, mêmes garde-fous) qui réutilise `deactivate_box` pour la liste validée par Étienne. `CTU-CFC-2.007` reste `PENDING_CONFIRMATION`.
-
-## Températures historiques 2020–2026 : procédure de production préparée
-
-`historical_temperature_production` sépare explicitement `plan`, `backup`, `apply`
-et `postcheck`, avec organisation 1, administrateur actif, cible attestée, plan
-post-fusion PCA recalculé, sauvegarde vérifiée et autorisation liée au hash exact.
-Il réutilise le pipeline scientifique existant et exclut les associations ambiguës;
-il ne réutilise ni le snapshot QA ni son ancien plan de 40 291 associations.
-Les températures/preuves, reçu et audit sont atomiques. Le workflow `761cd02` et
-sa fiabilisation `23bf6e7` sont intégrés à `main` et ancêtres de `cb07a2c`, dont le
-déploiement est rapporté par l'opérateur. Cette intégration et ce déploiement
-rapporté ne prouvent ni la préparation réelle de l'infrastructure, ni l'exécution
-d'un import ou sa validation scientifique, et ne valent aucune autorisation. Procédure opérateur,
-verrous globaux, limites de sauvegarde/replay et résultats de tests :
-[`historical-temperature-production.md`](../archive/2026-10-temperatures-historiques/historical-temperature-production.md).
-
-## CCA-EOB : historique uniquement
-
-Les commandes dédiées CCA-EOB, leurs settings et leur garde de déploiement ont
-été supprimés du code. Le [dossier V2/V3](../archive/2026-10-cca-eob/cca-eob-v2-correction.md) documente
-une correction ponctuelle et des validations sur copie locale ; ce n’est pas
-une procédure exécutable. Ne pas rejouer les anciens plans, ni recréer le
-runtime dédié. Son retrait, rapporté par l’opérateur le 2026-11-04, ne prouve
-ni l’application de la correction V3 en production, ni sa validation scientifique.
+Pour retracer une opération, consulter les [dossiers archivés](../archive/README.md) ou la [référence avant retrait](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/docs/reference/imports-exports-transferts.md#import-historique-2026-manifeste-revu). Les procédures et validations datées ne prouvent ni l’exécution ni l’état actuel d’une base. Ne pas rejouer les anciens plans.
 
 ## Précision temporelle : limite actuelle de persistance
 
-La fondation `0009_temporal_precision` conserve toutes les dates et clés ISO existantes. Les lundis conventionnels des imports CSV normalisés et `historical_2026` restent `legacy_unverified`, y compris pour de nouvelles créations via ces chemins; aucune date n'est automatiquement certifiée ou convertie. Observateur/origine Phase 4A et comportements d'import restent inchangés.
+La fondation `0009_temporal_precision` conserve toutes les dates et clés ISO existantes. Les lundis conventionnels restent `legacy_unverified`, qu’ils proviennent de l’ancienne campagne 2026 ou d’un import CSV normalisé encore disponible, y compris pour les nouvelles créations via ce dernier. Aucune date n’est automatiquement certifiée ou convertie; les champs observateur et origine de la Phase 4A restent inchangés.
 
 La préparation canonique sait représenter `iso_week` sans `measured_on`, mais le planner Phase 3 reste en lecture seule : une semaine libre peut être classée `CREATE` avec l'issue bloquante `week_precision_persistence_required` (`ready=False`). Le nouveau champ n'active pas la persistance semaine seule : `measured_on` est toujours NOT NULL et la contrainte de précision refuse `iso_week`. Cette fondation n'activait aucun nouveau contrat d'écriture; le plan courant 1.3 et ses baselines sont décrits en tête de ce document.
 

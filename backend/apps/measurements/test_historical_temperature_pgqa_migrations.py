@@ -8,9 +8,8 @@ from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
-from . import test_historical_temperature_apply as acceptance
-from . import test_historical_temperature_postgres as postgres
-from .models import HistoricalTemperatureImportReceipt, HistoricalTemperatureReading
+from .historical_temperature_test_fixtures import HistoricalTemperatureFixture, evidence
+from .models import HistoricalTemperatureEvidence, HistoricalTemperatureImportReceipt, HistoricalTemperatureReading
 
 
 _ENABLED = (getattr(settings, "HISTORICAL_TEMPERATURE_PGQA", False)
@@ -19,18 +18,14 @@ _ENABLED = (getattr(settings, "HISTORICAL_TEMPERATURE_PGQA", False)
 
 
 @skipUnless(_ENABLED, "Requires the dedicated disposable PostgreSQL migration harness")
-class HistoricalTemperatureMigrationTests(TransactionTestCase):
-    accept = acceptance.AcceptanceTests.accept
-    _sql = postgres.PostgreSQLHistoricalTemperatureTests._sql
-    _insert_reading = postgres.PostgreSQLHistoricalTemperatureTests._insert_reading
-    _insert_evidence = postgres.PostgreSQLHistoricalTemperatureTests._insert_evidence
+class HistoricalTemperatureMigrationTests(HistoricalTemperatureFixture, TransactionTestCase):
 
     def setUp(self):
         from config.historical_temperature_pgqa import assert_disposable, verify_schema
 
         assert_disposable(connection)
         verify_schema(connection)
-        acceptance.AcceptanceTests.setUp(self)
+        self.set_up_biology()
 
     def _fixture_teardown(self):
         from config.historical_temperature_pgqa import cleanup_test_data
@@ -40,17 +35,15 @@ class HistoricalTemperatureMigrationTests(TransactionTestCase):
     def test_populated_receipt_refuses_actual_executor_reverse_without_schema_loss(self):
         from config.historical_temperature_pgqa import verify_schema
 
-        receipt, _ = self.accept()
+        self.seed_history()
         with self.assertRaisesMessage(RuntimeError, "Historical receipts exist"), transaction.atomic():
             MigrationExecutor(connection).migrate([("measurements", "0012_historical_temperature_guards")])
-        self.assertEqual(HistoricalTemperatureImportReceipt.objects.get().pk, receipt.pk)
+        self.assertEqual(HistoricalTemperatureImportReceipt.objects.get().pk, self.receipt.pk)
         self.assertEqual(HistoricalTemperatureReading.objects.count(), 1)
         verify_schema(connection)
 
     def test_populated_readings_refuse_reverse_atomically_even_with_empty_receipts(self):
         from config.historical_temperature_pgqa import verify_schema
-        from .models import HistoricalTemperatureEvidence
-        from .test_historical_temperature_plan import evidence
 
         with transaction.atomic():
             reading = HistoricalTemperatureReading.objects.create(

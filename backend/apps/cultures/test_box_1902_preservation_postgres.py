@@ -29,7 +29,7 @@ class Box1902PreservationPostgreSQLTests:
     def test_exact_correction_preserves_all_41_confirmations(self):
         before_evidence = self._evidence_rows()
         before_measurements = list(BiologicalMeasurement.objects.filter(box=self.box).order_by("pk").values())
-        digest = self.approve(plan=self.plan())
+        digest = self.approve()
         before = self.snapshot()
         self.write(digest)
         self.assert_preserved(before)
@@ -51,7 +51,7 @@ class Box1902PreservationPostgreSQLTests:
 
     @runtime_test
     def test_replay_is_rejected_without_new_writes(self):
-        digest = self.approve(plan=self.plan())
+        digest = self.approve()
         self.write(digest)
         before = self.snapshot()
         statuses = self._reading_statuses()
@@ -80,7 +80,7 @@ class Box1902PreservationPostgreSQLTests:
     @runtime_test
     def test_other_boxes_and_organizations_are_untouched(self):
         before = list(Box.objects.order_by("pk").values())
-        digest = self.approve(plan=self.plan())
+        digest = self.approve()
         snapshot = self.snapshot()
         self.write(digest)
         self.assert_preserved(snapshot)
