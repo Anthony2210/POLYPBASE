@@ -143,7 +143,7 @@ class PreflightSettingsTests(unittest.TestCase):
         self.root = Path(temporary.name)
         config = self.root / 'config'
         config.mkdir()
-        for name in ('settings.py', 'test_settings.py', 'preflight_settings.py', '__init__.py'):
+        for name in ('settings.py', 'demo.py', 'test_settings.py', 'preflight_settings.py', '__init__.py'):
             shutil.copyfile(CONFIG_DIR / name, config / name)
         self.dotenv = {**SYNTHETIC_ENV, 'DJANGO_SECRET_KEY': 'synthetic-test-only-key'}
         self.write_dotenv()

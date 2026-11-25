@@ -48,8 +48,8 @@ verrous, contraintes ou rôles PostgreSQL, utiliser le harnais jetable prévu.
 
 - [`ci.yml`](../../../.github/workflows/ci.yml) : job PostgreSQL 18 distinct pour Box 1902
   et la régression de retrait de la résolution d’espèce.
-- [`historical-movements-postgres.yml`](../../../.github/workflows/historical-movements-postgres.yml)
-  et [`history-revision-postgres.yml`](../../../.github/workflows/history-revision-postgres.yml) :
+- [`historical-movements-postgres.yml`](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/.github/workflows/historical-movements-postgres.yml)
+  et [`history-revision-postgres.yml`](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/.github/workflows/history-revision-postgres.yml) :
   contrats PostgreSQL des mouvements et révisions historiques.
 - [`pca-unix.yml` (workflow retiré, source historique)](https://github.com/Anthony2210/POLYPBASE/blob/9e00e2c6e0eb581334f9238ce041a7d3d2fafb19/.github/workflows/pca-unix.yml) : anciens contrôles PCA sous Unix.
 - `deploy/tests/` et les tests d’outillage sous `scripts/` sont hors de la

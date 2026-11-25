@@ -304,7 +304,9 @@ Avant d'ajouter une contrainte sur des données existantes, diagnostiquer en lec
 
 - Depuis `backend/`, lancer `uv run python manage.py test --settings=config.test_settings --noinput` pour la découverte Django; ajouter un module (par exemple `apps.sharing`) pour un contrôle ciblé.
 - Exécuter `check` et `makemigrations --check --dry-run` avec `--settings=config.preflight_settings`, dans la même session enfant vérifiée.
-- Un skip PostgreSQL ne valide ni les verrous, ni les contraintes, ni les migrations PostgreSQL. Consulter les workflows spécialisés des [mouvements](../../.github/workflows/historical-movements-postgres.yml) et des [révisions](../../.github/workflows/history-revision-postgres.yml) pour les prérequis de leurs suites jetables. Le workflow de campagne PCA est archivé.
+- Un skip PostgreSQL ne valide ni les verrous, ni les contraintes, ni les migrations PostgreSQL. Le job `backend-postgres` du [workflow unique](../../.github/workflows/ci.yml) exécute ses suites ciblées sur un service PostgreSQL 18 jetable.
 - Pour un changement transversal, vérifier permissions négatives, audit et rollback; sur les mesures couvrir zéro, absence, concurrence et conflit hebdomadaire.
+
+Sur les PR, `changes` sélectionne les contrôles frontend, backend, PostgreSQL et déploiement selon le diff. La documentation et le bundle sont toujours vérifiés. Sur chaque push vers `main`, tous les jobs sont sélectionnés sans examiner les chemins, même pour un changement documentaire. Le déploiement exige notamment le succès de `Frontend checks` et `Backend checks` pour le commit exact. La découverte SQLite utilise deux processus. Les régressions PostgreSQL restent isolées dans un job distinct. Dans la protection de `main`, rendre obligatoire uniquement `ci-ok` : les jobs ignorés par le filtre ne sont pas des échecs.
 
 Voir la procédure distincte de [déploiement](deploiement-exploitation.md); ces contrôles n'autorisent pas d'action sur la VM.

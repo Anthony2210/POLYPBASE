@@ -1,25 +1,10 @@
-"""Synthetic Phase 5A rehearsal; executable only against the hosted CI service.
+"""Check the installed PostgreSQL history revision catalogs."""
 
-Preflight identifies an empty database before adding a disposable-service marker.
-Run applies the reviewed closure, rehearses 0020 plus the empty merge, then tests a separate Django database.
-No migration repair, publisher, production endpoint or environment dump is provided.
-"""
-
-import argparse
-from contextlib import redirect_stdout
-from io import StringIO
 from importlib import import_module
-import json
-import os
-from pathlib import Path
 import re
-import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-SETTINGS = "config.history_revision_ci_settings"
 M19 = ("cultures", "0019_history_revision_storage")
 M20 = ("cultures", "0020_history_revision_guards")
-DNA = ("cultures", "0019_box_dna_validation")
 MERGE = ("cultures", "0021_merge_dna_and_history")
 TABLES = (
     "cultures_boxhistorystream", "cultures_boxhistoryrevision",
@@ -50,61 +35,6 @@ TEST_LABELS = (
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
-
-
-def evidence(name, data):
-    directory = Path(os.environ["HR_CI_EVIDENCE_DIR"])
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{name}.json").write_text(
-        json.dumps(data, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8",
-    )
-
-
-def bootstrap():
-    require(sys.platform == "linux", "This harness runs only on hosted Linux, never on Windows.")
-    require(sys.version_info[:2] == (3, 12), "Use the workflow's Python 3.12.")
-    require(os.environ.get("DJANGO_SETTINGS_MODULE") == SETTINGS, "Explicit dedicated CI settings required.")
-    require(bool(os.environ.get("HR_CI_EVIDENCE_DIR")), "An explicit synthetic evidence directory is required.")
-    sys.path.insert(0, str(ROOT / "backend"))
-    import django
-    django.setup()
-    from config import history_revision_ci_settings as guards
-    from django.db import connections
-    connection = connections["default"]
-    guards.check_database_config(connection)
-    return connection, guards
-
-
-def preflight(connection, guards):
-    # The marker does not yet exist: check the complete identity read-only first.
-    with connection.cursor() as cursor:
-        cursor.execute("""
-            SELECT current_database(), current_user, session_user, inet_server_port(),
-                   current_setting('server_version_num')::integer,
-                   shobj_description(oid, 'pg_database')
-            FROM pg_catalog.pg_database WHERE datname = current_database()
-        """)
-        row = cursor.fetchone()
-        require(row is not None and row[:4] == (guards.DATABASE_NAME, guards.DATABASE_NAME,
-                guards.DATABASE_NAME, 5432), "Unexpected service database, role or port; refusing mutation.")
-        require(180000 <= row[4] < 190000 and row[5] is None,
-                "Expected a new, unmarked PostgreSQL 18 service database.")
-        cursor.execute("SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' ORDER BY nspname")
-        require(cursor.fetchall() == [("public",)], "Unexpected user schemas; provision a fresh service.")
-        for catalog, namespace in (("pg_class", "relnamespace"), ("pg_proc", "pronamespace"), ("pg_type", "typnamespace")):
-            cursor.execute(f"SELECT count(*) FROM {catalog} c JOIN pg_namespace n ON n.oid = c.{namespace} WHERE n.nspname = 'public'")
-            require(cursor.fetchone()[0] == 0, "Service public schema is not empty; refusing mutation.")
-        cursor.execute("SELECT extname FROM pg_extension ORDER BY extname")
-        require(cursor.fetchall() == [("plpgsql",)], "Unexpected service extensions.")
-        cursor.execute("SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname")
-        require(cursor.fetchall() == [(guards.DATABASE_NAME,), ("postgres",)],
-                "Unexpected database inventory; do not reuse a service.")
-        # Fixed identifiers and a nonsecret synthetic comment, never caller input.
-        cursor.execute("COMMENT ON DATABASE history_revision_ci IS 'history-revision-actions-disposable'")
-    import psycopg
-    evidence("preflight", {"identity": guards.server_identity(connection),
-                           "empty_before_marker": True, "driver": psycopg.__version__,
-                           "libpq": psycopg.pq.version(), "commit": os.environ["GITHUB_SHA"]})
 
 
 def sql_tokens(sql):
@@ -412,93 +342,3 @@ def installed_schema(connection, *, guarded):
                 "triggers_and_functions": [tuple(row[:6]) + tuple(row[7:]) for row in triggers],
                 "function_definitions": [tuple(row[:13]) + tuple(row[14:]) for row in functions],
                 "constraints": constraints, "indexes": indexes}
-
-
-def run(connection, guards):
-    from django.core.management import call_command
-    from django.db.migrations.executor import MigrationExecutor
-    from django.db.migrations.recorder import MigrationRecorder
-
-    from config.history_revision_ci_migrations import (
-        APPROVED, migration_scope, migrate_scoped, scoped_plan,
-    )
-
-    guards.server_identity(connection)
-    require(not MigrationRecorder(connection).has_table(), "Scoped rehearsal must start without migration history.")
-    executor = MigrationExecutor(connection)
-    plan = scoped_plan(connection)
-    require({DNA, M19, M20, MERGE} <= {(m.app_label, m.name) for m, backwards in plan if not backwards},
-            "DNA, history 0019/0020 and the merge must really execute, not be faked or pre-applied.")
-    evidence("migration-plan", {
-        **migration_scope(executor.loader),
-        "forward": [f"{m.app_label}.{m.name}" for m, backwards in plan],
-    })
-    call_command("check")
-    applied = migrate_scoped(connection, fresh=True, verbosity=2)
-    evidence("migration-application", applied)
-    require(not scoped_plan(connection), "Approved scoped migrations remain unapplied.")
-    call_command("makemigrations", check=True, dry_run=True, interactive=False)
-    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED,
-            "Integrated scope not recorded exactly as applied.")
-    initial = installed_schema(connection, guarded=True)
-    evidence("schema-initial", initial)
-    # The empty merge depends on 0020. Validate its metadata again before allowing
-    # that exact two-node reversal; neither storage branch may be unapplied.
-    executor = MigrationExecutor(connection)
-    migration_scope(executor.loader)
-    reverse = executor.migration_plan([M19])
-    require([(m.app_label, m.name, backwards) for m, backwards in reverse]
-            == [(*MERGE, True), (*M20, True)],
-            "Reverse plan must remove only the empty merge then 0020, never DNA or history storage.")
-    call_command("migrate", "cultures", M19[1], interactive=False, verbosity=2)
-    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED - {M20, MERGE},
-            "Unexpected reverse migration state; DNA and history storage must remain applied.")
-    evidence("schema-reversed", installed_schema(connection, guarded=False))
-    reapplied = migrate_scoped(connection, fresh=False, verbosity=2)
-    expected = [".".join(M20), ".".join(MERGE)]
-    require(reapplied["planned"] == reapplied["started"] == reapplied["completed"] == expected,
-            "Reapplication must execute only 0020 then the empty merge.")
-    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED,
-            "Unexpected restored migration state.")
-    require(not scoped_plan(connection), "Approved scoped migrations remain unapplied after restoration.")
-    evidence("migration-reapplication", reapplied)
-    restored = installed_schema(connection, guarded=True)
-    require(initial == restored, "Restored catalogs differ after 0020 reapplication.")
-    evidence("schema-restored", restored)
-    evidence("migration-results", {"validation_scope": "targeted-phase-5a",
-                                   "targets": applied["targets"], "applied": applied["after"],
-                                   "intentionally_outside_scope": applied["excluded"],
-                                   "scoped_closure_applied": True, "complete_application_graph_validated": False,
-                                   "0019_executed": True,
-                                   "0020_executed": True, "drift": False,
-                                   "0020_reversed": True, "guards_removed": True,
-                                   "0020_reapplied": True, "catalogs_restored": True,
-                                   "dna_executed": True, "dna_storage_retained": True,
-                                   "empty_merge_executed": True, "empty_merge_reversed": True,
-                                   "empty_merge_reapplied": True})
-    for migration in (M19, M20):
-        sql = StringIO()
-        with redirect_stdout(sql):
-            call_command("sqlmigrate", *migration)
-        # RunPython is intentionally opaque to sqlmigrate; pg_get_functiondef above
-        # is the actual installed multi-statement execution evidence.
-        (Path(os.environ["HR_CI_EVIDENCE_DIR"]) / f"{migration[1]}.sql").write_text(sql.getvalue(), encoding="utf-8")
-    call_command("test", *TEST_LABELS, interactive=False, verbosity=2)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("preflight", "run"))
-    phase = parser.parse_args().phase
-    connection, guards = bootstrap()
-    try:
-        if phase == "preflight":
-            preflight(connection, guards)
-        else:
-            run(connection, guards)
-    finally:
-        connection.close()
-
-
-if __name__ == "__main__":
-    main()

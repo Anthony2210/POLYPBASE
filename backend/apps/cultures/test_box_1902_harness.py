@@ -162,7 +162,7 @@ class Box1902HarnessTests(SimpleTestCase):
         settings = SimpleNamespace(DATABASES={"default": dict(config)})
         with patch.object(harness, "connection", connection), \
                 patch.object(harness, "settings", settings), \
-                patch.multiple(suite, roles_provisioned=provisioned,
+                patch.multiple(suite, service=None, roles_provisioned=provisioned,
                                created_databases={harness.DATABASE},
                                original_settings=original,
                                original_connection_settings=original_connection, create=True), \

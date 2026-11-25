@@ -4,17 +4,43 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.diff.outputs.frontend }}
+      backend: ${{ steps.diff.outputs.backend }}
+      backend_postgres: ${{ steps.diff.outputs.backend_postgres }}
+      deploy_scripts: ${{ steps.diff.outputs.deploy_scripts }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect changes
+        id: diff
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+        run: python3 -B scripts/ci_changes.py
+
+      - name: Test path detection
+        run: python3 -B -m unittest discover -s scripts -p test_ci_changes.py
+
   documentation:
     name: Documentation checks and context bundle
     runs-on: ubuntu-latest
@@ -41,22 +67,29 @@ jobs:
 
       - name: Warn if live documentation did not change
         if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'doc:non-requise')
+        continue-on-error: true
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: uv run --frozen python -B scripts/check_docs.py --impact-base "$PR_BASE_SHA"
 
       - name: Build context bundle
+        if: ${{ !cancelled() }}
+        id: bundle
         run: uv run --frozen python -B scripts/build_doc_bundle.py
 
       - name: Upload context bundle
+        if: ${{ !cancelled() && steps.bundle.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: polypbase-contexte
           path: polypbase-contexte.md
           if-no-files-found: error
 
+  # Verified deployment requires both named jobs to succeed on the exact main push.
   frontend:
     name: Frontend checks
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -87,6 +120,8 @@ jobs:
 
   backend:
     name: Backend checks
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -151,20 +186,32 @@ jobs:
           uv run --frozen python manage.py makemigrations
           --check --dry-run --settings=config.preflight_settings
 
+      # Only the default SQLite runner is parallelized; PostgreSQL runners own isolation.
       - name: Run backend tests
         run: >-
           uv run --frozen python manage.py test
-          --settings=config.test_settings
+          --settings=config.test_settings --noinput --parallel 2
 
-  box-1902:
-    name: Box 1902 PostgreSQL regressions
+  backend-postgres:
+    name: Backend PostgreSQL checks
+    needs: changes
+    if: needs.changes.outputs.backend_postgres == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHON_DOTENV_DISABLED: "1"
-      POLYPBASE_TEST_POSTGRES: "0"
-
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,38 +225,62 @@ jobs:
           cache-dependency-glob: uv.lock
           python-version: "3.12"
 
-      - name: Install backend dependencies
-        run: uv sync --frozen
+      - name: Run PostgreSQL CI suite
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: postgres
+          PYTHON_DOTENV_DISABLED: "1"
+        run: uv run --frozen python -B scripts/run_backend_postgres_ci.py
 
-      - name: Test disposable PostgreSQL launcher
-        run: >-
-          uv run --frozen python -B -m unittest discover
-          -s scripts -p test_historical_temperature_launcher.py
+  deploy-scripts:
+    name: Deployment script checks
+    needs: changes
+    if: needs.changes.outputs.deploy_scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      POLYPBASE_TEST_POSTGRES: "0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Install PostgreSQL 18 binaries
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
+
+      - name: Test deployment scripts
+        run: uv run --frozen python -B -m unittest discover -s deploy/tests
+
+  ci-ok:
+    name: ci-ok
+    needs: [changes, documentation, frontend, backend, backend-postgres, deploy-scripts]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful or skipped dependencies
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl --fail --silent --show-error --location \
-            https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update
-          sudo apt-get install --yes postgresql-18
+          python3 -B - <<'PY'
+          import json
+          import os
 
-      - name: Check cross-login PostgreSQL snapshot dump and restore over Unix peer
-        run: >-
-          uv run --frozen --no-sync python -B scripts/probe_pg18_exported_snapshot.py
-          --bin-dir /usr/lib/postgresql/18/bin --peer
-
-      - name: Run genuine-role Box 1902 regression tests
-        run: >-
-          uv run --frozen python -B scripts/test_historical_temperature_production.py
-          --run --pg-bin /usr/lib/postgresql/18/bin
-          apps.cultures.test_box_1902_correction_v2_postgres
-
-      - name: Run species resolution retirement and existing species action regressions
-        run: >-
-          uv run --frozen --no-sync python -B scripts/test_historical_temperature_production.py
-          --run --pg-bin /usr/lib/postgresql/18/bin
-          apps.taxonomy.test_species_resolution_retirement
-          apps.taxonomy.test_existing_species_actions
+          jobs = json.loads(os.environ['CI_NEEDS'])
+          failed = False
+          for name, job in jobs.items():
+              result = job.get('result')
+              print(f'{name}: {result}')
+              failed |= result not in ('success', 'skipped')
+          raise SystemExit(int(failed or not jobs))
+          PY
