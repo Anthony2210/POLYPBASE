@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -104,21 +104,22 @@ async function jsonGet(page, path, org) {
   }, { path, org });
 }
 
-async function setup(page, c, role, screenNames) {
-  await page.goto(c.base.href, { waitUntil: 'domcontentloaded' });
+export async function setup(page, c, role, screenNames) {
+  await page.goto(new URL('/login?next=%2F', c.base).href, { waitUntil: 'domcontentloaded' });
   const login = page.locator('.login-screen');
   await login.locator('input[type=email]').fill(c.credentials[role].email);
   await login.locator('input[type=password]').fill(c.credentials[role].password);
   const response = page.waitForResponse(r => r.url() === new URL('/api/auth/session/', c.base).href && r.request().method() === 'POST');
   const [loggedIn] = await Promise.all([response, login.locator('button[type=submit]').click()]);
   if (!loggedIn.ok()) throw new Error(`Login failed for ${role}: HTTP ${loggedIn.status()}.`);
+  // Wait for the application's authenticated bootstrap before the separate QA read.
+  await page.locator('.pilotage-flow, .organization-choice-page').first().waitFor();
   const profile = await jsonGet(page, '/api/profile/');
   const membership = profile.memberships?.find(m => m.organization.slug === c.orgSlug);
   if (membership?.role !== roles[role] || (role !== 'admin' && profile.is_superuser)) {
     throw new Error(`Expected ${roles[role]} membership for ${role} in ${c.orgSlug}.`);
   }
   const orgId = membership.organization.id;
-  await page.locator('.pilotage-flow, .organization-choice-page').first().waitFor();
   const active = await page.evaluate(() => localStorage.getItem('polypbase.activeOrganizationId'));
   if (active !== String(orgId)) {
     await page.evaluate(id => localStorage.setItem('polypbase.activeOrganizationId', String(id)), orgId);
@@ -364,4 +365,6 @@ async function main() {
   if (summary.setupErrors.length || summary.cases.some(row => row.status === 'error')) process.exitCode = 1;
 }
 
-main().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+}
