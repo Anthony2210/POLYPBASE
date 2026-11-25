@@ -35,20 +35,20 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.11.0",
-    "@zxing/browser": "^0.1.5",
-    "d3-scale": "^4.0.2",
-    "d3-shape": "^3.2.0",
+    "@zxing/browser": "^0.2.1",
+    "d3-scale": "^4.0.3",
+    "d3-shape": "^3.2.1",
     "lucide-react": "^0.468.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@types/d3-scale": "^4.0.9",
-    "@types/d3-shape": "^3.1.8",
+    "@types/d3-shape": "^3.2.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-react": "^6.3.0",
     "typescript": "5.8.3",
-    "vite": "~8.1.6"
+    "vite": "~8.3.8"
   }
 }
