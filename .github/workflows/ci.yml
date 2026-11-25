@@ -190,7 +190,7 @@ jobs:
       - name: Run backend tests
         run: >-
           uv run --frozen python manage.py test
-          --settings=config.test_settings --noinput --parallel 2
+          --settings=config.test_settings --noinput
 
   backend-postgres:
     name: Backend PostgreSQL checks
