@@ -5,7 +5,7 @@ from datetime import date
 
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
-from django.test import TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
@@ -20,8 +20,7 @@ from .services import reactivate_box
 from .pca_test_fixtures import PcaFixtureMixin
 
 
-class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
-    reset_sequences = True
+class PcaIdentityApiTests(PcaFixtureMixin, TestCase):
 
     def setUp(self):
         super().setUp()
@@ -259,7 +258,7 @@ class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
         self.assertEqual(Box.objects.get(pk=2141).merged_into_id, 2135)
         self.assertEqual(Box.objects.get(pk=2135).global_code, "PCA-JKA-1.005")
 
-    def test_qr_image_helpers_target_canonical_pk_and_no_resolution_chain_is_followed(self):
+    def test_qr_image_helpers_target_canonical_pk_without_cross_org_access(self):
         self.donor.refresh_from_db()
         self.canonical.refresh_from_db()
         self.assertEqual(qr.box_scan_url(self.donor), qr.box_scan_url(self.canonical))
@@ -268,7 +267,7 @@ class PcaIdentityApiTests(PcaFixtureMixin, TransactionTestCase):
             self.assertEqual(svg.status_code, 200)
             self.assertIn("svg", svg["Content-Type"])
         OrganizationMembership.objects.create(organization=self.other_org, user=self.admin, role="admin")
-        Box.objects.filter(pk=2141).update(organization=self.other_org)
+
         self.assertEqual(self.client.get("/api/boxes/2141/", HTTP_X_ORGANIZATION_ID="2").status_code, 404)
 
     def test_old_code_and_date_audits_resolve_to_the_correct_preserved_record(self):
