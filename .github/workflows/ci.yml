@@ -85,6 +85,9 @@ jobs:
       - name: Check CSS, TypeScript, and production build
         run: npm run build
 
+      - name: Check build for inline JavaScript
+        run: python3 -B scripts/check_build_scripts.py dist
+
   backend:
     name: Backend checks
     runs-on: ubuntu-latest
