@@ -39,9 +39,9 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
+    get_active_organization_from_request,
     get_active_organization_ids,
     get_authorized_organization_ids,
-    get_authorized_organizations,
     get_required_active_organization_from_request,
     user_can_write_lab_data,
 )
@@ -460,16 +460,43 @@ class HealthAPIView(APIView):
         )
 
 
+def _dashboard_environment_locations(entries, organization_ids):
+    # The serializer already accepts a cache of serialized periods. Seed even
+    # empty sources so they do not fall back to one query per source box.
+    periods_by_box = {
+        entry.environment_source_box_id: []
+        for entry in entries if entry.environment_source_box_id is not None
+    }
+    if not periods_by_box:
+        return {}
+
+    locations = BoxLocation.objects.filter(
+        box_id__in=periods_by_box.keys(),
+        box__organization_id__in=organization_ids,
+        thermal_zone__organization_id__in=organization_ids,
+    ).select_related("thermal_zone").order_by("starts_at", "pk")
+    for location in locations:
+        periods_by_box[location.box_id].append(location)
+    return {
+        box_id: BoxLocationSerializer(periods, many=True).data
+        for box_id, periods in periods_by_box.items()
+    }
+
+
 class DashboardAPIView(APIView):
     """Return the first dashboard payload consumed by the React app."""
 
     def get(self, request):
-        organization_ids = get_active_organization_ids(request)
-        organizations = get_authorized_organizations(request.user).filter(
-            id__in=organization_ids,
-        ).order_by("name")
+        organization = get_active_organization_from_request(request)
+        organizations = [organization] if organization is not None else []
+        organization_ids = [org.pk for org in organizations]
 
         boxes = Box.objects.filter(organization_id__in=organization_ids, merged_into__isnull=True)
+        box_totals = boxes.aggregate(
+            boxes_total=Count("pk"),
+            active_boxes=Count("pk", filter=Q(status=Box.Status.ACTIVE)),
+            species_count=Count("strain__species", distinct=True),
+        )
         measurements = BiologicalMeasurement.objects.canonical().filter(box__organization_id__in=organization_ids)
         access_candidates = AuditLog.objects.filter(
             organization_id__in=organization_ids,
@@ -487,7 +514,10 @@ class DashboardAPIView(APIView):
             if len(recent_accesses) == 8:
                 break
         current_totals = current_polyp_total(boxes.filter(status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches()))
-        latest_entries = measurements.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at")[:8]
+        latest_entries = list(
+            measurements.select_related("box", "user", "original_observer", "imported_by")
+            .order_by("-measured_on", "-created_at")[:8]
+        )
         measurement_totals = measurements.aggregate(
             polyps=Sum("polyp_count"),
             ephyrae=Sum("ephyrae_count"),
@@ -506,9 +536,7 @@ class DashboardAPIView(APIView):
             {
                 "organizations": OrganizationSummarySerializer(organizations, many=True).data,
                 "stats": {
-                    "boxes_total": boxes.count(),
-                    "active_boxes": boxes.filter(status=Box.Status.ACTIVE).count(),
-                    "species_count": boxes.values("strain__species").distinct().count(),
+                    **box_totals,
                     "thermal_zones": ThermalZone.objects.filter(organization_id__in=organization_ids).count(),
                     "current_polyps": current_totals["polyp_count"],
                     "current_polyps_unknown_box_count": current_totals["unknown_box_count"],
@@ -519,7 +547,10 @@ class DashboardAPIView(APIView):
                 "latest_entries": BiologicalMeasurementSerializer(
                     latest_entries,
                     many=True,
-                    context={"request": request},
+                    context={
+                        "request": request,
+                        "environment_locations_by_box": _dashboard_environment_locations(latest_entries, organization_ids),
+                    },
                 ).data,
                 "recent_accesses": AuditLogAccessSerializer(recent_accesses, many=True).data,
             }
@@ -759,10 +790,44 @@ class BoxListAPIView(generics.ListAPIView):
     # choose Box identifiers, so this collection endpoint is read-only.
     serializer_class = BoxListSerializer
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        boxes = page if page is not None else list(queryset)
+        context = self.get_serializer_context()
+        context["box_list_environment_locations"] = self._environment_locations(boxes)
+        data = self.get_serializer(boxes, many=True, context=context).data
+        return self.get_paginated_response(data) if page is not None else Response(data)
+
+    @staticmethod
+    def _environment_locations(boxes):
+        # A source with no eligible location rows still needs a cached empty list.
+        locations_by_source = {
+            (measurement.environment_source_box_id, box.organization_id): []
+            for box in boxes
+            for measurement in box.list_latest_measurements
+            if measurement.environment_source_box_id is not None
+        }
+        if not locations_by_source:
+            return locations_by_source
+
+        locations = BoxLocation.objects.filter(
+            box_id__in={source_id for source_id, _ in locations_by_source},
+            box__organization_id__in={org_id for _, org_id in locations_by_source},
+            thermal_zone__organization_id=F("box__organization_id"),
+        ).select_related("thermal_zone").order_by("starts_at", "pk")
+        serializer = BoxLocationSerializer()
+        for location in locations:
+            key = (location.box_id, location.thermal_zone.organization_id)
+            if key in locations_by_source:
+                locations_by_source[key].append(serializer.to_representation(location))
+        return locations_by_source
+
     def get_queryset(self):
+        organization_ids = get_active_organization_ids(self.request)
         queryset = box_list_queryset_for_user(
             self.request.user,
-            organization_ids=get_active_organization_ids(self.request),
+            organization_ids=organization_ids,
         ).order_by("global_code")
 
         status_filter = self.request.query_params.get("status")
@@ -777,7 +842,7 @@ class BoxListAPIView(generics.ListAPIView):
         if search:
             queryset = queryset.filter(
                 Q(pk__in=box_local_id_search_ids(
-                    Box.objects.filter(organization_id__in=get_active_organization_ids(self.request)), search,
+                    Box.objects.filter(organization_id__in=organization_ids), search,
                 ))
                 | Q(local_code__icontains=search)
                 | Q(box_number__icontains=search)
@@ -1216,7 +1281,15 @@ class BoxTemperatureHistoryAPIView(generics.GenericAPIView):
         box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        temperatures = box_temperature_queryset(box, **query.validated_data)
+        # Narrow the date scan to recorded zones before checking day-level occupancy.
+        # Keep retired identities in scope so their historical zones are not lost.
+        recorded_zones = BoxLocation.objects.filter(
+            Q(box_id=box.pk) | Q(box__merged_into_id=box.pk),
+            box__organization_id=organization.pk,
+        ).order_by().values("thermal_zone_id").distinct()
+        temperatures = box_temperature_queryset(box, **query.validated_data).filter(
+            thermal_zone_id__in=recorded_zones,
+        )
         page = self.paginate_queryset(temperatures)
         support = temperature_support_periods(box) if has_merged_identity(box) else None
         return self.get_paginated_response([
