@@ -1,6 +1,6 @@
 # Quantitative subculture backend contract
 
-Annexe technique avec résultats de validation datés. Ces résultats ne constituent pas une validation de la version actuelle.
+Technical appendix with dated validation results. These results do not validate the current version.
 
 ## Frontend integration contract
 

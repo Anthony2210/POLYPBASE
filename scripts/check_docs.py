@@ -21,6 +21,25 @@ CHURN = re.compile(r"\b(?:non committ[eé]|uncommitted|local only|travail local|
 ENV_ENTRY = re.compile(r"^\s*(?:#\s*)?([A-Z][A-Z0-9_]*)\s*=", re.M)
 SETTINGS = ("settings.py", "demo_settings.py", "demo.py")
 IMPACT = re.compile(r"^(?:deploy/|backend/config/(?:.*settings\.py|(?:api_)?urls\.py)$|backend/apps/.+/(?:[^/]*models\.py|[^/]*api[^/]*\.py|urls\.py|migrations/)|frontend/src/components/AdminView\.tsx$)")
+STATUS = "docs/STATUS.md"
+MODEL_INVENTORY = "docs/reference/data-model.md"
+MODEL_HEADING = "## Concrete project models"
+FROZEN_ARCHIVE_LINKS = frozenset()  # Exact (source path, link address) pairs only.
+
+PROSE_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+NON_PROSE = re.compile(
+    r"<!--.*?(?:-->|\Z)|<(pre|code)\b[^>]*>.*?</\1\s*>"
+    r"|(?<!`)(`+)(?!`).*?(?<!`)\2(?!`)"
+    r"|«[^»\n]*»|“[^”\n]*”|‘[^\n]*?’(?!\w)|\"[^\"\n]*\"|(?<!\w)'[^\n]*?'(?!\w)"
+    r"|https?://[^\s<>]+|</?[a-z][^>\n]*>",
+    re.I | re.S,
+)
+WORDS = re.compile(r"[^\W\d_]+")
+# Favor grammar words over vocabulary, which often overlaps in technical prose.
+FRENCH_MARKERS = frozenset("avec aux cette cela ces dans depuis elle elles entre leur leurs les lorsque "
+                           "mais nous notre nos pour quand que qui sans sous sont sur tout toute tous une vous votre".split())
+ENGLISH_MARKERS = frozenset("about also and are before can each for from how into its must not of only "
+                            "that the their these they this those through when where which while will with without you your".split())
 
 
 def read(path):
@@ -47,7 +66,34 @@ def anchors(text):
     return seen | set(re.findall(r"<(?:a|h[1-6])\b[^>]*\b(?:id|name)=[\"']([^\"']+)", text))
 
 
-def check_markdown(root):
+def prose_lines(text):
+    fence = None
+    for line in text.splitlines():
+        match = PROSE_FENCE.match(line)
+        if fence:
+            if (match and match[1][0] == fence[0] and len(match[1]) >= len(fence)
+                    and not match[2].strip()):
+                fence = None
+        elif match:
+            fence = match[1]
+        elif not line.startswith(("    ", "\t")) and not line.lstrip().startswith(">"):
+            yield line
+
+
+def predominantly_french(text):
+    prose = NON_PROSE.sub(" ", "\n".join(prose_lines(text)))
+    prose = LINK.sub(lambda m: m[0].split("]", 1)[0] if m[1] else " ", prose)
+    words = WORDS.findall(prose.casefold())
+    counts = Counter(words)
+    distinct_french = counts.keys() & FRENCH_MARKERS
+    french = sum(counts[word] for word in distinct_french)
+    english = sum(counts[word] for word in ENGLISH_MARKERS)
+    # Require sustained evidence and a clear lead; leave mixed and short prose alone.
+    return (len(words) >= 20 and len(distinct_french) >= 4
+            and french >= max(6, 3 * english) and french * 12 >= len(words))
+
+
+def check_markdown(root, *, frozen_archive_links=FROZEN_ARCHIVE_LINKS):
     paths = markdown_files(root)
     texts = {path: read(path) for path in paths}
     index = root / "docs/INDEX.md"
@@ -56,8 +102,12 @@ def check_markdown(root):
     errors = []
     for path, raw in texts.items():
         relative = path.relative_to(root).as_posix()
+        historical = path.is_relative_to(archive)
+        if (not historical and not relative.startswith("docs/sources/")
+                and relative != "README.md" and predominantly_french(raw)):
+            errors.append(f"{relative}: living documentation appears predominantly French")
         text = FENCE.sub("", raw)
-        if not path.is_relative_to(archive) and (match := CHURN.search(text)):
+        if not historical and (match := CHURN.search(text)):
             errors.append(f"{relative}: outdated status vocabulary: {match.group()!r}")
         for match in LINK.finditer(text):
             address = (match[1] or match[2]).strip("<>")
@@ -65,14 +115,17 @@ def check_markdown(root):
             if parts.scheme or parts.netloc:
                 continue
             target = (path.parent / unquote(parts.path)).resolve() if parts.path else path
+            frozen = historical and (relative, address) in frozen_archive_links
             if not target.is_relative_to(root) or not target.exists():
-                errors.append(f"{relative}: broken link: {address}")
+                if not frozen:
+                    errors.append(f"{relative}: broken link: {address}")
                 continue
             if target.suffix == ".md" and parts.fragment and unquote(parts.fragment) not in anchors(texts.get(target) or read(target)):
-                errors.append(f"{relative}: missing anchor: {address}")
+                if not frozen:
+                    errors.append(f"{relative}: missing anchor: {address}")
             if path == index:
                 indexed.add(target)
-        if path.is_relative_to(archive):
+        if historical:
             continue  # Historical code citations can refer to deleted artifacts.
         for token in INLINE.findall(LINK.sub("", text)):
             if ROOT_PATH.fullmatch(token) and not ((root / token).exists() or (path.parent / token).exists()):
@@ -80,11 +133,11 @@ def check_markdown(root):
     for path in paths:
         if path.is_relative_to(root / "docs") and not path.is_relative_to(archive) and path != index and path not in indexed:
             errors.append(f"docs/INDEX.md: orphan: {path.relative_to(root).as_posix()}")
-    state = root / "docs/ETAT.md"
+    state = root / STATUS
     if state not in texts:
-        errors.append("docs/ETAT.md: missing project status")
+        errors.append(f"{STATUS}: missing project status")
     elif len(texts[state].splitlines()) > 100:
-        errors.append("docs/ETAT.md: exceeds 100 lines")
+        errors.append(f"{STATUS}: exceeds 100 lines")
     return errors
 
 
@@ -123,6 +176,13 @@ def check_env(root):
 
 
 def check_models(root):
+    path = root / MODEL_INVENTORY
+    if not path.is_file():
+        return [f"{MODEL_INVENTORY}: missing model inventory"]
+    _, heading, doc = f"\n{FENCE.sub('', read(path))}\n".partition(f"\n{MODEL_HEADING}\n")
+    if not heading:
+        return [f"{MODEL_INVENTORY}: missing heading: {MODEL_HEADING}"]
+    doc = doc.partition("\n## ")[0]
     with patch.dict(os.environ, PREFLIGHT_ENV, clear=True), patch.object(sys, "path", [str(root / "backend"), *sys.path]):
         import django
         from django.apps import apps
@@ -132,21 +192,17 @@ def check_models(root):
             django.setup()
         expected = {(model._meta.app_label, model.__name__) for model in apps.get_models()
                     if model.__module__.startswith("apps.") and not model._meta.proxy}
-    path = root / "docs/reference/modele-donnees.md"
-    if not path.is_file():
-        return ["docs/reference/modele-donnees.md: missing model inventory"]
-    doc = read(path).partition("\n## Modèles concrets du projet\n")[2].partition("\n## ")[0]
     present = set()
     for app, entries in re.findall(r"^\| `([a-z_]+)` \| (.+?) \|$", doc, re.M):
         present.update((app, model) for model in INLINE.findall(entries))
-    return [f"docs/reference/modele-donnees.md: {problem}: {app}.{model}"
+    return [f"{MODEL_INVENTORY}: {problem}: {app}.{model}"
             for problem, models in (("missing model", expected - present), ("unknown model", present - expected))
             for app, model in sorted(models)]
 
 
 def warn_impact(base):
     files = subprocess.check_output(["git", "--no-pager", "diff", "--name-only", "-z", f"{base}...HEAD", "--"], cwd=ROOT, text=True).split("\0")
-    touched = any(path.startswith(("docs/reference/", "docs/operations/", "docs/utilisateur/")) or path == "docs/ETAT.md" for path in files)
+    touched = any(path.startswith(("docs/reference/", "docs/operations/", "docs/user/")) or path == STATUS for path in files)
     if not touched and any(IMPACT.match(path) for path in files):
         print("::warning title=Documentation impact::A PR changes models, routes, settings or deployment without updating the live documentation.")
 
@@ -164,7 +220,7 @@ def main():
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print("Documentation links, settings and model inventory are up to date")
+    print("Documentation, settings and model inventory are up to date")
     return 0
 
 

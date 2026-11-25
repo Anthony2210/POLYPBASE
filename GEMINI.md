@@ -1,3 +1,3 @@
 @./AGENTS.md
 
-Les règles communes sont dans [AGENTS.md](AGENTS.md).
+See [AGENTS.md](AGENTS.md) for the shared rules.

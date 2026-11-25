@@ -1,74 +1,74 @@
-# Produit et architecture
+# Product and architecture
 
-## Finalité et utilisateurs
+## Purpose and users
 
-Polypbase suit des cultures de méduses et d'autres organismes : boîtes, référentiels biologiques, relevés, emplacements thermiques, températures, lignées, transferts et exports. Le produit vient du contexte de l'Aquarium de Paris, mais ses comptes et ses données métier sont structurés pour plusieurs institutions.
+Polypbase tracks cultures of jellyfish and other organisms: boxes, biological reference data, records, thermal locations, temperatures, lineages, transfers, and exports. The product originated at the Aquarium de Paris, but its accounts and domain data are structured for multiple institutions.
 
-Les principaux utilisateurs sont les techniciens et soigneurs de laboratoire, les administrateurs d'une institution et les personnes en consultation scientifique. Au laboratoire, tablette paysage et téléphone servent surtout à rechercher ou scanner une boîte, consulter sa fiche et saisir des données. Au bureau, le desktop porte les vues denses, graphiques, exports et l'administration. Les règles d'interface détaillées sont dans [`frontend.md`](frontend.md).
+The main users are laboratory technicians and animal care staff, institution administrators, and people consulting the data for scientific purposes. In the lab, landscape tablets and phones are mainly used to find or scan a box, view its details, and enter data. In the office, desktop supports dense views, charts, exports, and administration. Detailed interface rules are in [`frontend.md`](frontend.md).
 
-## Carte technique
+## Technical overview
 
-| Couche | Emplacement | Responsabilité |
+| Layer | Location | Responsibility |
 |---|---|---|
-| Backend | `backend/` | Django, Django REST Framework, sessions, permissions, règles métier, ORM, transactions, audit, exports et QR |
-| Frontend | `frontend/` | React, TypeScript, Vite, navigation, saisie, graphiques et adaptation aux supports |
-| API | `/api/` | JSON entre React et Django, authentification de session et protection CSRF |
-| Données | PostgreSQL en production | Persistance et contraintes; SQLite est utilisé par les tests isolés ordinaires |
-| Déploiement | `deploy/` | Préflight, sauvegarde, mise à jour, build, contrôle du schéma et migrateur dédié et contrôles de service |
+| Backend | `backend/` | Django, Django REST Framework, sessions, permissions, business rules, ORM, transactions, auditing, exports, and QR codes |
+| Frontend | `frontend/` | React, TypeScript, Vite, navigation, data entry, charts, and device-specific layouts |
+| API | `/api/` | JSON between React and Django, session authentication, and CSRF protection |
+| Data | PostgreSQL in production | Persistence and constraints; SQLite is used for standard isolated tests |
+| Deployment | `deploy/` | Preflight, backup, update, build, schema checks, dedicated migrator, and service checks |
 
-Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en état de route et s'appuie sur l'API History. Les appels réutilisables passent par `frontend/src/api/client.ts`, qui gère notamment le contexte d'organisation et les jetons CSRF des mutations. `PilotageView`, `CreateBoxPanel`, `QrSearchModal` et `BoxPage` sont désormais des modules distincts; App conserve orchestration, mutations et caches. La garde institutionnelle n'est pas une garantie de fraîcheur intra-institution; voir [`frontend.md`](frontend.md).
+The frontend does not use React Router. `frontend/src/App.tsx` maps the URL to route state and uses the History API. Reusable calls go through `frontend/src/api/client.ts`, which handles the organization context and CSRF tokens for mutations, among other things. `PilotageView`, `CreateBoxPanel`, `QrSearchModal`, and `BoxPage` are now separate modules; App retains orchestration, mutations, and caches. The institution guard does not guarantee freshness within an institution; see [`frontend.md`](frontend.md).
 
-## Domaines backend
+## Backend domains
 
-- `accounts` : connexion, récupération de mot de passe, invitations, appartenances et rôles.
-- `organizations` : institutions et modèles de partenariat.
-- `taxonomy` : taxons, espèces, provenances, souches et traductions.
-- `cultures` : boîtes, zones, emplacements, mouvements, repiquages, lignées et transferts.
-- `measurements` : relevés biologiques, observations, sondes, températures et salinité.
-- `exports` : sélection, aperçu, génération de CSV et traces d'import/export.
-- `sharing` : accès externe à une boîte en lecture seule, invitations et captures figées.
-- `audit` : journal d'actions (`AuditLog`); modèle et stockage historiques `Alert` conservés dormants.
+- `accounts`: sign-in, password recovery, invitations, memberships, and roles.
+- `organizations`: institutions and partnership models.
+- `taxonomy`: taxa, species, provenance, strains, and translations.
+- `cultures`: boxes, zones, locations, movements, transplants, lineages, and transfers.
+- `measurements`: biological records, observations, probes, temperatures, and salinity.
+- `exports`: selection, preview, CSV generation, and import/export logs.
+- `sharing`: external read-only access to a box, invitations, and frozen captures.
+- `audit`: action log (`AuditLog`); the historical `Alert` model and storage are retained but inactive.
 
-Ce découpage situe le code; il ne remplace pas les frontières métier documentées dans les autres contextes.
+This breakdown shows where the code lives; it does not replace the domain boundaries documented in the other references.
 
-`InstitutionSpecies` stocke le nom scientifique et l'AphiaID locaux au-dessus de la référence `Species` partagée. La migration `taxonomy.0012` ne convertit aucune donnée historique et ne change ni les FK des souches, ni les codes. Administration > Espèces utilise les API institutionnelles. Les fiches historiques sans profil sont en lecture seule et le POST de résolution est retiré (`410` après autorisation). Cela ne bascule pas tous les consommateurs vers le nom institutionnel. Modèle, diagnostic de préparation en lecture seule, rollback protégé et liste des gates : [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](taxonomie-especes.md).
+`InstitutionSpecies` stores the local scientific name and AphiaID alongside the shared `Species` reference. Migration `taxonomy.0012` does not convert any historical data or change strain foreign keys or codes. Administration > Espèces uses institution-scoped APIs. Historical entries without profiles are read-only, and the resolution POST has been retired (`410` after authorization). This does not switch all consumers to the institution-specific name. Model, read-only readiness diagnostic, guarded rollback, and list of gates: [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](taxonomy-species.md).
 
-## Décision produit : abandon des alertes
+## Product decision: retirement of alerts
 
-Les Alertes ne sont plus une fonctionnalité active : aucun parcours de consultation ou de résolution, ni génération ou synchronisation automatique d'alertes, ne fait partie du contrat produit. Les mesures restent factuelles; une variation de comptage, un écart à une consigne ou une donnée absente ne doit pas produire d'avertissement opérationnel ou biologique inféré.
+Alertes is no longer an active feature: no workflow for viewing or resolving alerts, and no automatic alert generation or synchronization, is part of the product contract. Measurements remain factual; changes in counts, departures from a setpoint, or missing data must not produce inferred operational or biological warnings.
 
-`AuditLog` et la fonctionnalité Actions restent actifs et doivent préserver la traçabilité, y compris les entrées historiques liées aux anciennes alertes. Le modèle `Alert`, sa table, ses données et ses migrations sont conservés dormants. Leur devenir exige une décision distincte, explicitement autorisée et non destructive; l'abandon produit n'autorise aucune suppression de données ni réécriture de migrations.
+`AuditLog` and the Actions feature remain active and must preserve traceability, including historical entries related to former alerts. The `Alert` model, its table, data, and migrations are retained but inactive. Any change to their status requires a separate, explicitly authorized, non-destructive decision; retiring the feature does not authorize deleting data or rewriting migrations.
 
-## Vocabulaire minimal
+## Core vocabulary
 
-| Terme | Sens |
+| Term | Meaning |
 |---|---|
-| `Organization` | Institution ou aquarium propriétaire d'un espace de travail |
-| `OrganizationMembership` | Appartenance d'un utilisateur à une institution, avec un rôle propre |
-| `Box` | Unité centrale de culture, identifiée par un code global |
-| `Species` / `Strain` | Espèce partagée et souche opérationnelle normalement institutionnelle; cas legacy explicitement bornés |
-| `BiologicalMeasurement` | Relevé d'une boîte, unique par semaine ISO, avec date stockée, précision et observateur/origine distincts |
-| `ThermalZone` | Emplacement thermique d'une institution |
-| `BoxLocation` / `BoxMovement` | Période d'emplacement et événement enregistré typé; une frontière de période ne prouve pas un déplacement physique |
-| `DailyTemperature` | Agrégat journalier de température d'une zone |
-| `SubcultureEvent` / `BoxLineage` | Repiquage et relation parent-enfant |
-| `AuditLog` | Trace d'une action, de son auteur et de son institution |
+| `Organization` | Institution or aquarium that owns a workspace |
+| `OrganizationMembership` | A user's membership in an institution, with its own role |
+| `Box` | The central culture unit, identified by a global code |
+| `Species` / `Strain` | Shared species and operational strain normally scoped to an institution; legacy cases are explicitly bounded |
+| `BiologicalMeasurement` | A box record, unique per ISO week, with a stored date, precision, and distinct observer and origin fields |
+| `ThermalZone` | A thermal location in an institution |
+| `BoxLocation` / `BoxMovement` | A location period and a recorded event with a type; a period boundary is not proof of a physical move |
+| `DailyTemperature` | Daily temperature aggregate for a zone |
+| `SubcultureEvent` / `BoxLineage` | Transplant and parent-child relationship |
+| `AuditLog` | Record of an action, its author, and its institution |
 
-Ne pas enrichir les définitions biologiques sans validation métier.
+Do not expand biological definitions without domain approval.
 
-## Configuration et langues
+## Configuration and languages
 
-Les réglages propres à un environnement et les secrets sont fournis par variables d'environnement. Les invitations et la récupération de mot de passe utilisent la configuration d'e-mail du backend. Ne jamais lire ou reproduire le contenu d'un `.env`.
+Environment-specific settings and secrets are supplied through environment variables. Invitations and password recovery use the backend email configuration. Never read or reproduce the contents of an `.env` file.
 
-L'interface est française par défaut; le japonais est proposé avec une couverture partielle et un repli anglais. Les langues de contenu sont distinctes. Voir [terminologie et i18n](terminologie-i18n.md) pour les règles de provenance et de repli.
+The interface defaults to French; Japanese is available with partial coverage and an English fallback. Content languages are separate. See [terminology and i18n](terminology-i18n.md) for provenance and fallback rules.
 
-## Frontières fonctionnelles
+## Feature boundaries
 
-La présence d'un module ou d'une route ne signifie ni qu'un parcours est monté dans React, ni que la fonctionnalité est déployée. Consulter l'[état daté](../ETAT.md) pour la livraison et la [carte des API](api.md) pour les routes. Les références de domaine distinguent parcours actifs, fondations internes et interfaces retirées.
+The presence of a module or route does not mean that a workflow is mounted in React or that the feature is deployed. See the [dated project status](../STATUS.md) for release information and the [API map](api.md) for routes. The domain references distinguish active workflows, internal foundations, and retired interfaces.
 
-## Pour aller plus loin
+## Further reading
 
-- Sécurité institutionnelle : [`organizations-permissions.md`](organisations-permissions-partage.md).
-- Cycle de vie des cultures : [`boxes-lifecycle-locations.md`](boites-cycle-de-vie.md).
-- [Modèle de données et traçabilité](modele-donnees.md).
-- Installation générale : [`../../README.md`](../../README.md).
+- Institution security: [`organizations-permissions.md`](organizations-permissions-sharing.md).
+- Culture lifecycle: [`boxes-lifecycle-locations.md`](boxes-lifecycle.md).
+- [Data model and traceability](data-model.md).
+- General setup: [`../../README.md`](../../README.md).

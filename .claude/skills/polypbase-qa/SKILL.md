@@ -35,7 +35,7 @@ browser matrix as a shared data-flow or permissions change.
   5.1 it can remove the environment variable, allowing dotenv to restore a
   configured PostgreSQL value. Do not use default settings for unverified QA.
 - Follow the explicit SQLite commands and child-process boundary in
-  [the development and QA guide](../../../docs/operations/developpement-qa.md).
+  [the development and QA guide](../../../docs/operations/development-qa.md).
   In-memory settings are for checks/tests, not persistent visual-QA data.
 - Never run `migrate`, `loaddata`, `flush`, or `seed_demo_data` against the default
   environment unless the user has explicitly identified an isolated database.
@@ -57,7 +57,7 @@ full CI workflow: GitHub Actions discovers the Django SQLite suite without label
 runs targeted PostgreSQL regressions in one disposable PostgreSQL 18 service,
 and runs frontend `test:all` when selected. Keep full suites on CI; run focused
 checks locally. The final branch-protection check is `ci-ok`. See the
-[development and QA guide](../../../docs/operations/developpement-qa.md) for discovery
+[development and QA guide](../../../docs/operations/development-qa.md) for discovery
 and isolation. Select frontend checks from [`frontend/package.json`](../../../frontend/package.json).
 Stop and report the exact failing command when a check fails.
 

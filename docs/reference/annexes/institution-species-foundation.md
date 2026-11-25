@@ -1,6 +1,6 @@
 # Institutional Species foundation and backend services
 
-Annexe technique avec résultats de validation datés. Ces résultats ne constituent pas une validation de la version actuelle.
+Technical appendix with dated validation results. These results do not validate the current version.
 
 ## Scope
 
@@ -209,7 +209,7 @@ remain untouched.
 
 ## Validation gates
 
-Use the [isolated SQLite QA settings](../../operations/developpement-qa.md)
+Use the [isolated SQLite QA settings](../../operations/development-qa.md)
 with dotenv disabled. Focused module: `apps.taxonomy.test_institution_species`.
 
 Actual concurrent uniqueness and revision tests require a newly initialized,
@@ -252,7 +252,7 @@ and can register a missing AAA only from proven current evidence. There is no
 Strain edit or code-change preview screen. Country,
 acquisition, donor, GPS and optional name belong to Strain creation; the initial
 polyp count and optional DNA evidence belong to Box creation. See
-the [frontend reference](../frontend.md#administration--espèces).
+the [frontend reference](../frontend.md#administration-espèces).
 
 ## Collection-location visibility (M1)
 

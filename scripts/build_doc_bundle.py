@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRY_POINTS = ("AGENTS.md", "docs/INDEX.md", "docs/ETAT.md")
+ENTRY_POINTS = ("AGENTS.md", "docs/INDEX.md", "docs/STATUS.md")
 
 
 def git(*args):
@@ -17,7 +17,7 @@ def build():
     date = git("show", "-s", "--format=%cs", sha).strip()
     reference = git("ls-tree", "-r", "--name-only", "-z", sha, "docs/reference/").split("\0")
     files = [*ENTRY_POINTS, *sorted(path for path in reference if path.endswith(".md"))]
-    parts = [f"# Polypbase\n\nSource : `{sha}` ({date}) — contenu généré, ne pas éditer."]
+    parts = [f"# Polypbase\n\nSource: `{sha}` ({date}) — generated content; do not edit."]
     for path in files:
         parts.append(f"<!-- {path} -->\n\n{git('show', f'{sha}:{path}').strip()}")
     return "\n\n---\n\n".join(parts) + "\n"

@@ -61,6 +61,7 @@ jobs:
 
       - name: Check documentation and skill copies
         run: |
+          uv run --frozen python -B -m unittest discover -s scripts -p test_check_docs.py
           uv run --frozen python -B scripts/check_docs.py
           uv run --frozen python -B scripts/gen_api_doc.py --check
           uv run --frozen python -B scripts/sync_agent_skills.py --check
