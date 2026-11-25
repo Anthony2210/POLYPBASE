@@ -1,158 +1,160 @@
-# Registre des traductions appliquées à l'application
+# Application translation register
 
-Ce dossier trace ce qui a réellement été examiné et modifié dans les textes FR/EN de l'application (catalogues React, `.po` Django, chaînes inline). Il ne concerne ni le classeur Google Sheets, qui n'est plus modifié, ni le japonais.
+This directory tracks what was actually reviewed and changed in the application's FR/EN text (React catalogs, Django `.po` files, and inline strings). It does not cover the Google Sheets workbook, which is no longer updated, or Japanese.
 
-## Trois notions distinctes
+## Three distinct concepts
 
-| Notion | Où elle vit |
+| Concept | Where it is recorded |
 |---|---|
-| Décisions et corrections B01 | `register.csv` : références de décision, valeurs avant/après, statuts et justifications. Les propositions historiques AC01–AC28 sont archivées hors dépôt. |
-| Valeur présente dans le code | les sources elles-mêmes (`frontend/src/i18n/*.ts`, `backend/locale/*/LC_MESSAGES/django.po`, fichiers inline) |
-| Modification effectivement faite dans l'application, ou décision de ne pas la faire | `register.csv` (ce dossier) |
+| B01 decisions and corrections | `register.csv`: decision references, before/after values, statuses, and rationales. The historical proposals AC01–AC28 are archived outside the repository. |
+| Value present in the code | The sources themselves (`frontend/src/i18n/*.ts`, `backend/locale/*/LC_MESSAGES/django.po`, inline source files). |
+| Change actually made in the application, or a decision not to make it | `register.csv` (this directory). |
 
-Une proposition historiquement approuvée ne prouve pas que l'application a été modifiée. register.csv distingue les changements appliqués, les valeurs déjà conformes, les exceptions préservées et les corrections différées. check_register.py vérifie leur cohérence avec le code actuel.
+Historical approval of a proposal does not prove that the application was changed. `register.csv` distinguishes applied changes, values that already matched, deliberately preserved exceptions, and deferred corrections. `check_register.py` checks them against the current code.
 
-## Référence de départ (lot B01)
+## Starting baseline (batch B01)
 
-- Git `HEAD` : `6b9813f7c2ece99ecc8fbbb67670697afceeede5`.
-- Feuille historique : `../cleanup/Traduction Polypbase(4).xlsx`, SHA-256 `e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307`. C'est une preuve de référence, pas une source synchronisée. `sheet_value` reprend la cellule de cette version, sans les espaces de début et de fin.
+- Git `HEAD`: `6b9813f7c2ece99ecc8fbbb67670697afceeede5`.
+- Historical spreadsheet: `../cleanup/Traduction Polypbase(4).xlsx`, SHA-256 `e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307`. It is reference evidence, not a synchronized source. `sheet_value` records the cell from that version with leading and trailing spaces removed.
 
-## Colonnes de `register.csv`
+## `register.csv` columns
 
-`entry_id`, `batch`, `surface` (`react`, `django`, `inline`), `key_or_msgid` (clé exacte ou msgid Django exact), `language`, `source_file`, `initial_value`, `final_value`, `sheet_value`, `decision_ref`, `status`, `reason`, `baseline_git_head`, `baseline_sheet_sha256`.
+`entry_id`, `batch`, `surface` (`react`, `django`, `inline`), `key_or_msgid` (exact key or Django msgid), `language`, `source_file`, `initial_value`, `final_value`, `sheet_value`, `decision_ref`, `status`, `reason`, `baseline_git_head`, `baseline_sheet_sha256`.
 
-Pour Django, la valeur est celle que voit l'utilisateur : le `msgstr`, ou le msgid lui-même si aucune entrée n'existe.
+For Django, the value is what the user sees: the `msgstr`, or the msgid itself if no entry exists.
 
-Statuts :
+Statuses:
 
-- `APPLIED` : la valeur a été modifiée dans ce lot (`initial_value` ≠ `final_value`).
-- `ALREADY_MATCHING` : le code avait déjà la valeur approuvée.
-- `PRESERVED` : la valeur diffère de la feuille et est volontairement conservée par décision.
-- `DEFERRED` : examiné, non modifié faute d'approbation applicative ou d'usage réel ; à reprendre.
-- `NOT_FOUND` : la clé ou le msgid n'existe pas dans la source indiquée. `initial_value` et `final_value` restent vides (la chaîne vide représente l'absence). Restriction temporaire : `NOT_FOUND` est refusé pour `surface=inline`, car le vérificateur ne sait pas prouver de façon fiable qu'une chaîne inline est absente d'un fichier. Il reste vérifié pour `react` (clé absente du catalogue) et `django` (aucune entrée dans le `.po`). Cette restriction sera levée seulement avec une détection de présence fiable au niveau source.
-- `REMOVED` (depuis B03) : la clé a été volontairement supprimée d'un catalogue React. Réservé à `surface=react`, avec le catalogue de la langue (`frontend/src/i18n/fr.ts` ou `en.ts`). `initial_value` est la valeur exacte avant suppression, non vide ; `final_value` est vide et signifie que l'identité est absente ; `sheet_value` reste vide. La suppression FR et la suppression EN d'une même clé forment une paire dans le même lot. Seul `NOT_FOUND` peut suivre un `REMOVED` : tout autre événement, y compris un second `REMOVED`, contredit la suppression. Une clé dont le dernier événement est `REMOVED` et qui réapparaît dans le catalogue est rejetée. Restaurer une clé demandera un nouveau statut explicite.
+- `APPLIED`: the value was changed in this batch (`initial_value` ≠ `final_value`).
+- `ALREADY_MATCHING`: the code already contained the approved value.
+- `PRESERVED`: the value differs from the spreadsheet and a decision was made to keep it.
+- `DEFERRED`: reviewed but not changed because there was no approval for the application or no actual usage; revisit later.
+- `NOT_FOUND`: the key or msgid does not exist in the specified source. `initial_value` and `final_value` stay empty (an empty string represents absence). Temporary restriction: `NOT_FOUND` is rejected for `surface=inline` because the checker cannot reliably prove that an inline string is absent from a file. It is still checked for `react` (key absent from the catalog) and `django` (no entry in the `.po` file). This restriction will be lifted only when presence can be detected reliably in the source.
+- `REMOVED` (since B03): the key was deliberately removed from a React catalog. Applies only to `surface=react`, with the corresponding language catalog (`frontend/src/i18n/fr.ts` or `en.ts`). `initial_value` is the exact, non-empty value before removal; `final_value` is empty and means the identity is absent; `sheet_value` stays empty. The FR and EN removals of the same key form a pair in the same batch. Only `NOT_FOUND` may follow `REMOVED`: any other event, including a second `REMOVED`, contradicts the removal. A key whose last event is `REMOVED` is rejected if it reappears in the catalog. Restoring a key will require a new explicit status.
 
-## Lot B01 (2026-10-28) en bref
+## Batch B01 (2026-10-28) at a glance
 
-- 21 `APPLIED` : 11 EN et 3 FR dans les catalogues React, 5 EN et 2 FR dans les `.po` Django.
-- 5 `ALREADY_MATCHING` : AC11, AC22, AC23, AC24, AC26.
-- 2 `PRESERVED` : `movementKindUnclassified` (AC25), `auditValuePendingReview` (AC28).
-- 6 `DEFERRED` : AC17 (clé sans usage), AC10 (formulaire Django inutilisé), libellés `pending_review` côté React (hors approbation AC14), libellé Django `Armoire` (non exposé par l'API).
-- Aucune clé supprimée ni restaurée, aucun msgid source réécrit.
+- 21 `APPLIED`: 11 EN and 3 FR in the React catalogs, 5 EN and 2 FR in the Django `.po` files.
+- 5 `ALREADY_MATCHING`: AC11, AC22, AC23, AC24, AC26.
+- 2 `PRESERVED`: `movementKindUnclassified` (AC25), `auditValuePendingReview` (AC28).
+- 6 `DEFERRED`: AC17 (unused key), AC10 (unused Django form), React `pending_review` labels (outside the scope of AC14 approval), and the Django label `Armoire` (not exposed by the API).
+- No keys were removed or restored, and no source msgids were rewritten.
 
-## Méthode pour un lot suivant
+## Workflow for a subsequent batch
 
-1. Inspecter la clé, son usage et la décision exacte (`docs/reference/terminologie-i18n.md`).
-2. Modifier la source si la décision est confirmée et sûre. Conserver les variables `{x}`. Après un `.po` : `cd backend; uv run python ../scripts/compile_django_messages.py`.
-3. Ajouter à la fin de `register.csv` une ligne par identité examinée, avec un nouveau `batch`, le `HEAD` de départ et `entry_id` à la suite.
-4. Lancer depuis la racine `python docs/translation-review/application/check_register.py`, puis les tests de non-régression `python -m unittest discover -s docs/translation-review/application -p "test_*.py"`. `--show <clé>` affiche l'historique d'une clé.
+1. Inspect the key, its usage, and the exact decision (`docs/reference/terminology-i18n.md`).
+2. Change the source if the decision is confirmed and safe. Preserve `{x}` variables. After editing a `.po` file, run `cd backend; uv run python ../scripts/compile_django_messages.py`.
+3. Append one row to `register.csv` for each identity reviewed, with a new `batch`, the starting `HEAD`, and sequential `entry_id` values.
+4. From the repository root, run `python docs/translation-review/application/check_register.py`, then run the regression tests with `python -m unittest discover -s docs/translation-review/application -p "test_*.py"`. `--show <clé>` displays a key's history.
 
-## Historique en ajout seul
+## Append-only history
 
-Le registre est un journal d'événements. Les lignes d'un lot déjà enregistré (dont les 34 lignes de B01 et leurs références de décision) ne sont jamais modifiées, réordonnées ni supprimées. Une erreur se corrige par un nouvel événement dans un lot suivant. Le test `test_h_b01_register_is_unchanged_and_valid` fige une empreinte canonique des 34 lignes B01 (valeurs des champs, indépendante des fins de ligne et des lots ajoutés ensuite) et vérifie qu'elles restent en tête du fichier. Ajouter un lot ne demande donc pas de toucher ce test ; modifier B01 le fait échouer. `test_h_b02_register_is_unchanged` fige de la même façon les 86 lignes B02 (T035–T120), juste après B01.
+The register is an event log. Rows in a batch that has already been recorded (including all 34 B01 rows and their decision references) are never edited, reordered, or deleted. Correct an error by adding a new event in a later batch. The test `test_h_b01_register_is_unchanged_and_valid` pins a canonical digest of the 34 B01 rows (based on field values and independent of line endings or later batches) and checks that they remain at the top of the file. Adding a batch therefore does not require changing this test; editing B01 makes it fail. `test_h_b02_register_is_unchanged` likewise pins the 86 B02 rows (T035–T120) immediately after B01.
 
-Règles vérifiées par `check_register.py` :
+Rules enforced by `check_register.py`:
 
-- **Identité** d'un événement : `surface` + `key_or_msgid` + `language` + `source_file`. Une même clé sur deux surfaces ou dans deux langues forme deux historiques indépendants.
-- **Un seul événement par identité et par lot**, même identique : un doublon ou une contradiction dans un lot est rejeté et ne peut pas masquer l'événement précédent.
-- **Chronologie explicite** : `batch` suit `Bnn-AAAA-MM-JJ`. Chaque lot forme un bloc contigu ; les blocs se suivent par numéro strictement croissant et date non décroissante ; un numéro ne désigne qu'un seul lot ; `entry_id` (`Tnnn`) croît strictement dans l'ordre du fichier ; un lot déclare un seul `baseline_git_head`. Si l'ordre est invalide ou ambigu, la continuité n'est pas évaluée et le registre est rejeté.
-- **Continuité** : pour deux événements successifs d'une même identité, `initial_value` du nouveau égale `final_value` du précédent. `APPLIED` exige un changement de valeur ; `ALREADY_MATCHING`, `PRESERVED` et `DEFERRED` reportent la valeur sans la changer ; `NOT_FOUND` a des valeurs vides, et l'événement suivant doit partir de l'absence ; `REMOVED` part de la dernière valeur connue et ne peut être suivi que d'un `NOT_FOUND`.
-- **Lecture des catalogues React** : analyse lexicale stricte, sans exécution. Seule la forme réelle des catalogues est acceptée (imports de types, un unique `export const` d'objet littéral, clés identifiants ou chaînes, valeurs chaînes, commentaires). Toute autre construction (spread, clé calculée, valeur non littérale, interpolation, code hors de l'objet) fait échouer le contrôle : une mise en forme inhabituelle ne peut pas faire passer une clé présente pour absente.
-- **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
-- Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
+- **Event identity**: `surface` + `key_or_msgid` + `language` + `source_file`. The same key on two surfaces or in two languages has two independent histories.
+- **One event per identity per batch**, even if the events are identical: a duplicate or contradiction within a batch is rejected and cannot hide the previous event.
+- **Explicit chronology**: `batch` follows `Bnn-AAAA-MM-JJ`. Each batch forms a contiguous block. Blocks are ordered by strictly increasing batch number and nondecreasing date. A number identifies only one batch. `entry_id` (`Tnnn`) increases strictly in file order. A batch declares a single `baseline_git_head`. If the order is invalid or ambiguous, continuity is not checked and the register is rejected.
+- **Continuity**: for two successive events with the same identity, the new `initial_value` equals the previous `final_value`. `APPLIED` requires a value change. `ALREADY_MATCHING`, `PRESERVED`, and `DEFERRED` carry the value forward unchanged. `NOT_FOUND` has empty values, and the next event must start from absence. `REMOVED` starts from the last known value and can only be followed by `NOT_FOUND`.
+- **Reading React catalogs**: strict lexical analysis without execution. Only the actual catalog structure is accepted (type imports, a single `export const` object literal, identifier or string keys, string values, and comments). Any other construct (spread, computed key, nonliteral value, interpolation, or code outside the object) fails the check. Unusual formatting cannot make a present key appear absent.
+- **Current state**: only the last event for each identity is compared with the code. An older `final_value` may differ from the current code if a later event accounts for the difference.
+- The checker also validates statuses, surfaces, FR/EN-only languages, digests, preservation of `{x}` variables and their occurrence counts, and FR/EN catalog parity for keys and variables.
 
-## Retrait des anciennes sections d’administration (B50, 2026-11-24)
+## Removal of former administration sections (B50, 2026-11-24)
 
-Le lot `B50-2026-11-24` (`T1865–T2030`) enregistre 83 paires `REMOVED` à partir d’`origin/main` (`9e00e2c6e0eb581334f9238ce041a7d3d2fafb19`). Il couvre les 79 clés devenues sans usage et quatre clés déjà retenues de l’ancienne section Taxonomie. Les anciennes exceptions sans lien direct avec ce retrait restent en place. L’empreinte de feuille déjà enregistrée sert de référence documentaire, sans nouvelle revue du classeur.
+Batch `B50-2026-11-24` (`T1865–T2030`) records 83 `REMOVED` pairs from `origin/main` (`9e00e2c6e0eb581334f9238ce041a7d3d2fafb19`). It covers the 79 keys that became unused and four previously retained keys from the former Taxonomy section. Earlier exceptions unrelated to this removal remain in place. The previously recorded spreadsheet digest serves as a documentary reference; the workbook was not reviewed again.
 
-Les 78 valeurs japonaises validées retirées du catalogue d’exécution restent dans les manifestes historiques, qui ne sont pas modifiés. Les tests distinguent l’absence dans l’interface de la provenance historique. `admin-removal-test-fixture.json` contient uniquement les indices de ligne et empreintes nécessaires pour reconstruire les catalogues de référence à partir des valeurs du registre et du manifeste.
+The 78 approved Japanese values removed from the runtime catalog remain in the unchanged historical manifests. Tests distinguish absence from the UI from historical provenance. `admin-removal-test-fixture.json` contains only the row indices and digests needed to reconstruct the baseline catalogs from the register and manifest values.
 
-## ADN : ajout puis retrait du chip d'état (2026-11-16)
+## DNA: addition and subsequent removal of the status chip (2026-11-16)
 
-La clé React `dnaStateValidated` a été ajoutée en FR (`Validée`) et EN (`Validated`) dans le lot B30 en préparation, puis retirée avec le chip redondant du popover. Les événements d'ajout `T1452/T1453`, supprimés pendant la session précédente, sont rétablis dans leur position chronologique : leur suppression n'est pas une manière de tracer un retrait applicatif. Les événements suivants `T1454–T1457` ne sont pas renumérotés.
+The React key `dnaStateValidated` was added in FR (`Validée`) and EN (`Validated`) in the B30 batch in preparation, then removed along with the redundant chip in the popover. The addition events `T1452/T1453`, deleted in the previous session, are restored to their place in chronological order: deleting them is not a way to record a removal from the application. The subsequent events `T1454–T1457` are not renumbered.
 
-Le nouveau lot `B31-2026-11-16` ajoute la paire `REMOVED` `T1458/T1459`, avec les valeurs exactes avant retrait et une valeur finale vide. Les catalogues restent sans cette clé; aucune réintroduction ni modification du japonais n'est faite. L'historique baseline `T001–T1401` reste inchangé, y compris la représentation CSV de `T841/T842`; aucune empreinte ni règle du checker n'est modifiée. Cette traçabilité ne constitue pas un nouveau résultat QA frontend ou navigateur.
+The new batch `B31-2026-11-16` adds the `REMOVED` pair `T1458/T1459`, with the exact values before removal and an empty final value. The key remains absent from the catalogs; it was not reintroduced, and Japanese was not changed. The baseline history `T001–T1401` remains unchanged, including the CSV representation of `T841/T842`. No digests or checker rules were changed. This register update does not constitute a new frontend or browser QA result.
 
-## Intégration laboratoire du 2026-11-05
+<a id="intégration-laboratoire-du-2026-11-05"></a>
 
-Les 32 événements FR/EN entrants de `8f7cf04` (suppression d'emplacements et audit du laboratoire) entraient en collision avec les événements de mouvements historiques déjà présents sur `main`. L'intégration conserve `T001–T974` octet pour octet, notamment les événements thermiques `T845–T858`, laboratoire `T859–T886` et historiques `T887–T974`.
+## Laboratory integration on 2026-11-05
 
-Les événements entrants sont ajoutés à la fin, dans leur ordre d'origine :
+The 32 incoming FR/EN events from `8f7cf04` (location deletion and laboratory audit) collided with historical movement events already on `main`. The integration preserves `T001–T974` byte for byte, including thermal events `T845–T858`, laboratory events `T859–T886`, and historical events `T887–T974`.
 
-- Lot `B14-2026-11-05` → `B17-2026-11-05` (date inchangée).
-- Identifiants `T887–T918` → `T975–T1006`, inclusivement : chaque `Tn` devient `T(n + 88)`.
-- Seuls `entry_id` et `batch` changent. Les valeurs FR/EN, sources, décisions, motifs, statuts et empreintes de baseline restent identiques à l'entrée. La référence `B14-lab-config-inline-actions-pending-review` reste volontairement inchangée : c'est une référence de provenance, pas le numéro du lot intégré.
-- Les 32 événements restent `DEFERRED` : aucune approbation de formulation ni traduction japonaise n'est ajoutée.
+The incoming events are appended in their original order:
 
-L'empreinte canonique de tous les champs des 32 événements renumérotés est `c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134` (même calcul que `rows_digest` dans `test_check_register.py`). Elle protège ce lot indépendamment des empreintes thermiques, laboratoire initial et historiques, qui restent inchangées. Le registre intégré compte 1 006 événements dans 17 lots. Une correction ultérieure s'ajoute après cet historique ; elle ne réécrit aucun événement existant.
+- Batch `B14-2026-11-05` → `B17-2026-11-05` (date unchanged).
+- IDs `T887–T918` → `T975–T1006`, inclusive: each `Tn` becomes `T(n + 88)`.
+- Only `entry_id` and `batch` change. FR/EN values, sources, decisions, reasons, statuses, and baseline digests match the incoming events. The reference `B14-lab-config-inline-actions-pending-review` deliberately stays unchanged: it records provenance, not the integrated batch number.
+- The 32 events remain `DEFERRED`: no wording approval or Japanese translation was added.
 
-## Intégration mouvements et thermique du 2026-11-09
+The canonical digest of all fields across the 32 renumbered events is `c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134` (using the same calculation as `rows_digest` in `test_check_register.py`). It protects this batch independently of the unchanged thermal, initial laboratory, and historical digests. The integrated register contains 1 006 events in 17 batches. Any later correction must be appended after this history; it must not rewrite an existing event.
 
-L'intégration locale conserve le registre de `5b1299b` (`T001–T1036`, dont les mouvements B20/B21) et ajoute les 26 événements thermiques de `ee492bd`, sans changement de formulation ni de provenance. Le lot thermique entrant `B20-2026-11-09` devient `B22-2026-11-09` ; `T1011–T1036` deviennent `T1037–T1062` (décalage exact de +26). Seuls `entry_id` et `batch` changent, conformément au précédent laboratoire ci-dessus.
+## Movement and thermal integration on 2026-11-09
 
-Les trois registres sources complets sont conservés indépendamment dans les nouveaux fichiers `integration-2026-11-09-{base,movements,thermal}.csv`. Les objets Git, empreintes, correspondances ligne par ligne et résultats de validation sont documentés dans [`integration-2026-11-09.md`](../../archive/2026-11-traductions/integration-2026-11-09.md). Les preuves antérieures restent inchangées. Les tests figent l'historique HEAD complet et la projection thermique, indépendamment des catalogues courants ; toute correction ultérieure doit être un événement ajouté.
+The local integration preserves the register from `5b1299b` (`T001–T1036`, including movements B20/B21) and adds the 26 thermal events from `ee492bd` without changing wording or provenance. The incoming thermal batch `B20-2026-11-09` becomes `B22-2026-11-09`; `T1011–T1036` become `T1037–T1062` (an exact offset of +26). Only `entry_id` and `batch` change, following the laboratory precedent above.
 
-## Lot B02 (2026-10-29)
+The three complete source registers are preserved separately in the new files `integration-2026-11-09-{base,movements,thermal}.csv`. The Git objects, digests, row-by-row mappings, and validation results are documented in [`integration-2026-11-09.md`](../../archive/2026-11-traductions/integration-2026-11-09.md). Earlier evidence remains unchanged. The tests pin the complete `HEAD` history and the thermal projection independently of the current catalogs. Any later correction must be recorded as an appended event.
 
-Baseline Git : `947105e605f979017e5915f80820ed356c411e4b`. Les 34 événements B01 restent inchangés, en tête du fichier ; B02 ajoute **86 événements, T035–T120** :
+## Batch B02 (2026-10-29)
 
-- **21 `ALREADY_MATCHING`** : 18 entrées FR dont le msgid est déjà français, et les trois validations de dates EN. L'entrée était absente, mais gettext affichait déjà le même texte source. La couverture explicite augmente sans changement du texte affiché.
-- **16 `APPLIED`** : invitation à contacter un administrateur sur sept clés React, dans les deux langues, et sur le refus Django `The parent box is outside the active organization.`, dans les deux langues. Aucun msgid ni contrôle de permission modifié.
-- **49 `DEFERRED`** : identités langue/msgid encore absentes, examinées pour les exemptions de couverture exactes. Une reprise d'un report B01 documente ici le nouveau périmètre de contrôle, pas une nouvelle approbation de traduction.
+Git baseline: `947105e605f979017e5915f80820ed356c411e4b`. The 34 B01 events remain unchanged at the top of the file; B02 adds **86 events, T035–T120**:
 
-Références d'approbation : demande explicite du writer B02, parties 1A/1B (`B02-safe-identities`), 1C/1D et règle permanente de refus (`B02-permission-refusals`), et exclusion explicite des formulations non approuvées (`B02-scope-deferred`). `sheet_value` reste vide pour tous les événements B02. `baseline_sheet_sha256` conserve uniquement la référence historique figée de B01 : aucune nouvelle lecture, valeur ou approbation de feuille n'est alléguée.
+- **21 `ALREADY_MATCHING`**: 18 FR entries whose msgid is already in French, and the three EN date validation messages. The entries were absent, but gettext already displayed the same source text. Explicit coverage increases without changing the displayed text.
+- **16 `APPLIED`**: a prompt to contact an administrator on seven React keys in both languages, and on the Django permission denial `The parent box is outside the active organization.` in both languages. No msgid or permission check was changed.
+- **49 `DEFERRED`**: still-missing language/msgid identities reviewed for exact coverage exemptions. Revisiting a B01 deferral here documents the new scope of the check, not a new translation approval.
 
-Le message de structure active est un `PermissionDenied` dans `cultures/services.py`. Les événements B02 corrigent cette classification sans réécrire la description historique de T030.
+Approval references: the B02 writer's explicit request, parts 1A/1B (`B02-safe-identities`), parts 1C/1D and the standing rule for permission denials (`B02-permission-refusals`), and the explicit exclusion of unapproved wording (`B02-scope-deferred`). `sheet_value` stays empty for all B02 events. `baseline_sheet_sha256` retains only the fixed historical B01 reference: no new spreadsheet review, value, or approval is claimed.
 
-### Couverture et exemptions
+The active-institution message is a `PermissionDenied` in `cultures/services.py`. The B02 events correct this classification without rewriting the historical description of T030.
 
-Inventaire de production : **88 msgids distincts**. Avant B02 : 51 absences FR et 19 EN. Après B02 : **33 FR et 16 EN**, soit 49 identités manquantes, toutes explicitement exemptées. Ce résultat ne signifie ni traduction intégrale ni conformité de tous les messages utilisateur.
+### Coverage and exemptions
 
-`scripts/check_i18n.py` distingue couverture brute, absences exemptées et erreurs bloquantes. Chaque exemption fixe la langue, le msgid, les chemins source et le nombre d'occurrences, un motif et une référence de décision. Elle exige le dernier événement `DEFERRED` de l'identité exacte (`django`, msgid, langue, fichier PO). Une nouvelle absence, une portée différente, une référence incorrecte ou une exemption devenue inutile bloque le contrôle. Cette liste est technique : le registre reste l'unique historique des décisions et valeurs.
+Production inventory: **88 distinct msgids**. Before B02: 51 missing in FR and 19 in EN. After B02: **33 in FR and 16 in EN**, or 49 missing identities, all explicitly exempted. This result does not mean that translation is complete or that all user-facing messages conform.
 
-Sont encore différés : FR des trois erreurs de dates ; rôle Django `Lecture seule` / `Viewer` ; choix Django `Armoire`, provenance et Transplant ; gardes d'intégrité sans traduction approuvée ; anciens formulaires scientifiques et choix non exposés par les clients courants. Les métadonnées DRF peuvent toutefois exposer certains choix : l'absence d'affichage React n'établit pas leur inaccessibilité.
+`scripts/check_i18n.py` distinguishes raw coverage, exempted omissions, and blocking errors. Each exemption specifies the language, msgid, source paths and occurrence counts, a reason, and a decision reference. It requires the most recent event for the exact identity (`django`, msgid, language, PO file) to be `DEFERRED`. A new omission, a different scope, an incorrect reference, or an exemption that is no longer needed causes the check to fail. This list is technical; the register remains the sole history of decisions and values.
 
-Restent également hors correction : `movementErrorForbidden` partagé entre 401 et 403, `csvErrorPermission`, protections de parcours et du dernier responsable actif, `manualTemperatureForbidden` sans usage trouvé, permissions caméra et refus de repiquage non gettext dans les vues API. Aucun de ces cas n'est implicitement approuvé par un contrôle vert.
+Still deferred: the FR translations of the three date errors; the Django role `Lecture seule` / `Viewer`; the Django choices for `Armoire`, provenance, and Transplant; integrity guards without approved translations; and legacy scientific forms and choices not exposed by current clients. DRF metadata can still expose some choices. The fact that React does not display them does not prove they are inaccessible.
 
-### Contrôles de B02
+Also outside the scope of the corrections: `movementErrorForbidden`, shared by 401 and 403; `csvErrorPermission`; protections for workflows and the last active manager; `manualTemperatureForbidden`, for which no usage was found; camera permissions; and non-gettext transplant denials in API views. A passing check does not implicitly approve any of these cases.
 
-- Compilateur PO singulier strict, avec fichier/ligne dans les erreurs, multiligne et échappements UTF-8. Pluriels, contextes, fuzzy, entrées obsolètes et syntaxe inconnue sont explicitement refusés, pas ignorés. Tous les catalogues sont validés avant la première écriture.
-- `--check` recompile seulement en mémoire et compare les octets MO versionnés ; il n'écrit jamais. La CI contrôle les fichiers existants sans les régénérer au préalable.
-- Extraction AST des imports Django `gettext`/`gettext_lazy` et des balises littérales `trans`/`translate` (option `as` prise en charge). Tests, migrations et caches sont exclus de l'inventaire de production. Appels dynamiques, indirections et formes non prises en charge échouent explicitement.
-- Placeholders Django : champs de formatage avec conversion/spécification, paramètres printf nommés ou positionnels et types, multiplicité et échappements. Les pourcentages de prose restent valides ; les flags PO `python-format` et `c-format` activent le contrôle printf strict. Il ne s'agit pas d'un support complet GNU gettext.
-- Frontend : AST TypeScript sans exécution du catalogue, parité, doublons, clés/valeurs vides, espaces périphériques, point médian, variables simples `{name}` et multiplicité, formulations contextuelles protégées et neuf refus classés (sept B02, deux B01).
-- Aucun bannissement global de `Organization`, `Subculture` ou `Measurement`. Les recherches terminologiques générales et la classification de nouveaux refus restent consultatives.
+### B02 checks
 
-Les commandes de validation sont dans `docs/operations/developpement-qa.md`. Pour une modification future, vérifier aussi le diff FR/EN contre les nouveaux événements : le checker contrôle les identités enregistrées mais ne prouve pas à lui seul l'exhaustivité du diff. Aucune suppression ou restauration de clé, aucun statut `REMOVED`, aucune synchronisation de feuille ni modification japonaise dans B02.
+- Strict PO compiler for singular entries, with file and line in error messages, multiline support, and UTF-8 escapes. Plurals, contexts, fuzzy entries, obsolete entries, and unknown syntax are explicitly rejected, not ignored. All catalogs are validated before the first write.
+- `--check` recompiles only in memory and compares the bytes of the tracked MO files; it never writes. CI checks the existing files without regenerating them first.
+- AST extraction of Django `gettext`/`gettext_lazy` imports and literal `trans`/`translate` tags (the `as` option is supported). Tests, migrations, and caches are excluded from the production inventory. Dynamic calls, indirect references, and unsupported forms fail explicitly.
+- Django placeholders: format fields with conversions and format specifications, named or positional printf parameters and their types, occurrence counts, and escapes. Percent signs in prose remain valid; the PO flags `python-format` and `c-format` enable strict printf checks. This does not provide full GNU gettext support.
+- Frontend: TypeScript AST analysis without executing the catalog, parity, duplicates, empty keys or values, leading and trailing whitespace, middle dots, simple `{name}` variables and their occurrence counts, protected context-specific wording, and nine classified permission denials (seven B02, two B01).
+- No blanket ban on `Organization`, `Subculture`, or `Measurement`. General terminology searches and classification of new denials remain advisory.
 
-## Lot B03 (2026-10-29)
+Validation commands are in `docs/operations/development-qa.md`. For future changes, also check the FR/EN diff against the new events: the checker validates recorded identities but cannot by itself prove that the entire diff is covered. B02 removed or restored no keys, used no `REMOVED` status, did not synchronize the spreadsheet, and did not change Japanese.
 
-Baseline Git : `f50765ee07a8e6add7db5b11652f4e141acc194d`. Les 120 événements B01/B02 restent inchangés ; B03 ajoute **320 événements `REMOVED`, T121–T440**, un par clé et par langue, FR puis EN pour chaque clé.
+## Batch B03 (2026-10-29)
 
-- Suppression de **160 clés React inutilisées** dans `fr.ts` et `en.ts` : 1 353 → 1 193 clés par langue. Les autres paires clé/valeur, leur ordre et leur formulation sont inchangés ; aucun composant applicatif n'est modifié.
-- Ensemble exact autorisé par la demande du writer B03 (`B03-safe-removal`), revalidé avant suppression par AST TypeScript sur `frontend/src` et `frontend/scripts` : aucune chaîne, aucun identifiant, aucun fragment de template, aucune concaténation ni expression régulière ne désigne ces clés ; les appels de traduction dynamiques et les six chemins de traducteur non typés tirent leurs clés de tables littérales. Les occurrences de `prototype` sont des accès `Object.prototype`.
-- `initial_value` reprend la valeur exacte avant suppression ; `sheet_value` reste vide ; `baseline_sheet_sha256` conserve la référence historique figée de B01, sans nouvelle lecture ni approbation de feuille.
-- Hors périmètre, conservés : les 132 clés `csv*` encore utilisées par `MeasurementImportPanel` et ses tests, `auditSummaryAlertResolved`, `adminTransferText`, `manualTemperatureForbidden`, les candidats utilisés seulement par des tests, les autres candidats réservés à des lots ultérieurs, les entrées gettext Django et les traductions différées de B02. Aucune règle bloquante générale sur les clés inutilisées n'est introduite, et les traducteurs non typés ne sont pas retypés.
+Git baseline: `f50765ee07a8e6add7db5b11652f4e141acc194d`. The 120 B01/B02 events remain unchanged. B03 adds **320 `REMOVED` events, T121–T440**, one per key and language, FR followed by EN for each key.
 
-## B03 final : trois lots indépendants (2026-10-29)
+- Removed **160 unused React keys** from `fr.ts` and `en.ts`: 1 353 → 1 193 keys per language. The other key/value pairs, their order, and their wording are unchanged. No application component was changed.
+- The exact set authorized by the B03 writer's request (`B03-safe-removal`) was revalidated before removal using the TypeScript AST across `frontend/src` and `frontend/scripts`. No string, identifier, template fragment, concatenation, or regular expression refers to these keys. Dynamic translation calls and the six untyped translator paths take their keys from literal tables. Occurrences of `prototype` are accesses to `Object.prototype`.
+- `initial_value` records the exact value before removal. `sheet_value` stays empty. `baseline_sheet_sha256` retains the fixed historical B01 reference, with no new spreadsheet review or approval.
+- Out of scope and retained: the 132 `csv*` keys still used by `MeasurementImportPanel` and its tests, `auditSummaryAlertResolved`, `adminTransferText`, `manualTemperatureForbidden`, candidates used only by tests, other candidates reserved for later batches, Django gettext entries, and B02 deferred translations. No general blocking rule for unused keys was introduced, and the untyped translators were not given new types.
 
-Baseline vérifié : `dc69aceda71cbd6b802ef5b3090b2ccc4d8d9647`, branche `chore/i18n-b03-final`, dossier de développement initialement sans modification et identique aux références locales `main` et `origin/main`. Pas de synchronisation réseau de ces références ni de modification d'un autre dossier de développement.
+## Final B03: three independent batches (2026-10-29)
 
-Le schéma existant exige des numéros de lots strictement croissants (`Bnn-AAAA-MM-JJ`) : les noms de travail B03-2, B03-3 et B03-4 sont donc associés respectivement à **B04**, **B05** et **B06**, sans modifier le checker ni l'ancien lot B03.
+Verified baseline: `dc69aceda71cbd6b802ef5b3090b2ccc4d8d9647`, branch `chore/i18n-b03-final`. The working tree was initially clean and matched the local `main` and `origin/main` refs. Those refs were not synchronized over the network, and no other working tree was changed.
 
-| Lot de travail | Identifiant du registre | `decision_ref` | Événements | Clés supprimées par langue | Clés restantes FR / EN |
+The existing schema requires strictly increasing batch numbers (`Bnn-AAAA-MM-JJ`), so the working names B03-2, B03-3, and B03-4 map to **B04**, **B05**, and **B06**, respectively, without changing the checker or the earlier B03 batch.
+
+| Working batch | Register ID | `decision_ref` | Events | Keys removed per language | Remaining FR / EN keys |
 |---|---|---|---|---:|---:|
 | B03-2 | `B04-2026-10-29` | `B03-2-audit-measurements` | T441–T502 | 31 | 1 162 / 1 162 |
 | B03-3 | `B05-2026-10-29` | `B03-3-box-creation` | T503–T534 | 16 | 1 146 / 1 146 |
 | B03-4 | `B06-2026-10-29` | `B03-4-test-only` | T535–T558 | 12 | 1 134 / 1 134 |
 
-**Total : 59 suppressions par catalogue, 118 nouveaux événements, 558 événements au total.** Chaque paire est enregistrée FR puis EN. Les valeurs initiales sont celles du baseline Git exact ; les valeurs finales et de feuille sont vides. Le hash de feuille est seulement la référence historique B01, pas une nouvelle consultation ou approbation de feuille. L'autorisation est la demande explicite du writer B03 final, conditionnée à la revalidation des usages.
+**Total: 59 removals per catalog, 118 new events, 558 events overall.** Each pair is recorded FR then EN. Initial values come from the exact Git baseline; final and spreadsheet values are empty. The spreadsheet hash is only the historical B01 reference, not evidence of a new review or approval of the spreadsheet. The final B03 writer's explicit request authorized the removals on condition that usage was revalidated.
 
-### Revalidation des candidats
+### Candidate revalidation
 
-Inspection ciblée des composants, hooks, helpers, tests, scripts et composants conservés non montés, puis analyse AST TypeScript de 222 fichiers frontend source/scripts, sans erreur de parsing. Les appels dynamiques, tables littérales, accès directs aux catalogues et six signatures de traducteur non typées ont été inspectés sans les refactoriser. Une revue indépendante a refait la comparaison des catalogues/événements au baseline et l'inspection AST des consommateurs.
+Targeted inspection covered components, hooks, helpers, tests, scripts, and retained components not mounted in the application. This was followed by TypeScript AST analysis of 222 frontend source and script files, with no parse errors. Dynamic calls, literal tables, direct catalog accesses, and six untyped translator signatures were inspected without refactoring them. An independent review repeated the catalog and event comparisons against the baseline and the AST inspection of consumers.
 
-**B03-2 — 31 `SAFE_REMOVE`, aucun candidat retenu :**
+**B03-2 — 31 `SAFE_REMOVE`, no candidates kept:**
 
 ```text
 auditAccountActive auditAccountDisabled auditDescriptionFromApp
@@ -168,12 +170,12 @@ noZoneChart recentMeasurementMissing temperatureManualReading
 temperatureContinuousReading temperatureSamples measuredTemperature
 ```
 
-- `auditPresentation.ts` sélectionne les descriptions actuelles, les tables de métadonnées et les libellés de réactivation/désactivation, pas ces anciennes clés de résumé/détail. Les noms d'espèce et codes de souche restent interpolés dans les descriptions actuelles.
-- Les corrections et valeurs avant/après restent affichées par `AuditTimeline`. Les variantes complètes `auditRelationInitialPolypsZero/One/Many` restent utilisées et conservées ; la clé sans suffixe n'est pas construite dynamiquement.
-- `BoxPage`, `OverviewView`, `ZonesView` et leurs helpers utilisent les libellés actuels de relevé, température et salinité. Les états sans donnée, les agrégats et les données historiques ne sont pas modifiés.
-- Les occurrences de `measuredTemperature` sont des propriétés/variables numériques, notamment une assertion de zéro scientifique dans `test-alert-removal.mjs`, pas des demandes de traduction. Elles restent inchangées.
+- `auditPresentation.ts` selects the current descriptions, metadata tables, and reactivation/deactivation labels, not these old summary and detail keys. Species names and strain codes are still interpolated into the current descriptions.
+- Corrections and before/after values are still displayed by `AuditTimeline`. The full variants `auditRelationInitialPolypsZero/One/Many` remain in use and were kept. The key without a suffix is not constructed dynamically.
+- `BoxPage`, `OverviewView`, `ZonesView`, and their helpers use the current record, temperature, and salinity labels. No-data states, aggregates, and historical data are unchanged.
+- Occurrences of `measuredTemperature` are numeric properties or variables, including an assertion for a scientific zero in `test-alert-removal.mjs`, not translation requests. They remain unchanged.
 
-**B03-3 — 16 `SAFE_REMOVE`, aucun candidat retenu :**
+**B03-3 — 16 `SAFE_REMOVE`, no candidates kept:**
 
 ```text
 confirmDetailStrain confirmDetailLocation quickStrainSearch
@@ -184,40 +186,40 @@ createBoxIdentityShortFormat createBoxIdentityUnusableShort
 createBoxIdentityUnusable latestMovementEmpty latestMovementUnavailable
 ```
 
-- `CreateBoxPanel` ne demande ni code ni numéro modifiable et n'ajoute pas de confirmation. `CreatedBoxIdentifier` affiche le code confirmé par le serveur. Les validations, intentions immuables, reprises et gardes de fraîcheur restent inchangées.
-- `StrainPicker` utilise `createBoxStrainSearch` et filtre les identités inutilisables sans afficher ces anciens libellés de raison. La provenance reste une donnée recherchable.
-- Le composant conservé `QuickStrainCreator` et les helpers/tests de `boxCode` ont aussi été inspectés : ils ne consomment aucune de ces clés. Leur conservation n'est pas remise en cause.
-- `LatestMovementBanner` ne rend pas de bannière pour un historique vide, indisponible ou limité au cycle de vie, sauf feedback de récupération qui emploie d'autres clés. Les tests de ces états et de récupération sont inchangés.
+- `CreateBoxPanel` does not ask for an editable code or number and does not add a confirmation step. `CreatedBoxIdentifier` displays the code confirmed by the server. Validation, immutable intents, retry behavior, and freshness guards are unchanged.
+- `StrainPicker` uses `createBoxStrainSearch` and filters out unusable identities without displaying these old labels for the reasons. Provenance remains searchable.
+- The retained component `QuickStrainCreator` and the `boxCode` helpers and tests were also inspected. They use none of these keys and remain in place.
+- `LatestMovementBanner` does not render a banner when history is empty, unavailable, or limited to lifecycle events, except for recovery feedback that uses other keys. Tests for these states and for recovery are unchanged.
 
-**B03-4 — 12 `TEST_ONLY_SAFE`, aucun arbitrage produit requis :**
+**B03-4 — 12 `TEST_ONLY_SAFE`, no product decision required:**
 
-Les sept clés suivantes ne servent qu'à des assertions négatives. Leurs assertions sont conservées intégralement et ne nécessitent pas la présence des traductions :
+The following seven keys are used only for negative assertions. The assertions are kept in full and do not require the translations to be present:
 
 ```text
 boxInventorySelectAllFiltered boxInventorySelectVisiblePage quickStrainAdd
 weeklyUpToDate zoneSummaryAlive latestCounts zoneActivityTitle
 ```
 
-Les cinq autres dépendances de test ont reçu les seuls ajustements justifiés :
+Only the following justified adjustments were made to the other five test dependencies:
 
-| Clé | Ancien couplage | Ajustement et contrat conservé |
+| Key | Previous dependency | Adjustment and preserved contract |
 |---|---|---|
-| `manualSalinityAction` | Liste de présence de `test-zone-detail.mjs` | Retrait de cette entrée uniquement ; actions actuelles de création/correction de salinité et capacités serveur inchangées. |
-| `temperatureMeasurementCount` | Même liste | Retrait de cette entrée uniquement ; nombre de mesures, moyenne/mesure, plage disponible et distinction zéro/absence inchangés. |
-| `zoneMovementHistoryAction` | Même liste | Retrait de cette entrée uniquement ; les entrées actuelles d'historique utilisent les directions entrée/sortie. |
-| `zoneMovementHistoryBack` | Liste de présence de `test-zone-history.mjs` | Retrait de cette entrée uniquement ; le bouton courant utilise `back`, navigation et couverture historique inchangées. |
-| `moveDialogMovedAt` | Liste traduite dynamiquement dans `test-move-box-modal.mjs` | Retrait de la clé et de sa seule attente positive. Les textes de date restent dans la fixture pour vérifier leur absence du formulaire ; absence des champs date et payload exact sans date inchangés. |
+| `manualSalinityAction` | Presence checklist in `test-zone-detail.mjs` | Only this entry was removed. Current salinity creation and correction actions and server capabilities are unchanged. |
+| `temperatureMeasurementCount` | Same checklist | Only this entry was removed. The measurement count, mean versus individual measurement, available range, and distinction between zero and missing data are unchanged. |
+| `zoneMovementHistoryAction` | Same checklist | Only this entry was removed. Current history entries use entry and exit directions. |
+| `zoneMovementHistoryBack` | Presence checklist in `test-zone-history.mjs` | Only this entry was removed. The current button uses `back`; navigation and history coverage are unchanged. |
+| `moveDialogMovedAt` | Dynamically translated list in `test-move-box-modal.mjs` | The key and its only positive expectation were removed. The date strings remain in the fixture to verify that they are absent from the form. The absence of date fields and the exact payload without a date are unchanged. |
 
-Aucun candidat n'est `REFERENCED`, `UNCERTAIN` ou `TEST_ONLY_REQUIRES_DECISION` après revalidation. Les 47 suppressions des deux premiers lots sont fondées sur l'absence prouvée de consommateur ; les 12 du dernier lot sur l'analyse précise de leurs seuls usages de test, pas sur un objectif de compte.
+No candidates were classified as `REFERENCED`, `UNCERTAIN`, or `TEST_ONLY_REQUIRES_DECISION` after revalidation. The 47 removals in the first two batches were based on proven absence of consumers; the 12 in the last batch were based on a close review of their test-only usage, not on a target number of removals.
 
-### Intégrité et contrôles locaux
+### Integrity and local checks
 
-- Les événements **T001–T440 sont inchangés**, comparés au baseline par champs et contenu hors conversion de fins de ligne du checkout. Les empreintes B01/B02 restent intactes ; le test historique B03 borne désormais T121–T440 plutôt que toute la fin du fichier, et ajoute leur empreinte canonique figée au baseline.
-- Comparaison programmatique après chaque lot : ensemble exact des suppressions, parité FR/EN, valeurs et ordre restants identiques, événements en bijection avec les suppressions, valeurs initiales exactes, paires dans leur lot, IDs séquentiels. Checker et 60 tests du registre passent après chacun des trois lots.
-- Les 132 clés `csv*`, `auditSummaryAlertResolved`, `adminTransferText` et `manualTemperatureForbidden` restent identiques. Aucun composant applicatif, gettext Django, japonais, traduction différée B02, règle scientifique, permission ou donnée n'est modifié.
-- Tests frontend ciblés après B03-2 : **511 réussis** ; après B03-3 : **472 réussis** ; après B03-4 : **295 réussis**. Ces ensembles se recouvrent et ne constituent pas un total de tests distincts.
-- Validation finale : `npm run test:i18n` et `npm run build` réussis (CSS, TypeScript, Vite). `npm run test:all` a été lancé mais interrompu par la limite de 300 secondes pendant la suite, après le test 1 130 sans bilan final : **validation complète non acquise**, aucune affirmation de 2 205 tests réussis.
-- Contrôles gettext sans base : compilation MO `--check`, inventaire `check_i18n.py` (0 erreur bloquante), 25 tests compilateur et 20 tests inventaire réussis. Tests runtime `apps.accounts.test_i18n` : **5 réussis**, avec `POSTGRES_DB` vide et `config.test_settings`.
-- Revue indépendante read-only : aucun défaut identifié ; 37 tests des trois fichiers modifiés et 60 tests du registre réussis. Elle confirme aussi les 84 assertions négatives inchangées des six fichiers de test pertinents.
+- Events **T001–T440 are unchanged**, as verified against the baseline by fields and content, excluding checkout line-ending conversion. The B01/B02 digests remain intact. The B03 historical test now covers T121–T440 rather than the entire remainder of the file and adds their canonical digest pinned to the baseline.
+- Programmatic comparison after each batch verified the exact set of removals, FR/EN parity, unchanged remaining values and order, a one-to-one correspondence between events and removals, exact initial values, pairs in the same batch, and sequential IDs. The checker and 60 register tests passed after each of the three batches.
+- The 132 `csv*` keys, `auditSummaryAlertResolved`, `adminTransferText`, and `manualTemperatureForbidden` remain unchanged. No application components, Django gettext entries, Japanese text, B02 deferred translations, scientific rules, permissions, or data were changed.
+- Targeted frontend tests: **511 passed** after B03-2, **472 passed** after B03-3, and **295 passed** after B03-4. These sets overlap and do not represent a total of distinct tests.
+- Final validation: `npm run test:i18n` and `npm run build` passed (CSS, TypeScript, Vite). `npm run test:all` started but hit the 300-second limit after test 1 130, with no final summary: **full validation was not established**. There is no claim that 2 205 tests passed.
+- Database-free gettext checks: MO compilation in `--check` mode, `check_i18n.py` inventory (0 blocking errors), 25 compiler tests and 20 inventory tests passed. Runtime tests `apps.accounts.test_i18n`: **5 passed**, with `POSTGRES_DB` empty and `config.test_settings`.
+- Independent read-only review: no defects identified; 37 tests across the three changed files and 60 register tests passed. The review also confirmed that the 84 negative assertions across the six relevant test files were unchanged.
 
-Aucun commit, push, merge, cherry-pick, déploiement, accès Neon ou production, ni modification de feuille. Arrêt pour revue indépendante ; une nouvelle exécution de la suite complète avec un délai supérieur reste à autoriser.
+No commits, pushes, merges, cherry-picks, deployments, access to Neon or production, or spreadsheet changes. Work stopped for independent review; rerunning the complete suite with a longer timeout still requires authorization.

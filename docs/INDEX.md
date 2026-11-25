@@ -1,37 +1,41 @@
-# Documentation de Polypbase
+# Polypbase documentation
 
-Polypbase est une application Django REST Framework et React pour le suivi de cultures dans plusieurs institutions. Ouvrir uniquement les pages utiles à la tâche, puis vérifier l'implémentation, les migrations et les tests.
+Polypbase uses Django REST Framework and React to track cultures across institutions. Read only the pages relevant to your task, then verify the implementation, migrations, and tests.
 
-## Sources de vérité
+## Sources of truth
 
-1. Décision métier explicite applicable à la tâche, dans le respect des invariants d'[AGENTS.md](../AGENTS.md).
-2. Code, migrations et tests pour le comportement de la version étudiée. Un comportement observé n'est pas forcément une règle voulue : en cas de divergence, demander une décision.
-3. Références ci-dessous pour les contrats; [État](ETAT.md) pour les constats et réserves à une date donnée; [Décisions](DECISIONS.md) pour les arbitrages.
-4. Les [archives](archive/README.md) sont des preuves datées, pas des instructions courantes. Les [sources de conception](sources/) ne constituent pas un schéma déployé.
+1. An explicit product decision that applies to the task, subject to the invariants in [AGENTS.md](../AGENTS.md).
+2. Code, migrations, and tests for the behavior of the version under review. Observed behavior is not necessarily intended; ask for a decision when they disagree.
+3. The references below for contracts, [Status](STATUS.md) for dated findings and caveats, and [Decisions](DECISIONS.md) for product and technical decisions.
+4. [Archives](archive/README.md) are dated evidence, not current instructions. [Design sources](sources/) do not describe the deployed schema.
 
-## Choisir par tâche
+## Find the relevant guide
 
-| Tâche | Document propriétaire |
+| Task | Authoritative guide |
 |---|---|
-| Comprendre le produit, les applications et le dépôt | [Architecture](reference/architecture.md) |
-| Rechercher une route Django | [Carte des API générée](reference/api.md) |
-| Compte, rôles, invitation, périmètre et partage externe | [Organisations, permissions et partage](reference/organisations-permissions-partage.md) |
-| Créer, qualifier, déplacer, réactiver une boîte, suivre ses identifiants, son ADN ou sa lignée | [Cycle de vie des boîtes](reference/boites-cycle-de-vie.md) |
-| Lire, simuler ou conserver les révisions historiques | [Historique et révisions](reference/historique-revisions.md) |
-| Relevés, précision, zéro, température, sonde ou salinité | [Mesures, températures et sondes](reference/mesures-temperatures-sondes.md) |
-| CSV, planner, export ou don institutionnel | [Imports, exports et transferts](reference/imports-exports-transferts.md) |
-| Espèces, souches, codes AAA/BBB et WoRMS | [Taxonomie et espèces](reference/taxonomie-especes.md) |
-| React, routing, ergonomie ou CSS | [Frontend](reference/frontend.md) · [Organisation des styles](../frontend/src/styles/README.md) |
-| Texte visible, catalogues FR/EN/JA, contrôle des usages | [Terminologie et i18n](reference/terminologie-i18n.md) · [Registre applicatif](translation-review/application/README.md) |
-| Modèles Django, contraintes et traçabilité | [Modèle de données](reference/modele-donnees.md) |
-| Installation pour développer | [Démarrage](../README.md) |
-| Tests, QA navigateur et migrations en environnement isolé | [Développement et QA](operations/developpement-qa.md) |
-| Release, sauvegarde, migrateur dédié ou collecte iMinilide sur la VM | [Déploiement et exploitation](operations/deploiement-exploitation.md) |
-| Démonstration et conditions d'isolation | [Démo isolée](operations/demo-isolee.md) |
-| Utiliser Polypbase au laboratoire ou en administration | [Guide utilisateur](utilisateur/guide.md) |
+| Understand the product, applications, and repository | [Architecture](reference/architecture.md) |
+| Look up a Django route | [Generated API reference](reference/api.md) |
+| Accounts, roles, invitations, scope, and external sharing | [Organizations, permissions, and sharing](reference/organizations-permissions-sharing.md) |
+| Create, qualify, move, or reactivate a box; trace its identifiers, DNA, or lineage | [Box lifecycle](reference/boxes-lifecycle.md) |
+| Read, simulate, or preserve historical revisions | [History and revisions](reference/history-revisions.md) |
+| Readings, precision, zero, temperature, probes, or salinity | [Measurements, temperatures, and probes](reference/measurements-temperatures-probes.md) |
+| CSV, planner, exports, or institutional donations | [Imports, exports, and transfers](reference/imports-exports-transfers.md) |
+| Species, strains, AAA/BBB codes, and WoRMS | [Taxonomy and species](reference/taxonomy-species.md) |
+| React, routing, usability, or CSS | [Frontend](reference/frontend.md) · [Style organization](../frontend/src/styles/README.md) |
+| User-facing text, FR/EN/JA catalogs, and usage checks | [Terminology and i18n](reference/terminology-i18n.md) · [Application translation register](translation-review/application/README.md) |
+| Django models, constraints, and traceability | [Data model](reference/data-model.md) |
+| Set up a development environment | [Getting started](../README.md) |
+| Tests, browser QA, and migrations in an isolated environment | [Development and QA](operations/development-qa.md) |
+| Release, backups, dedicated migrator, or VM-side iMinilide collection | [Deployment and operations](operations/deployment-operations.md) |
+| Demo and isolation requirements | [Isolated demo](operations/isolated-demo.md) |
+| Use Polypbase in the laboratory or Administration | [User guide](user/guide.md) |
 
-### Annexes techniques (à ouvrir au besoin)
+### Technical annexes (as needed)
 
-- [Mouvements historiques](reference/annexes/historical-movements.md)
-- [Fondation des espèces institutionnelles](reference/annexes/institution-species-foundation.md)
-- [Repiquage quantitatif](reference/annexes/quantitative-subculture.md)
+- [Historical movements](reference/annexes/historical-movements.md)
+- [Institutional species foundation](reference/annexes/institution-species-foundation.md)
+- [Quantitative subculture](reference/annexes/quantitative-subculture.md)
+
+### Links retained for the unchanged root README
+
+The old URLs for [status](ETAT.md), [development and QA](operations/developpement-qa.md), [deployment](operations/deploiement-exploitation.md), and [terminology](reference/terminologie-i18n.md) forward to the English guides.

@@ -1,52 +1,52 @@
-# Polypbase - règles de travail
+# Polypbase working rules
 
-## Chargement du contexte
+## Get the context
 
-1. Lire ce fichier.
-2. Identifier le domaine de la tâche dans l'[index de la documentation](docs/INDEX.md).
-3. Ouvrir uniquement les pages utiles. Consulter [l'état du projet](docs/ETAT.md) si la tâche dépend d'un état daté; ne pas le traiter comme une règle durable.
-4. Inspecter ensuite l'implémentation, les migrations et les tests concernés.
+1. Read this file.
+2. Find the relevant domain in the [documentation index](docs/INDEX.md).
+3. Read only the relevant pages. Consult the [project status](docs/STATUS.md) when the task depends on a dated state; do not treat it as a permanent rule.
+4. Then inspect the related implementation, migrations, and tests.
 
-## Inspection et périmètre
+## Inspection and scope
 
-- Examiner `git status`, le diff existant, le code et les tests avant toute modification.
-- Préserver le travail déjà présent. Ne pas utiliser `reset`, `restore`, `clean`, `rebase` ou un stash destructif sans nécessité comprise et accord explicite.
-- Ne pas imposer une solution technique avant inspection ni ajouter une dépendance de production sans accord.
-- Ne jamais inventer une règle biologique, scientifique, opérationnelle ou d'autorisation. Si le besoin, le code, les tests et la documentation ne permettent pas de conclure, demander une décision métier.
-- Garder les changements dans le périmètre demandé. Éviter les refactorisations opportunistes et vérifier tous les consommateurs avant de modifier un contrat API.
-- Garder les identifiants, commentaires et docstrings du code en anglais simple. Tout texte visible utilisateur passe par le système i18n français/anglais existant.
+- Before editing, review `git status`, the existing diff, and the relevant code and tests.
+- Preserve existing work. Do not use `reset`, `restore`, `clean`, `rebase`, or a destructive stash unless the need is understood and explicitly approved.
+- Do not impose a solution before inspecting the code or add a production dependency without approval.
+- Never invent a biological, scientific, operational, or authorization rule. If the requirements, code, tests, and documentation do not settle a question, ask for a product decision.
+- Keep changes within scope. Avoid opportunistic refactoring and check every consumer before changing an API contract.
+- Write code, comments, docstrings, documentation, agent instructions, skills, commit messages, and PR descriptions in English. Leave `README.md` unchanged. All user-facing text goes through FR/EN/JA i18n.
+- Use one comment standard for agents and developers. Look for existing code to reuse or extend before writing a duplicate.
 
-## Invariants non négociables
+## Non-negotiable invariants
 
-- **`0` est une mesure scientifique réelle.** Il n'est jamais équivalent à `null`, `None`, une chaîne vide, une donnée absente ou l'absence d'un relevé.
-- Toute donnée appartenant à une organisation doit être filtrée et autorisée côté serveur dans le contexte de l'organisation active. Vérifier querysets, identifiants client, relations, choix, agrégats, exports et actions groupées. Un filtre frontend n'est jamais une permission.
-- Django reste l'autorité pour les permissions, validations et transitions métier.
-- Préserver mesures historiques, emplacements, mouvements, lignées, auteurs et audits.
-- Pour toute écriture métier, évaluer transactions, contraintes, concurrence et cohérence de l'audit.
-- Ne jamais exposer, copier ou committer un secret, un `.env`, des données de production, un mot de passe, un identifiant de base ou une clé SSH.
-- Ne jamais utiliser Neon ou la production comme environnement de test, de démonstration ou d'import d'essai. Les migrations de production suivent une procédure dédiée avec autorisation explicite distincte du déploiement applicatif.
+- **`0` is a real scientific measurement.** It is never equivalent to `null`, `None`, an empty string, missing data, or the absence of a reading.
+- Authorize and filter all organization-owned data on the server in the active organization's context. Check querysets, client-provided identifiers, relationships, choices, aggregates, exports, and bulk actions. A frontend filter is never a permission check.
+- Django is the authority for permissions, validation, and domain transitions.
+- Preserve historical measurements, locations, movements, lineages, authors, and audit records.
+- For every domain write, consider transactions, constraints, concurrency, alerts, and audit consistency.
+- Never expose, copy, or commit a secret, a `.env` file, production data, a password, database credentials, or an SSH key.
+- Never use Neon or production for testing, demos, or trial imports. Production migrations use a dedicated procedure and require explicit approval separate from application deployment.
 
 ## Interface
 
-- Polypbase est un outil de laboratoire : privilégier rapidité, lisibilité, exactitude et traçabilité; réutiliser les composants, tokens et traductions existants.
-- **Administration est desktop-only.** Sur tablette, son entrée est absente et toute URL `/administration...` redirige vers `/` sans rendre d'UI ou de message intermédiaire. Ce garde UX ne remplace jamais les permissions backend. Ne pas rendre Administration responsive sans décision produit explicite.
-- Préserver les états loading, empty, error, disabled et focus, l'accès clavier/tactile et la distinction entre vide et zéro.
-- Le texte utilisateur passe par l'i18n française et anglaise. Ne pas utiliser le point médian dans l'interface.
-- Pour l'architecture de l'interface et du CSS, suivre la [référence frontend](docs/reference/frontend.md).
-- Pour tout texte visible, traduction ou terme métier, suivre la [référence terminologie et i18n](docs/reference/terminologie-i18n.md). Le japonais validé n'est jamais écrasé.
+- Polypbase is a laboratory tool: prioritize speed, readability, accuracy, and traceability. Reuse existing components, tokens, and translations.
+- **Administration is desktop-only.** On tablets, hide its navigation entry and redirect every `/administration...` URL to `/` without intermediate UI or messaging. This UX guard does not replace backend permissions. Do not make Administration responsive without an explicit product decision.
+- Preserve loading, empty, error, disabled, and focus states, keyboard and touch access, and the distinction between an empty value and zero.
+- Do not use the middle dot in the interface. Never overwrite approved Japanese translations.
+- See the [frontend reference](docs/reference/frontend.md) for frontend and CSS architecture and the [terminology and i18n reference](docs/reference/terminology-i18n.md) for user-facing text, translations, and domain terms.
 
-## Git et multi-agent
+## Git and multiple agents
 
-- Éviter deux agents écrivains sur les mêmes fichiers. Ne pas réécrire silencieusement le travail d'un autre agent.
-- Une revue est read-only par défaut : inspecter invariants, diff et tests, puis classer les problèmes avant toute correction confiée.
-- Ne pas commit, push ou déployer sans demande explicite. Inspecter le diff final avant un commit.
+- Avoid having two agents edit the same files. Do not silently rewrite another agent's work.
+- Reviews are read-only by default: inspect invariants, diffs, and tests, then classify findings before making requested corrections.
+- Do not commit, push, or deploy unless explicitly asked. Review the final diff before committing.
 
-## Validation et production
+## Validation and production
 
-- Valider proportionnellement au risque : tests ciblés d'abord, puis contrôles élargis si un invariant transversal est touché.
-- Selon le domaine, exécuter tests Django isolés, contrôle migrations, TypeScript, CSS, build Vite, QA navigateur et `git diff --check`. Suivre le [guide de développement et QA](docs/operations/developpement-qa.md).
-- Toute mutation de production exige une autorisation explicite. Suivre le [guide de déploiement et d'exploitation](docs/operations/deploiement-exploitation.md) et utiliser l'automatisation existante plutôt que de reconstruire ses étapes.
+- Validate in proportion to risk: run targeted tests first, then broader checks if a cross-cutting invariant is affected.
+- As relevant, run isolated Django tests, migration checks, TypeScript, CSS, a Vite build, browser QA, and `git diff --check`. Follow the [development and QA guide](docs/operations/development-qa.md).
+- Any production mutation requires explicit approval. Follow the [deployment and operations guide](docs/operations/deployment-operations.md) and use existing automation rather than rebuilding its steps.
 
-## Skills des agents
+## Agent skills
 
-Modifier uniquement les sources dans [`.agents/skills/`](.agents/skills/). Depuis la racine, lancer `python scripts/sync_agent_skills.py` pour régénérer le miroir [`.claude/skills/`](.claude/skills/) (copies réelles; les entrées absentes de la source sont supprimées du miroir). Lancer `python scripts/sync_agent_skills.py --check` pour vérifier l'inventaire et les octets sans écriture. Ne pas modifier le miroir à la main.
+Edit only the sources in [`.agents/skills/`](.agents/skills/). From the repository root, run `python scripts/sync_agent_skills.py` to regenerate [`.claude/skills/`](.claude/skills/). The mirror contains real copies and removes entries absent from the source. Run `python scripts/sync_agent_skills.py --check` to verify inventory and bytes without writing. Do not edit the mirror by hand.

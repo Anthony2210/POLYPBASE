@@ -11,7 +11,7 @@ by the repository.
 ## Read the source of truth
 
 1. Locate the repository and read its [AGENTS.md](../../../AGENTS.md).
-2. Read the [deployment and operations guide](../../../docs/operations/deploiement-exploitation.md)
+2. Read the [deployment and operations guide](../../../docs/operations/deployment-operations.md)
    and the deployment scripts relevant to the requested operation. Do not load
    unrelated project history.
 3. Inspect the local branch, `git status --short`, relevant diffs, and recent commits.

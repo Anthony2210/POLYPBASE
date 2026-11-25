@@ -1,9 +1,9 @@
-# Styles du frontend
+# Frontend styles
 
-La [référence frontend](../../../docs/reference/frontend.md) décrit la cascade,
-les primitives réutilisables et les règles de mise en page par support.
-[`index.css`](index.css) est le point d’entrée CSS : réutiliser les couches, les
-composants et les tokens existants avant d’ajouter un style local.
+The [frontend reference](../../../docs/reference/frontend.md) describes the CSS
+cascade, reusable primitives, and layout rules for each device type.
+[`index.css`](index.css) is the CSS entry point. Reuse existing layers,
+components, and tokens before adding local styles.
 
-Depuis `frontend/`, lancer `npm run check:css` après une modification. Pour la
-validation visuelle, suivre le [guide de développement et QA](../../../docs/operations/developpement-qa.md).
+From `frontend/`, run `npm run check:css` after making a change. For visual
+validation, follow the [development and QA guide](../../../docs/operations/development-qa.md).
