@@ -7,19 +7,24 @@ import check_commit_messages as gate
 class CommitMessageTests(unittest.TestCase):
     def test_headline_format(self):
         for headline in (
-            "ci(ci): Validate commit subjects",
-            "docs: Explain conventions",
-            "fix(i18n): Preserve approved labels",
+            "ci: validate commit subjects",
+            "docs: explain conventions",
+            "fix(i18n): preserve approved labels",
+            "fix: x",
         ):
             with self.subTest(headline=headline):
                 self.assertTrue(gate.valid_headline(headline))
         for headline in (
-            "i18n: Fix labels",
-            "feat(api): Add view",
-            "ci:Missing space",
-            "ci: Fix.",
-            "ci:  Fix",
-            "ci: Fix\nmore",
+            "i18n: fix labels",
+            "feat(api): add view",
+            "ci:missing space",
+            "ci: fix.",
+            "ci:  fix",
+            "ci: fix\nmore",
+            "ci: Fix",
+            "ci: 2 fixes",
+            "docs(docs): update guidance",
+            "ci(ci): validate commits",
             "fix: " + "x" * 68,
         ):
             with self.subTest(headline=headline):
@@ -38,7 +43,7 @@ class CommitMessageTests(unittest.TestCase):
                 head,
                 "Author",
                 "author@example.test",
-                "fix(boxes): Correct counts",
+                "fix(boxes): correct counts",
                 other,
                 "Author",
                 "author@example.test",
@@ -52,13 +57,37 @@ class CommitMessageTests(unittest.TestCase):
         )
         with patch.object(gate, "git", return_value=commits.encode()) as git:
             self.assertEqual(len(gate.check_pull_request(event)), 2)
-            event["title"] = "fix(boxes): Correct counts"
+            event["title"] = "fix(boxes): correct counts"
             self.assertEqual(
                 gate.check_pull_request(event),
                 [f"Commit {other[:12]} does not match the commit headline format."],
             )
         self.assertIn("--no-merges", git.call_args.args)
         self.assertIn(f"{base}..{head}", git.call_args.args)
+
+    def test_legacy_commit_is_exempt_only_for_pr_52(self):
+        number, oid = gate.LEGACY_HEADLINE
+        event = {
+            "number": number,
+            "title": "docs: establish contributor conventions",
+            "user": {"login": "person"},
+            "base": {"sha": "a" * 40},
+            "head": {"sha": "b" * 40},
+        }
+        subject = "docs(docs): Establish contributor conventions"
+        for pr, commit, expected in (
+            (number, oid, 0),
+            (number + 1, oid, 1),
+            (number, "b" * 40, 1),
+        ):
+            with self.subTest(pr=pr, commit=commit):
+                commits = "\0".join(
+                    (commit, "Author", "author@example.test", subject, "")
+                )
+                with patch.object(gate, "git", return_value=commits.encode()):
+                    self.assertEqual(
+                        len(gate.check_pull_request(event | {"number": pr})), expected
+                    )
 
     def test_dependabot_title_is_exempt(self):
         event = {

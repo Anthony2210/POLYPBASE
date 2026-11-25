@@ -25,7 +25,7 @@ uv sync --locked
 npm --prefix frontend ci
 ```
 
-Follow the [development and QA guide](docs/operations/developpement-qa.md) to
+Follow the [development and QA guide](docs/operations/development-qa.md) to
 configure and start Django against a verified local database, then start Vite:
 
 ```sh
@@ -40,8 +40,8 @@ or trial imports at Neon, production, or another shared database.
 ## Documentation
 
 - [Documentation index](docs/INDEX.md): start here to find the relevant guide or reference.
-- [Project status](docs/ETAT.md): dated evidence about integration and operations, not a standing procedure.
+- [Project status](docs/STATUS.md): dated evidence about integration and operations, not a standing procedure.
 - [Frontend reference](docs/reference/frontend.md): interface architecture, supported layouts and CSS.
-- [Terminology and i18n](docs/reference/terminologie-i18n.md): user-facing text, catalogs and fallback rules.
-- [Deployment and operations](docs/operations/deploiement-exploitation.md): release, backup and migration procedures. Production changes require explicit approval; a normal release does not apply pending migrations.
+- [Terminology and i18n](docs/reference/terminology-i18n.md): user-facing text, catalogs and fallback rules.
+- [Deployment and operations](docs/operations/deployment-operations.md): release, backup and migration procedures. Production changes require explicit approval; a normal release does not apply pending migrations.
 - [Contributor and agent rules](AGENTS.md): working agreements and safety boundaries.

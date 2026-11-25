@@ -1,4 +1,5 @@
-<!-- Title: type(scope): Imperative English summary. Scope is optional.
+<!-- Title: type(scope): imperative English summary. Start the subject with a lowercase letter.
+     Scope is optional and must not repeat the type: use docs: or ci:, not docs(docs): or ci(ci):.
      Keep the entire title at most 72 characters, with no trailing period.
      See docs/CONVENTIONS.md for allowed types and scopes.
      Target main directly; keep the PR small, independent, and merge by merge commit. -->

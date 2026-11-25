@@ -159,22 +159,23 @@ obtain approval before adding a production dependency.
 ### Commit messages
 
 Use Conventional Commit headlines: `type(scope): imperative English summary`
-or `type: imperative English summary`. Count the entire headline: **72 characters
-maximum**, including the prefix, with no trailing period. Use the same format for
-PR titles.
+or `type: imperative English summary`. Start the subject with a lowercase letter.
+Count the entire headline: **72 characters maximum**, including the prefix, with
+no trailing period. Use the same format for PR titles.
 
 - Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `ci`, `build`, `chore`, `revert`.
 - Optional scopes: `boxes`, `measurements`, `probes`, `zones`, `species`, `dna`,
   `sharing`, `accounts`, `exports`, `admin`, `ui`, `i18n`, `deploy`, `backup`, `ci`, `docs`.
-  Omit the scope only for truly cross-cutting changes. Use `i18n` as a scope,
-  never a type. Use `ci:` for CI-only fixes and `build:` for dependency changes.
+  Do not repeat the type as the scope: use `docs:` or `ci:`, not `docs(docs):`
+  or `ci(ci):`. Also omit the scope for truly cross-cutting changes. Use `i18n`
+  as a scope, never a type. Use `ci:` for CI-only fixes and `build:` for dependency changes.
 - A body is required when the reason is not clear from the headline. Separate it
   by a blank line, wrap at 72 characters, and explain why and any notable
   consequences without repeating the headline. Separate footers by another
   blank line when needed. Examples: `Refs #123`, `Closes #123`, or
   `BREAKING CHANGE: Remove the legacy export field`.
-- **Good:** `fix(measurements): Preserve zero readings in exports`
-- **Bad:** `fix(api): Fixed exports.` (unsupported scope, past tense, trailing period)
+- **Good:** `fix(measurements): preserve zero readings in exports`
+- **Bad:** `docs(docs): Fixed export docs.` (repeated type, uppercase start, past tense, trailing period)
 
 ### Pull requests
 
@@ -197,8 +198,7 @@ to the PR; never commit the images.
 Add or update the relevant entry in [the index](INDEX.md) when adding, moving, or
 retiring a current guide. Link directly to canonical pages. Keep temporary stubs
 until no references remain; search for inbound references before removing one.
-The root `README.md` currently references all four [compatibility stubs](INDEX.md#temporary-compatibility-stubs)
-and is intentionally unchanged, so keep all four.
+
 
 - **Good:** Point new links to the English guide and retain its old URL while it is referenced.
 - **Bad:** Remove a stub because the new page exists, leaving the README link broken.
