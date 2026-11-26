@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polypbase review"
+  short_description: "Independent read-only PR review"
+  default_prompt: "Use $polypbase-review to review the current Polypbase pull request."

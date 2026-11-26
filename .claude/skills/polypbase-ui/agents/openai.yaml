@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polypbase UI"
+  short_description: "Build Polypbase screens the Polypbase way"
+  default_prompt: "Use $polypbase-ui to implement this Polypbase interface change."
