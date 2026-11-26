@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polypbase debug"
+  short_description: "Find a Polypbase bug's root cause safely"
+  default_prompt: "Use $polypbase-debug to find the root cause of this Polypbase issue."
