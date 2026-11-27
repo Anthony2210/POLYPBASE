@@ -227,23 +227,21 @@ uv run python manage.py runserver 127.0.0.1:8000
 
 In the frontend session, rerun `npm run dev -- --host 127.0.0.1` and open `http://127.0.0.1:5173/` on the PC. Remove any temporary firewall allowances created for LAN QA. When finished or after an error, follow the cleanup above: stop the servers and exit both disposable child sessions without touching variables in the original session.
 
-## FR/EN i18n checks
+## i18n checks
 
 From the root, without Django or database access:
 
 ```powershell
 # Check the version-controlled MO files before generating anything
 uv run --frozen python -B scripts/compile_django_messages.py --check
-uv run --frozen python -B docs/translation-review/application/check_register.py
 uv run --frozen python -B scripts/check_i18n.py
 uv run --frozen python -B -m unittest discover -s scripts -p test_compile_django_messages.py
 uv run --frozen python -B -m unittest discover -s scripts -p test_check_i18n.py
-uv run --frozen python -B -m unittest discover -s docs/translation-review/application -p "test_*.py"
 ```
 
-Do not discover all `scripts/test_*.py` files indiscriminately: other QA scripts have PostgreSQL prerequisites unrelated to i18n. The three suites above are targeted, do not use a database, and use only temporary files for their fixtures.
+Do not discover all `scripts/test_*.py` files indiscriminately: other QA scripts have PostgreSQL prerequisites unrelated to i18n. The two suites above are targeted, do not use a database, and use only temporary files for their fixtures.
 
-After authorized changes to the PO files, generate the MO files locally with `uv run --frozen python scripts/compile_django_messages.py`, then rerun `--check`. The compiler validates every catalog before writing and explicitly rejects unsupported plurals, contexts, and fuzzy entries. CI generates nothing, so it detects missing or stale MO files. The checker reports raw missing entries separately from explicitly deferred entries: passing validation does not mean language coverage is complete.
+After authorized changes to the PO files, generate the MO files locally with `uv run --frozen python scripts/compile_django_messages.py`, then rerun `--check`. The compiler validates every catalog before writing and explicitly rejects unsupported plurals, contexts, and fuzzy entries. CI generates nothing, so it detects missing or stale MO files. The checker reports raw missing entries separately from explicitly deferred entries: passing validation does not mean language coverage is complete. Django coverage exceptions use exact, catalog-local decisions in `backend/locale/coverage-exception-evidence.csv`, not the legacy translation register.
 
 From `backend/`, run the FR/EN runtime tests without a database:
 
@@ -251,7 +249,15 @@ From `backend/`, run the FR/EN runtime tests without a database:
 uv run --frozen python manage.py test apps.accounts.test_i18n --settings=config.test_settings
 ```
 
-The isolated Django suite also discovers these tests. From `frontend/`, `npm run test:i18n` runs catalog AST checks and regression tests for the conservative usage detector; these two files are automatically included once in `test:all`. `npm run check:i18n-usage` displays the inventory and keys with no source reference. The scope, limitations, and three exact exceptions are described in [`../frontend-i18n-usage.md`](../reference/terminology-i18n.md#usage-checks). The existing CI runs these checks and the register's regression tests. The register's decisions and exemptions are described in `docs/translation-review/application/README.md`.
+The isolated Django suite also discovers these runtime tests. From `frontend/`, run:
+
+```powershell
+npm run check:i18n-sections -- --delta
+npm run test:i18n
+npm run check:i18n-usage
+```
+
+The section checker validates catalog and sidecar structure and reports stale source hashes as warnings. `--delta` also checks previously validated values against the merge base of `HEAD` and `origin/main`; make sure `origin/main` and its history are available. `npm run test:all` runs the delta check before discovering test files. The targeted `test:i18n` covers section and catalog integrity, types, Japanese fallback, and the usage detector. The usage check reports statically detectable references; investigate before removing a key. See the [translation review workflow](../reference/terminology-i18n.md#frontend-review-workflow) for status rules.
 
 ## Frontend
 

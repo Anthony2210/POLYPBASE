@@ -23,9 +23,9 @@ The three Gemini findings have implementation and targeted regression coverage, 
 2. Approved EN from the EN PO.
 3. Source msgid, without inventing an English translation.
 
-The JA PO retains only 81 genuine reused Japanese translations. English and untranslated source fallbacks exist only in the effective MO, not in Takeru provenance records. The compiler includes all active application msgids so Django's normal French default fallback cannot override these decisions. FR/EN use their original compilation path and retain byte-identical MO files.
+The JA PO retains only 81 genuine reused Japanese translations. English and untranslated source fallbacks exist only in the effective MO, not in Japanese reviewer provenance records. The compiler includes all active application msgids so Django's normal French default fallback cannot override these decisions. FR/EN use their original compilation path and retain byte-identical MO files.
 
-Django activation is standard. `backend/apps/accounts/language.py` is absent. There are no runtime assignments to `_fallback`, calls to `add_fallback`, or uses of the removed activation helper in backend Python. Generic framework translations retain Django's upstream Japanese catalog; they are not represented as Takeru-approved text.
+Django activation is standard. `backend/apps/accounts/language.py` is absent. There are no runtime assignments to `_fallback`, calls to `add_fallback`, or uses of the removed activation helper in backend Python. Generic framework translations retain Django's upstream Japanese catalog; they are not presented as text approved by the Japanese reviewer.
 
 The compiler test creates an isolated `backend/locale` tree and real Python gettext call sites, runs the actual compiler CLI function, reads the resulting MO with `gettext.GNUTranslations`, checks JA/EN/source precedence, unchanged PO files and FR/EN output, repeated deterministic generation, rejection of a JA-only stale MO and regeneration. It does not mock the source extractor or the compilation implementation.
 
@@ -176,7 +176,7 @@ docs/translation-review/japanese/README.md
 docs/translation-review/japanese/build_ja_catalogs.py
 docs/translation-review/japanese/ja-manifest.csv
 docs/translation-review/japanese/ja-obsolete-workbook-keys.csv
-docs/translation-review/japanese/ja-takeru-review.csv
+Deferred Japanese review CSV (see the legacy tag)
 docs/translation-review/japanese/test_ja_manifest.py
 frontend/scripts/test-i18n-japanese.mjs
 frontend/src/i18n/ja.ts
@@ -187,8 +187,8 @@ frontend/src/i18n/ja.ts
 1. Obtain explicit agreement to rerun the isolated full Django suite with a longer bound, or investigate its runtime before declaring validation complete. Do not use a shared database to accelerate this.
 2. Review effective catalog source coverage/precedence, standard activation and context isolation; verify the compiler test really compiles the temporary source tree.
 3. Review immediate cookies across preference changes, login and logout, particularly the DRF request wrapper boundary.
-4. Review the exact eight deferrals and original-text preservation. Takeru's decisions remain pending; current EN fallback makes those decisions non-blocking for implementation safety.
+4. Review the exact eight deferrals and original-text preservation. The Japanese reviewer's decisions remain pending; current EN fallback makes those decisions non-blocking for implementation safety.
 5. Preserve the distinction between source fallback that happens to be French and an approved English translation. The former is intentional when EN has no approved entry.
-6. Run desktop/tablet browser QA before release. Upstream framework Japanese remains outside Takeru's validation, by design.
+6. Run desktop/tablet browser QA before release. Upstream framework Japanese remains outside the Japanese reviewer's validation, by design.
 
 **No release readiness claim: BLOCKED on the incomplete full Django validation.**

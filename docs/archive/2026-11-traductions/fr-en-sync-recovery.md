@@ -8,15 +8,15 @@
 - Ten files were already dirty: the two frontend catalogs, four Django PO/MO files, accounts i18n tests, the application register, and the gettext checker and its tests.
 - Actual recovered frontend changes were **126 EN and 4 FR**, not the reported 5 FR. `adminTransferTarget` already contained its HEAD value, `Institution destinataire`, although B09 T757 claimed `Structure destinataire` had been applied.
 - The recovered register contained **840 events**, including 212 appended B09 events (T629–T840).
-- Existing logs and scripts were recovered from `C:/Users/antoc/AppData/Local/Temp/i18nsync/`. The older `i18naudit` directory describes a different historical worktree and was not used as validation of this change.
+- Existing logs and scripts were recovered from `C:/Users/REDACTED/AppData/Local/Temp/i18nsync/`. The older `i18naudit` directory describes a different historical worktree and was not used as validation of this change.
 - The existing isolated Django suite was still active and was not duplicated. No unrelated process was stopped. Other worktree processes were left untouched.
 
 ## Approval evidence and final catalog changes
 
-The requested `C:/Users/antoc/POLYPBASE_INPUTS/Traduction Polypbase(4).xlsx` was absent. The verified copies are:
+The requested `C:/Users/REDACTED/POLYPBASE_INPUTS/Traduction Polypbase(4).xlsx` was absent. The verified copies are:
 
-- `C:/Users/antoc/Downloads/Traduction Polypbase(4).xlsx`
-- `C:/Users/antoc/POLYPBASE_PRIVATE_RETENTION/cleanup/Traduction Polypbase(4).xlsx`
+- `C:/Users/REDACTED/Downloads/Traduction Polypbase(4).xlsx`
+- `C:/Users/REDACTED/POLYPBASE_PRIVATE_RETENTION/cleanup/Traduction Polypbase(4).xlsx`
 
 Both have SHA-256 `e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307`. Neither workbook was modified.
 
@@ -107,7 +107,7 @@ Backend tests used `POSTGRES_DB=` and `--settings=config.test_settings`. The rec
 
 The first frontend full-suite attempt timed out after ten minutes with partial results through test 1,617, without a reported failure. Process inspection confirmed it was no longer running before a longer bounded rerun. A separate initial combined i18n/typecheck/build command also timed out; final build and TypeScript were completed separately. No green result is inferred from either partial command.
 
-Validation logs remain outside the repository in `C:/Users/antoc/AppData/Local/Temp/i18nsync/`: `test_all.log`, `django_all.log`, `resume_targeted.log`, `resume_i18n.log`, `resume_usage.log`, `resume_all_final.log`, and `resume_build_verified.log`.
+Validation logs remain outside the repository in `C:/Users/REDACTED/AppData/Local/Temp/i18nsync/`: `test_all.log`, `django_all.log`, `resume_targeted.log`, `resume_i18n.log`, `resume_usage.log`, `resume_all_final.log`, and `resume_build_verified.log`.
 
 No real-browser QA was performed. Rendering, accessible-label, focus, keyboard and mutation regression tests passed, but visual fit of longer copy has not been manually verified.
 

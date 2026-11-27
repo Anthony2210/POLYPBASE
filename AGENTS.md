@@ -32,7 +32,7 @@
 - Polypbase is a laboratory tool: prioritize speed, readability, accuracy, and traceability. Reuse existing components, tokens, and translations.
 - **Administration is desktop-only.** On tablets, hide its navigation entry and redirect every `/administration...` URL to `/` without intermediate UI or messaging. This UX guard does not replace backend permissions. Do not make Administration responsive without an explicit product decision.
 - Preserve loading, empty, error, disabled, and focus states, keyboard and touch access, and the distinction between an empty value and zero.
-- Do not use the middle dot in the interface. Never overwrite approved Japanese translations.
+- Do not use the middle dot in the interface. Find frontend copy with `npm run i18n:find --` from `frontend/`. Update the owning section and its review status together; never overwrite approved Japanese translations or mark unreviewed text as validated.
 - See the [frontend reference](docs/reference/frontend.md) for frontend and CSS architecture and the [terminology and i18n reference](docs/reference/terminology-i18n.md) for user-facing text, translations, and domain terms.
 
 ## Git and multiple agents

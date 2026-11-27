@@ -41,7 +41,7 @@ pushes, or GitHub comments unless the user asks.
    the `security-best-practices` skill (Django reference) if it is installed.
 7. **Migrations.** Reversible, verified forward and backward, source data preserved.
    Flag that production needs the separate migration procedure.
-8. **Frontend.** New text exists in `frontend/src/i18n/fr.ts`, `en.ts`, and `ja.ts`;
+8. **Frontend.** New text has FR, EN, and JA in its i18n section, with matching review status;
    approved Japanese is untouched; loading, empty, error, disabled, and focus states
    exist; Administration stays desktop-only; tokens and components are reused.
    For visual changes, suggest that the user run `interface-review`.

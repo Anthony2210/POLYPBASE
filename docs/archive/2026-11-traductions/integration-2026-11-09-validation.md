@@ -148,7 +148,7 @@ not rewritten to silence them.
 
 Working-tree conflict content is resolved. The four original entries remain UU
 because their unmerged index stages were deliberately untouched. HEAD and
-CHERRY_PICK_HEAD remain unchanged. Anthony must inspect and stage the four
+CHERRY_PICK_HEAD remain unchanged. The maintainer must inspect and stage the four
 resolved conflict files, the additional modified files and the five new evidence
 files; the incoming auto-merged entries are already in the cherry-pick index.
 

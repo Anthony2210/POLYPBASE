@@ -12,7 +12,7 @@ Ce mécanisme ne concerne que les relevés ISO 2026 des codes exacts
 explicitement fournie. Il ne corrige aucune autre famille, valeur biologique,
 date, attribution d'observateur, statut ou localisation.
 
-**Décision produit explicite d'Anthony :** V2 est la source de vérité pour
+**Décision produit explicite du propriétaire produit :** V2 est la source de vérité pour
 l'identité biologique des relevés 2026 concernés. Après réattribution, leur
 contexte environnemental est résolu via la boîte cible par les exports et
 graphiques existants, même si la zone diffère ou reste non résolue. Tous les
@@ -24,7 +24,7 @@ Excel; ses blocs de température ne prouvent pas une occupation.
 Ce document définit le contrat V3 implémenté. Statut final au 2026-10-18 :
 
 - Code et tests V3 : revue indépendante verte; en attente de commit et
-  d'intégration par Anthony. Les tests PostgreSQL réels (PostgreSQL 17.4 natif
+  d'intégration par le propriétaire produit. Les tests PostgreSQL réels (PostgreSQL 17.4 natif
   isolé, port 55439) sont verts, sans test ignoré, et le deadlock de permissions
   membership/organisation est **corrigé** (voir « Transaction, concurrence et audit »).
 - Données : les 72 réattributions ont été appliquées **uniquement sur la copie
@@ -107,7 +107,7 @@ défaut**, y compris si `--apply` est accidentellement fourni. Ne définir aucun
 variable autorisant l'écriture pendant la préparation.
 
 ```text
-uv run python manage.py correct_cca_eob_v2 --settings=config.cca_eob_local_settings --organization-id 1 --workbook "C:\Users\antoc\POLYPBASE-ANALYSES\data\raw\Suivi_2026_actualisé_v2.xlsx"
+uv run python manage.py correct_cca_eob_v2 --settings=config.cca_eob_local_settings --organization-id 1 --workbook "C:\Users\REDACTED\POLYPBASE-ANALYSES\data\raw\Suivi_2026_actualisé_v2.xlsx"
 ```
 
 La sortie standard est un JSON `{plan_hash, plan}`; le résumé va sur stderr.
@@ -198,7 +198,7 @@ Chaque transfert produit un nouvel audit UPDATE attribué à l'acteur réel, ave
 instantanés complets avant/après, anciennes/nouvelles boîtes, cellules, valeurs
 figées au format consommé par l'audit existant, SHA source et empreinte du plan.
 Le plan, chaque audit individuel et le reçu d'audit de lot portent explicitement
-la métadonnée `product_decision` : décision d'Anthony, autorité de V2 pour les
+la métadonnée `product_decision` : décision du propriétaire produit, autorité de V2 pour les
 identités biologiques concernées, résolution environnementale par la boîte cible,
 préservation des historiques/zones/températures et absence d'inférence depuis
 Excel. Le reçu conserve aussi le plan revu et les révisions. Il atteste une
@@ -240,7 +240,7 @@ que la décision ne demande pas de modifier :
   utilise les occupations UTC, pas le fallback courant du CSV. La seule égalité
   d'une température CSV ne prouverait donc pas l'équivalence des consommateurs.
 
-La décision explicite d'Anthony remplace le garde « aucun historique et fallback
+La décision explicite du propriétaire produit remplace le garde « aucun historique et fallback
 identique ». La réattribution biologique est autorisée sans prouver l'équivalence
 des contextes source/cible. Les exports, filtres de zone et graphiques suivent
 alors la boîte cible selon leurs résolveurs existants : une zone, une température

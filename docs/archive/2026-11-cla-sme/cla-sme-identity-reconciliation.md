@@ -21,7 +21,7 @@ Décision produit explicite actuelle :
 
 Répertoire exact des originaux :
 
-`C:/Users/antoc/POLYPBASE-ANALYSES/data/raw/`
+`C:/Users/REDACTED/POLYPBASE-ANALYSES/data/raw/`
 
 Les empreintes SHA-256 ci-dessous ont été calculées sur les octets des fichiers, sans sauvegarde ni modification des classeurs.
 
@@ -46,7 +46,7 @@ Empreintes consignées dans le dépôt principal :
 
 Décisions du compagnon :
 
-`C:/Users/antoc/POLYPBASE-ANALYSES/docs/SPECIES_AAA_ISSUES_AND_PROPOSED_CORRECTIONS.md`
+`C:/Users/REDACTED/POLYPBASE-ANALYSES/docs/SPECIES_AAA_ISSUES_AND_PROPOSED_CORRECTIONS.md`
 
 Les entrées D8 et D11, ainsi que les réserves introductives de ce document, sont des décisions et limites de revue ; elles ne constituent pas un registre de mouvements, de filiation ou de contenu physique des boîtes.
 

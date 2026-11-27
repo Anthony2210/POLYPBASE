@@ -12,8 +12,8 @@ Both trees had HEAD `c3948c26ea4e75e450f1bd9a11a02c44beb8dc65` at inspection. Ca
 
 | Tree | Location | Tests run | Failures | Errors | Skips | Process exit | Test runner time | Total child time |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| Main | `C:/Users/antoc/POLYPBASE` | 182 | 8 | 36 | 0 | 1 | 38.106 s | 52.14 s |
-| Worktree | `C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE` | 182 | 8 | 36 | 0 | 1 | 47.421 s | 60.67 s |
+| Main | `C:/Users/REDACTED/POLYPBASE` | 182 | 8 | 36 | 0 | 1 | 38.106 s | 52.14 s |
+| Worktree | `C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE` | 182 | 8 | 36 | 0 | 1 | 47.421 s | 60.67 s |
 
 Counts are unittest failure/error entries, including subtests; do not calculate passed test methods by subtracting 44 from 182. Both Django system checks reported no issues. Both test databases were destroyed by Django.
 
@@ -61,7 +61,7 @@ The guard in `backend/apps/cultures/portable_lineage.py:54-57` rejects PostgreSQ
 Temporary artifact root:
 
 ```text
-C:/Users/antoc/AppData/Local/Temp/polypbase-pg-comparison-bpzr2uxw
+C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-comparison-bpzr2uxw
 ```
 
 Retained: `compare.py`, `main-tests.log`, `worktree-tests.log`, `main-results.json`, `worktree-results.json`, `main-server.json`, `worktree-server.json`, each tree's infrastructure and PostgreSQL logs. JSON includes every failing test/subtest ID and complete traceback. The runner source below preserves the complete safe bootstrap so it is not necessary to rely on temporary-file retention.
@@ -69,7 +69,7 @@ Retained: `compare.py`, `main-tests.log`, `worktree-tests.log`, `main-results.js
 Executed orchestration command from the worktree root:
 
 ```sh
-./.venv/Scripts/python.exe -B C:/Users/antoc/AppData/Local/Temp/polypbase-pg-comparison-bpzr2uxw/compare.py
+./.venv/Scripts/python.exe -B C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-comparison-bpzr2uxw/compare.py
 ```
 
 The runner executed each test child from the corresponding tree's `backend/`, using `DiscoverRunner(verbosity=2, interactive=False).run_tests(LABELS)`. It set `sys.argv` to `manage.py test --settings=config.test_settings --noinput` before importing settings. This is a settings-safe equivalent of the labeled manage.py test command, not a default-settings invocation. Each initdb/start/test/stop command is preserved in the source below. Do not rerun the existing script against its old cluster directories; create a fresh temporary directory for any new run.
@@ -133,27 +133,27 @@ These are main traces; normalized worktree traces are identical.
 
 ```text
 Traceback (most recent call last):
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 141, in test_21_allows_active_superuser_but_rechecks_source_organization_activity
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 141, in test_21_allows_active_superuser_but_rechecks_source_organization_activity
     envelope = self.lineage_package()
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 33, in lineage_package
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 33, in lineage_package
     return self.package(selections, protocol_version=(2, 1), **kwargs)
            ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\test_transfer_v2.py", line 98, in package
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\test_transfer_v2.py", line 98, in package
     return create_source_package(
         actor=kwargs.pop("actor", self.actor),
     ...<4 lines>...
         **kwargs,
     )
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\transfer_v2.py", line 58, in create_source_package
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\transfer_v2.py", line 58, in create_source_package
     return builder(
         actor=actor, source_organization=source_organization, selections=selections,
     ...<2 lines>...
         protocol_version=protocol_version,
     )
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\portable_lineage.py", line 57, in run
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\portable_lineage.py", line 57, in run
     _conflict("Portable lineage requires its own transaction.")
     ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\portable_lineage.py", line 23, in _conflict
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\portable_lineage.py", line 23, in _conflict
     raise ValidationError({"lineage": message}, code="source_lineage_conflict")
 rest_framework.exceptions.ValidationError: {'lineage': ErrorDetail(string='Portable lineage requires its own transaction.', code='source_lineage_conflict')}
 ```
@@ -162,7 +162,7 @@ rest_framework.exceptions.ValidationError: {'lineage': ErrorDetail(string='Porta
 
 ```text
 Traceback (most recent call last):
-  File "C:\Users\antoc\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 358, in test_cycle_failure_rolls_back_package_and_all_new_bridges
+  File "C:\Users\REDACTED\POLYPBASE\backend\apps\cultures\test_transfer_v2_lineage_source.py", line 358, in test_cycle_failure_rolls_back_package_and_all_new_bridges
     self.assertIn("Cycles", str(caught.exception.detail))
     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 'Cycles' not found in "{'lineage': ErrorDetail(string='Portable lineage requires its own transaction.', code='source_lineage_conflict')}"
@@ -174,9 +174,9 @@ AssertionError: 'Cycles' not found in "{'lineage': ErrorDetail(string='Portable 
 import os, sys, json, subprocess, socket, time, hashlib
 from pathlib import Path
 ROOT=Path(__file__).parent
-PY=Path("C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe")
+PY=Path("C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe")
 BIN=Path("C:/Program Files/PostgreSQL/17/bin")
-TREES={"main":Path("C:/Users/antoc/POLYPBASE"),"worktree":Path("C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE")}
+TREES={"main":Path("C:/Users/REDACTED/POLYPBASE"),"worktree":Path("C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE")}
 LABELS=["apps.cultures."+n for n in ["test_transfer_v2","test_transfer_v2_destination","test_transfer_v2_lineage_protocol","test_transfer_v2_lineage_source","test_portable_lineage","test_portable_lineage_models","test_portable_lineage_migrations","test_portable_lineage_concurrency"]]
 DB={"ENGINE":"django.db.backends.postgresql","NAME":"subculture_qa","USER":"subculture_qa","PASSWORD":"","HOST":"127.0.0.1","PORT":"55439","TEST":{"NAME":"test_subculture_qa"},"OPTIONS":{"options":"-c lock_timeout=10000 -c statement_timeout=30000"}}
 ENV={k:v for k,v in os.environ.items() if k.upper() in {"SYSTEMROOT","WINDIR","TEMP","TMP","PATH","COMSPEC","PATHEXT","APPDATA","LOCALAPPDATA","USERPROFILE"}}
@@ -277,7 +277,7 @@ Requested follow-up after backend implementation-ready notification, including m
 Executed from the worktree root:
 
 ```sh
-./.venv/Scripts/python.exe -B C:/Users/antoc/AppData/Local/Temp/polypbase-pg-optional-uyim29u1/quantitative.py
+./.venv/Scripts/python.exe -B C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-optional-uyim29u1/quantitative.py
 ```
 
 The runner executes the following equivalent labeled test command from the worktree `backend/`, with dotenv loading disabled before importing settings and the OS-only child environment allowlist described above. Run the safe wrapper, not an unguarded default-environment command.
@@ -321,20 +321,20 @@ Full error traceback:
 
 ```text
 Traceback (most recent call last):
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
     return self.cursor.execute(sql, params)
            ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\psycopg\cursor.py", line 117, in execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\psycopg\cursor.py", line 117, in execute
     raise ex.with_traceback(None)
 psycopg.errors.StringDataRightTruncation: value too long for type character varying(80)
 
 The above exception was the direct cause of the following exception:
 
 Traceback (most recent call last):
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\backend\apps\cultures\test_subculture_code_preview.py", line 116, in test_code_length_validation_does_not_create_counter
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\backend\apps\cultures\test_subculture_code_preview.py", line 116, in test_code_length_validation_does_not_create_counter
     self.strain.save(update_fields=["code"])
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 902, in save
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 902, in save
     self.save_base(
     ~~~~~~~~~~~~~~^
         using=using,
@@ -344,52 +344,52 @@ Traceback (most recent call last):
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     )
     ^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
     updated = self._save_table(
         raw,
     ...<4 lines>...
         update_fields,
     )
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1138, in _save_table
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1138, in _save_table
     updated = self._do_update(
         base_qs, using, pk_val, values, update_fields, forced_update
     )
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1203, in _do_update
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\base.py", line 1203, in _do_update
     return filtered._update(values) > 0
            ~~~~~~~~~~~~~~~~^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\query.py", line 1288, in _update
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\query.py", line 1288, in _update
     return query.get_compiler(self.db).execute_sql(ROW_COUNT)
            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 2060, in execute_sql
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 2060, in execute_sql
     row_count = super().execute_sql(result_type)
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1623, in execute_sql
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1623, in execute_sql
     cursor.execute(sql, params)
     ~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
     return self._execute_with_wrappers(
            ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
         sql, params, many=False, executor=self._execute
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     )
     ^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
     return executor(sql, params, many, context)
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
     with self.db.wrap_database_errors:
          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\utils.py", line 91, in __exit__
     raise dj_exc_value.with_traceback(traceback) from exc_value
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
     return self.cursor.execute(sql, params)
            ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "C:\Users\antoc\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\psycopg\cursor.py", line 117, in execute
+  File "C:\Users\REDACTED\worktrees\POLYPBASE\subculture-popup-overhaul\POLYPBASE\.venv\Lib\site-packages\psycopg\cursor.py", line 117, in execute
     raise ex.with_traceback(None)
 django.db.utils.DataError: value too long for type character varying(80)
 ```
 
 ### Follow-up artifacts and cleanup
 
-Artifact root: `C:/Users/antoc/AppData/Local/Temp/polypbase-pg-optional-uyim29u1`. Retained runner, test log/results JSON, schema-evidence JSON, source hashes, server identity, infrastructure log and PostgreSQL log. Django destroyed the test database. The server stopped successfully with `pg_ctl -m fast -w stop`; the port was verified closed and the disposable cluster directory removed. No commit.
+Artifact root: `C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-optional-uyim29u1`. Retained runner, test log/results JSON, schema-evidence JSON, source hashes, server identity, infrastructure log and PostgreSQL log. Django destroyed the test database. The server stopped successfully with `pg_ctl -m fast -w stop`; the port was verified closed and the disposable cluster directory removed. No commit.
 
 Exact schema evidence:
 
@@ -468,9 +468,9 @@ Exact follow-up runner source:
 import os, sys, json, subprocess, socket, time, hashlib
 from pathlib import Path
 ROOT=Path(__file__).parent
-PY=Path("C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe")
+PY=Path("C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe")
 BIN=Path("C:/Program Files/PostgreSQL/17/bin")
-TREES={"worktree":Path("C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE")}
+TREES={"worktree":Path("C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE")}
 LABELS=['apps.cultures.test_quantitative_subculture', 'apps.cultures.test_quantitative_subculture_migrations', 'apps.cultures.test_quantitative_subculture_concurrency', 'apps.cultures.test_subculture_code_preview', 'apps.cultures.test_biological_measurement_concurrency']
 DB={"ENGINE":"django.db.backends.postgresql","NAME":"subculture_qa","USER":"subculture_qa","PASSWORD":"","HOST":"127.0.0.1","PORT":"55439","TEST":{"NAME":"test_subculture_qa"},"OPTIONS":{"options":"-c lock_timeout=10000 -c statement_timeout=30000"}}
 ENV={k:v for k,v in os.environ.items() if k.upper() in {"SYSTEMROOT","WINDIR","TEMP","TMP","PATH","COMSPEC","PATHEXT","APPDATA","LOCALAPPDATA","USERPROFILE"}}
@@ -602,16 +602,16 @@ apps.cultures.test_subculture_code_preview
 apps.cultures.test_biological_measurement_concurrency
 ```
 
-Executed from `C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE`:
+Executed from `C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE`:
 
 ```sh
-./.venv/Scripts/python.exe -B C:/Users/antoc/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h/quantitative.py
+./.venv/Scripts/python.exe -B C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h/quantitative.py
 ```
 
 The script is byte-identical to the exact follow-up runner source recorded above (SHA-256 `7405c0c3d22d2f5c96af317af533d3f0d80573b60e8ee8af88b17e32b65eec11`), copied into a new temporary directory to initialize a fresh cluster. It launches this child from the worktree `backend/`:
 
 ```text
-C:/Users/antoc/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe -B C:/Users/antoc/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h/quantitative.py --child worktree
+C:/Users/REDACTED/worktrees/POLYPBASE/subculture-popup-overhaul/POLYPBASE/.venv/Scripts/python.exe -B C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h/quantitative.py --child worktree
 ```
 
 The child disables dotenv loading before settings import, uses the OS-only environment allowlist with `POSTGRES_DB=""`, `DJANGO_DEBUG=1`, `POLYPBASE_TEST_POSTGRES=1`, `DJANGO_SETTINGS_MODULE=config.test_settings`, and invokes `DiscoverRunner(verbosity=2, interactive=False).run_tests(LABELS)`. This preserves the safe fixed-loopback `config.test_settings` opt-in and does not replace production/application behavior.
@@ -624,7 +624,7 @@ Migration `0012_optional_subculture_allocations`, nullable allocations, the revi
 
 Hashes of the selected source files matched before/after execution. Django destroyed the test database. The server stopped successfully, the loopback port was verified closed, and the disposable cluster directory was removed. No commit. Whole-worktree `git diff --check` passed. Full PostgreSQL suite not rerun; the separate Transfer/portable-lineage baseline finding remains unchanged.
 
-Artifact root: `C:/Users/antoc/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h`. Runner, test log, JSON results, schema evidence, source hashes, server identity and infrastructure/PostgreSQL logs retained.
+Artifact root: `C:/Users/REDACTED/AppData/Local/Temp/polypbase-pg-preview-fixed-3x8ku85h`. Runner, test log, JSON results, schema evidence, source hashes, server identity and infrastructure/PostgreSQL logs retained.
 
 Final test summary:
 

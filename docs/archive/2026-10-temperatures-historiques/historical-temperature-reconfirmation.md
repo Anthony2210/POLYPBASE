@@ -174,7 +174,7 @@ owner. Default privileges alone do not force object ownership or prove that
 later ACLs remained unchanged. Do not rerun provisioning on an existing topology.
 
 Function ownership alone cannot establish table locks, DML, audit insertion or
-sequence access. Owners can revoke their own ordinary ACLs. Anthony must inspect
+sequence access. Owners can revoke their own ordinary ACLs. The production operator must inspect
 **actual** ownership and effective privileges in the intended maintenance
 session; helper checks fail closed rather than repair ACLs. No new grants,
 generic support wrapper, shared credential, `trust` authentication or permanent
@@ -200,7 +200,7 @@ connection or replace the apply checks. A reconnect during apply is refused.
 ### Trusted execution boundary
 
 Run as the dedicated nonroot OS user **`polypbase_migrator`**, never the web user
-or root. Anthony must explicitly authenticate a reviewed, root-owned read-only
+or root. The production operator must explicitly authenticate a reviewed, root-owned read-only
 application **and venv** snapshot, including its dependencies, import paths and
 ancestors; neither the web service nor the migrator may write executable content.
 Do not execute owner-authorized Python from a web-writable checkout. Bind the
@@ -228,17 +228,17 @@ This Windows-local work and its SCRAM-only tests do not verify Linux peer
 mapping. No verified peer route is available, so **no HBA/ident configuration
 recipe is supplied**. The known failing OS `polypbase_migrator` → database
 `box1902_migrator` authentication must not be treated as an executable route.
-Anthony must inspect the existing socket, OS account, PostgreSQL cluster,
+The production operator must inspect the existing socket, OS account, PostgreSQL cluster,
 HBA first-match ordering (including included files) and ident configuration.
 A separately reviewed temporary mapping must be restricted to that exact OS/DB
 identity pair and the actual database, using local peer authentication only.
 It must not broaden selectors, replace existing migration access, add a password
 or `trust`, or rely on an earlier permissive HBA match. Only after independent
 verification can its exact narrowly scoped configuration be added to this runbook.
-Obtain **separate explicit Anthony approval immediately before** any auth-config
+Obtain **separate explicit approval from the production operator immediately before** any auth-config
 change or reload; neither is implemented or authorized here.
 
-Anthony can inspect parse/order evidence through an independently authorized
+The production operator can inspect parse/order evidence through an independently authorized
 read-only administrator connection (these views may require extra visibility):
 
 ```sql
@@ -255,7 +255,7 @@ Only a separately authorized **real peer session** as OS `polypbase_migrator`
 through the verified socket, with the exact identities below, can establish the
 route. Do not label it verified before that test.
 
-### Read-only SQL preflight for Anthony
+### Read-only SQL preflight for the production operator
 
 Run on an intended maintenance Django connection with startup role already active,
 before apply; retain non-secret results in restricted operational evidence.
@@ -437,7 +437,7 @@ or partial changes. Preserve its operational log separately.
     (reload does not close existing sessions). Verify a **new login through this
     temporary route is refused**, no maintenance sessions remain, and existing
     migration access is unaffected. If another HBA rule still admits the same
-    temporary login, cleanup is not proven: stop and resolve with Anthony rather
+    temporary login, cleanup is not proven: stop and resolve with the production operator rather
     than remove unrelated access. Retain closure and report/audit evidence in
     restricted operational storage. Consider retiring the one-off command through
     separately reviewed cleanup. Apply failure also requires this access cleanup.

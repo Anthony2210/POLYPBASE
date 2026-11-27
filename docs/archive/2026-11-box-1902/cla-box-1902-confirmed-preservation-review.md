@@ -61,11 +61,11 @@ La correction autorisée est exclusivement : organisation **1**, Box **1902**,
 **164 / Chrysaora lactea**. Le PK, le statut inactif et le code local
 `CLA-JKA-1.09` restent inchangés.
 
-Base réelle de l'autorisation : **décision explicite d'Anthony, propriétaire
+Base réelle de l'autorisation : **décision explicite du propriétaire
 produit, à qui la confirmation du laboratoire a été communiquée oralement**.
 Ce n'est pas une attestation de laboratoire vérifiée indépendamment. Aucun
 signataire, rapport, date d'analyse, méthode ou document de laboratoire n'est
-inventé. Le `REASON` actuel attribué à Etienne ne décrit pas cette nouvelle base
+inventé. Le `REASON` actuel attribué au contact du laboratoire ne décrit pas cette nouvelle base
 et devrait être remplacé uniquement dans le nouveau contrat ciblé.
 
 Les faits suivants proviennent de la demande, pas d'une observation locale de
@@ -168,7 +168,7 @@ d'état déjà appliqué ne doit pas constituer une nouvelle autorisation.
 ### Traçabilité scientifique
 
 Le registre protégé doit conserver : identité originale et corrigée, base réelle
-de la décision d'Anthony, acteur, opération versionnée, approbation et plan
+de la décision du propriétaire produit, acteur, opération versionnée, approbation et plan
 revus, ainsi que les associations exactes aux évidences originales.
 
 Le libellé `CLA-JKA-1.09`, les empreintes, cellules, valeurs, dates et semaines
@@ -436,7 +436,7 @@ d'évidence aux PK de relevés n'est pas une preuve utilisable.
 
 Aucune donnée scientifique n'a été corrigée. Aucune réécriture de preuve, alias
 CLA/CLC global, reconfirmation ou changement d'une autre Box n'est effectué par
-les nouveaux interverrouillages. La décision orale rapportée par Anthony reste
+les nouveaux interverrouillages. La décision orale rapportée par le propriétaire produit reste
 une décision produit, pas une attestation écrite de laboratoire vérifiée.
 
 ### 6. Exécutions réelles de cette reprise

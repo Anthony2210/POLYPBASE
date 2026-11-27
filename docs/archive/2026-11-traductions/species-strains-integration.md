@@ -19,7 +19,7 @@ Main independently published B32 (`T1460`–`T1469`, four-hour thermal monitorin
 ## Documentary Japanese manifest
 
 - Insert 266 new React rows in canonical FR order.
-- Use `FALLBACK_EN` / `ABSENT_FROM_WORKBOOK`, empty Japanese/workbook/review fields and `takeru_review=no`.
+- Use `FALLBACK_EN` / `ABSENT_FROM_WORKBOOK`, empty Japanese/workbook/review fields and the Japanese review flag set to `no`.
 - Do not claim a fresh workbook inspection: the private frozen workbook is not present in this checkout. These are additions absent from the existing documentary manifest, following its established fallback convention.
 - Update only the registered English metadata for `firstMeasurementOn` to `First record`; retain the exact previously validated Japanese. `EN_FORM_ONLY` documents the same biological-record concept with the approved English terminology.
 - Preserve all other pre-existing manifest fields. A new regression reconstructs and hashes the complete main manifest, including all non-React rows, rather than replacing its historical digest.

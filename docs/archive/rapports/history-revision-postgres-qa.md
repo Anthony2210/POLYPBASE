@@ -451,14 +451,14 @@ ADN. Les tests métier/ADN, le merge et les URLs sont traités séparément. Les
 preuves locales antérieures ci-dessus restent historiques; elles ne sont pas
 réattribuées au nouveau périmètre.
 
-## Passation à Anthony — après revue indépendante uniquement
+## Passation au mainteneur — après revue indépendante uniquement
 
 1. Examiner les fichiers du périmètre ciblé, son intégration au harnais/runner et le diff complet sur
    `test/history-revision-postgres-qa`. Ne pas synchroniser/rebaser main implicitement :
    l'ascendance de cette branche et les références main peuvent diverger.
-2. Après approbation, Anthony stage et commit personnellement les fichiers revus.
+2. Après approbation, le mainteneur stage et commit personnellement les fichiers revus.
    Aucun staging/commit n'est réalisé dans cette tâche.
-3. Anthony pousse ensuite lui-même :
+3. Le mainteneur pousse ensuite lui-même :
    `git push -u origin test/history-revision-postgres-qa`.
    Ce push constitue l'activation distante; pas besoin que le workflow soit sur main.
 4. Ouvrir Actions → **History revisions PostgreSQL QA — TARGETED Phase5A**, vérifier le SHA exact,
@@ -475,7 +475,7 @@ migrations 0019/0020 inversées et réappliquées, isolation et courses PostgreS
 réussies. Ni l'intégration précédente 81 nœuds avec `sharing.0001_initial`, ni
 le nouveau contrat **83 nœuds** avec ADN et merge vide ne sont validés par ce run.
 Le merge vide et les URLs sont intégrés dans le working tree; le conflit d'index
-reste volontairement à marquer résolu par Anthony. Le reset par template et les catalogues réels de cette
+reste volontairement à marquer résolu par le mainteneur. Le reset par template et les catalogues réels de cette
 version restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
 ne validerait ni le graphe complet, ni `measurements.0018_box_1902_preservation`,
 ni une migration sur données de production. Aucun résultat de validation future

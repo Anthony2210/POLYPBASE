@@ -263,7 +263,7 @@ Modifiés :
 Une revue statique en lecture seule a identifié puis revérifié les frontières
 source et destinataire. Ses deux constats de session ont été corrigés; aucune
 écriture n'a été déléguée. Ce contrôle ne remplace pas la revue indépendante
-complète demandée par Anthony.
+complète demandée par le propriétaire produit.
 
 Priorités de la prochaine revue : montage exclusif des contextes, mutations du
 client commun, perte de session pendant une réponse ou confirmation, token consommé

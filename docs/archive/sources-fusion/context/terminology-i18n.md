@@ -2,7 +2,7 @@
 
 À lire pour tout travail sur un texte visible, l'i18n, une traduction ou un terme métier. Les mécanismes i18n (catalogues `frontend/src/i18n/`, parité FR/EN, `CONTENT_LANGUAGES`) sont dans [`frontend-ux.md`](frontend-ux.md).
 
-Sources : décisions produit validées par Anthony et traductions historiques du classeur « Traduction Polypbase », archivé hors dépôt. Les règles terminologiques ci-dessous font référence pour les nouveaux développements. Les modifications réellement appliquées à l'application sont tracées dans docs/translation-review/application/register.csv. Les anciennes propositions de nettoyage ne constituent pas des décisions automatiquement applicables.
+Sources : décisions produit validées par le propriétaire produit et traductions historiques du classeur « Traduction Polypbase », archivé hors dépôt. Les règles terminologiques ci-dessous font référence pour les nouveaux développements. Les modifications réellement appliquées à l'application sont tracées dans docs/translation-review/application/register.csv. Les anciennes propositions de nettoyage ne constituent pas des décisions automatiquement applicables.
 
 ## A. Vocabulaire produit confirmé
 
@@ -41,7 +41,7 @@ Exemples :
 
 ## B. Traductions validées à préserver
 
-- **Japonais** : les 1 384 traductions JA marquées « Fait » ont été validées personnellement par Takeru. Ne jamais les écraser, normaliser, retraduire ni « aligner » automatiquement, même pour appliquer un terme ou une règle de la section A. Toute adaptation japonaise qui demande une nouvelle formulation reste non résolue tant qu'elle n'est pas explicitement approuvée, et n'est jamais appliquée automatiquement. Le japonais est une langue d'interface partielle : seules les traductions validées encore compatibles avec le FR/EN actuel sont affichées, les autres clés affichent l'anglais (manifeste et revue Takeru : [`../translation-review/japanese/`](../../2026-11-traductions/provenance-japonaise.md)). Il reste aussi une langue de contenu (`CONTENT_LANGUAGES`), distincte. Exception explicite, limitée à l'intégration locale du 2026-11-04 : 59 nouvelles clés React absentes du classeur utilisent une revue IA indépendante, tracée `AI_REVIEWED` / `ja_ai_reviewed` dans le manifeste. Elles ne sont ni approuvées humainement ni validées par Takeru, ne remplacent aucun japonais historique et ne résolvent aucune question différée. Voir le contrat et les sources verrouillées dans le README japonais.
+- **Japonais** : les 1 384 traductions JA marquées « Fait » ont été validées personnellement par le réviseur japonais. Ne jamais les écraser, normaliser, retraduire ni « aligner » automatiquement, même pour appliquer un terme ou une règle de la section A. Toute adaptation japonaise qui demande une nouvelle formulation reste non résolue tant qu'elle n'est pas explicitement approuvée, et n'est jamais appliquée automatiquement. Le japonais est une langue d'interface partielle : seules les traductions validées encore compatibles avec le FR/EN actuel sont affichées, les autres clés affichent l'anglais (manifeste et revue japonaise : [note de provenance japonaise](../../2026-11-traductions/provenance-japonaise.md)). Il reste aussi une langue de contenu (`CONTENT_LANGUAGES`), distincte. Exception explicite, limitée à l'intégration locale du 2026-11-04 : 59 nouvelles clés React absentes du classeur utilisent une revue IA indépendante, tracée `AI_REVIEWED` / `ja_ai_reviewed` dans le manifeste. Elles ne sont ni approuvées humainement ni validées par le réviseur japonais, ne remplacent aucun japonais historique et ne résolvent aucune question différée. Voir le contrat et les sources verrouillées dans le README japonais.
 - **Glossaire G36** : Lecteurs / Read-only mode / 閲覧専用 reste tel quel.
 - **Statuts** : ne jamais modifier une validation « Fait » ni une cellule Correction. Une Correction est un commentaire de relecteur, pas une valeur approuvée.
 - **Valeurs japonaises de référence**, déjà validées : 容器 (boîte), 測定記録 (relevé biologique), 測定値 (mesure), 移植 (repiquage), 機関 (structure en tant qu'entité), 系統 (souche), 系譜 (lignée), 設置場所 (emplacement), 現在の設置場所 (emplacement actuel), 設置期間 (période d'emplacement). Les citer ne les rouvre pas.
@@ -60,13 +60,13 @@ Exemples :
 
 Les valeurs actuelles `Provenance not established` et `Needs review` sont préservées par le registre (T019/T022, puis T764/T763) et protégées dans `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` et `To be checked` décrivent la feuille historique, pas une décision de remplacement dans l'application. Tout alignement exige une nouvelle décision explicite.
 
-Les catalogues applicatifs ne sont jamais réécrits automatiquement à partir du classeur historique. Les écarts identifiés lors du nettoyage sont conservés dans les archives privées hors dépôt. Les décisions et modifications réellement examinées dans l'application sont tracées dans docs/translation-review/application/register.csv. Les écarts non arbitrés ne doivent pas être corrigés automatiquement. adminZoneTypeCabinet a été aligné sur Emplacement / Rack dans l'application par décision explicite d'Anthony (2026-10-28).
+Les catalogues applicatifs ne sont jamais réécrits automatiquement à partir du classeur historique. Les écarts identifiés lors du nettoyage sont conservés dans les archives privées hors dépôt. Les décisions et modifications réellement examinées dans l'application sont tracées dans docs/translation-review/application/register.csv. Les écarts non arbitrés ne doivent pas être corrigés automatiquement. adminZoneTypeCabinet a été aligné sur Emplacement / Rack dans l'application par décision explicite du propriétaire produit (2026-10-28).
 
 Toute modification d'un texte FR/EN de l'application, ou toute décision de ne pas le modifier, est tracée dans `docs/translation-review/application/register.csv` et vérifiée par `check_register.py` (voir le README de ce dossier).
 
 ## D. Choix linguistiques non résolus
 
-Ne pas les traiter comme normatifs. Réutiliser la valeur actuelle validée et signaler la question à Anthony.
+Ne pas les traiter comme normatifs. Réutiliser la valeur actuelle validée et signaler la question au propriétaire produit.
 
 - Formulations anglaises encore proposées dans `translation_review_queue.csv` (statut autre que `confirmed_product_decision`) : aucune n'est approuvée.
 - Adaptations japonaises demandant une nouvelle formulation : provenance d'un mouvement, 継代 / 移植 sur une clé d'audit, 機関 / 所属機関, terme de transfert entre structures, 撤去 pour une fin de période, dernier emplacement connu, termes JA d'Appartenance et d'Accès, invitation à contacter un administrateur dans le refus Django de repiquage.
@@ -82,6 +82,6 @@ L'audit global des messages visibles de refus de permission (frontend et message
 
 1. Chercher la clé, le code qui l'affiche et le contexte métier (`docs/context/` du domaine). Le mot FR seul ne suffit pas.
 2. Réutiliser un terme des sections A ou B s'il couvre exactement ce sens.
-3. Sinon, ne pas inventer de terminologie produit ni scientifique : poser la question à Anthony. Une nouvelle formulation japonaise reste non résolue.
+3. Sinon, ne pas inventer de terminologie produit ni scientifique : poser la question au propriétaire produit. Une nouvelle formulation japonaise reste non résolue.
 4. Ajouter tout nouveau texte visible en FR et en EN dans les catalogues, conserver les variables (`{zone}`, `{count}`…) et ne pas utiliser le point médian.
 5. Pour le classeur partagé : toujours identifier une ligne par clé exacte, jamais par numéro de ligne; ne jamais restaurer une clé supprimée ni dédupliquer par égalité de texte.
