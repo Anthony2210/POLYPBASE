@@ -11,7 +11,10 @@ import ts from 'typescript';
 function loadModule(relativePath) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
   });
   const exports = {};
   vm.runInNewContext(outputText, { exports, URLSearchParams });
@@ -21,7 +24,11 @@ function loadModule(relativePath) {
 function loadModuleWithRequire(relativePath, requireMap) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
   });
   const exports = {};
   const require = (specifier) => {
@@ -37,9 +44,12 @@ const audit = loadModuleWithRequire('../src/utils/auditPresentation.ts', {
   './dateFormat': dateFormat,
   './userIdentity': loadModule('../src/utils/userIdentity.ts'),
 });
-const personalActions = loadModuleWithRequire('../src/utils/personalActions.ts', {
-  './auditPresentation': audit,
-});
+const personalActions = loadModuleWithRequire(
+  '../src/utils/personalActions.ts',
+  {
+    './auditPresentation': audit,
+  },
+);
 const adminAudit = loadModuleWithRequire('../src/utils/adminAudit.ts', {
   './auditPresentation': audit,
 });
@@ -47,45 +57,90 @@ const timeline = loadModuleWithRequire('../src/components/AuditTimeline.tsx', {
   'react/jsx-runtime': jsxRuntime,
   '../utils/auditPresentation': audit,
   './BoxTrackingPreview': { default: () => null },
-  './DnaEvidenceLink': loadModuleWithRequire('../src/components/DnaEvidenceLink.tsx', {
-    'react/jsx-runtime': jsxRuntime, 'lucide-react': { ExternalLink: () => null },
-  }),
+  './DnaEvidenceLink': loadModuleWithRequire(
+    '../src/components/DnaEvidenceLink.tsx',
+    {
+      'react/jsx-runtime': jsxRuntime,
+      'lucide-react': { ExternalLink: () => null },
+    },
+  ),
 });
 
 test('DNA events use business summaries and safe before/after evidence links', () => {
   const labels = {
-    dnaAuditAdded: 'Validation ADN ajoutée', dnaAuditUpdated: 'Lien de preuve ADN modifié',
-    dnaAuditRevoked: 'Validation ADN retirée', dnaMissing: 'Validation ADN : non renseignée',
-    dnaEvidenceUrl: 'Lien vers la preuve ADN', auditPrevious: 'Avant', auditNew: 'Après',
+    dnaAuditAdded: 'Validation ADN ajoutée',
+    dnaAuditUpdated: 'Lien de preuve ADN modifié',
+    dnaAuditRevoked: 'Validation ADN retirée',
+    dnaMissing: 'Validation ADN : non renseignée',
+    dnaEvidenceUrl: 'Lien vers la preuve ADN',
+    auditPrevious: 'Avant',
+    auditNew: 'Après',
   };
-  const t = key => labels[key] ?? key;
+  const t = (key) => labels[key] ?? key;
   for (const event of ['added', 'updated', 'revoked']) {
-    const entry = { action: 'update', description: `Box DNA validation ${event}`, metadata: {
-      event: `box_dna_validation_${event}`,
-      before: event === 'added' ? null : { evidence_url: 'https://before.example/proof' },
-      after: { evidence_url: 'https://after.example/proof' },
-    } };
+    const entry = {
+      action: 'update',
+      description: `Box DNA validation ${event}`,
+      metadata: {
+        event: `box_dna_validation_${event}`,
+        before:
+          event === 'added'
+            ? null
+            : { evidence_url: 'https://before.example/proof' },
+        after: { evidence_url: 'https://after.example/proof' },
+      },
+    };
     const html = renderBusinessRow(entry, t);
-    assert.ok(html.includes(labels[{ added: 'dnaAuditAdded', updated: 'dnaAuditUpdated', revoked: 'dnaAuditRevoked' }[event]]));
+    assert.ok(
+      html.includes(
+        labels[
+          {
+            added: 'dnaAuditAdded',
+            updated: 'dnaAuditUpdated',
+            revoked: 'dnaAuditRevoked',
+          }[event]
+        ],
+      ),
+    );
     assert.ok(!html.includes('Box DNA validation'));
     assert.ok(!html.includes('evidence_url'));
     assert.ok(html.includes('→'));
-    assert.equal(html.includes('href="https://before.example/proof"'), event !== 'added');
-    assert.equal(html.includes('href="https://after.example/proof"'), event !== 'revoked');
+    assert.equal(
+      html.includes('href="https://before.example/proof"'),
+      event !== 'added',
+    );
+    assert.equal(
+      html.includes('href="https://after.example/proof"'),
+      event !== 'revoked',
+    );
     assert.ok(html.includes('rel="noopener noreferrer"'));
   }
 });
 
 function renderBusinessRow(entry, t = tFr, boxReference = null) {
-  return renderToStaticMarkup(createElement('div', null,
-    createElement(timeline.AuditPrimarySummary, {
-      entry, boxReference, className: 'audit-summary', language: 'fr', t,
-    }),
-    createElement(timeline.AuditInlineBusinessSummary, {
-      entry, description: entry.description, details: entry.business_details, t,
-    }),
-    createElement(timeline.AuditBusinessNote, { details: entry.business_details, t }),
-  ));
+  return renderToStaticMarkup(
+    createElement(
+      'div',
+      null,
+      createElement(timeline.AuditPrimarySummary, {
+        entry,
+        boxReference,
+        className: 'audit-summary',
+        language: 'fr',
+        t,
+      }),
+      createElement(timeline.AuditInlineBusinessSummary, {
+        entry,
+        description: entry.description,
+        details: entry.business_details,
+        t,
+      }),
+      createElement(timeline.AuditBusinessNote, {
+        details: entry.business_details,
+        t,
+      }),
+    ),
+  );
 }
 
 function readSource(relativePath) {
@@ -106,16 +161,38 @@ test('metadata labels translate only known own keys and preserve the exact unkno
   for (const catalog of [fr, en]) {
     const calls = [];
     const t = (key) => {
-      assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${String(key)}`);
+      assert.ok(
+        Object.hasOwn(catalog, key),
+        `Unknown translation key: ${String(key)}`,
+      );
       calls.push(key);
       return catalog[key];
     };
-    assert.equal(audit.getAuditMetadataKeyLabel('polypes', t), catalog.auditMetaPolyps);
-    assert.equal(audit.getAuditMetadataKeyLabel('is_responsable', t), catalog.auditMetaResponsableStatus);
+    assert.equal(
+      audit.getAuditMetadataKeyLabel('polypes', t),
+      catalog.auditMetaPolyps,
+    );
+    assert.equal(
+      audit.getAuditMetadataKeyLabel('is_responsable', t),
+      catalog.auditMetaResponsableStatus,
+    );
     assert.deepEqual(calls, ['auditMetaPolyps', 'auditMetaResponsableStatus']);
     calls.length = 0;
-    for (const key of ['future_backend_field', 'raw__key_', '', 'polyps', 'auditMetaPolyps', 'constructor', 'toString', 'hasOwnProperty', '__proto__']) {
-      assert.equal(audit.getAuditMetadataKeyLabel(key, t), key.replace(/_/g, ' '));
+    for (const key of [
+      'future_backend_field',
+      'raw__key_',
+      '',
+      'polyps',
+      'auditMetaPolyps',
+      'constructor',
+      'toString',
+      'hasOwnProperty',
+      '__proto__',
+    ]) {
+      assert.equal(
+        audit.getAuditMetadataKeyLabel(key, t),
+        key.replace(/_/g, ' '),
+      );
     }
     assert.deepEqual(calls, []);
   }
@@ -123,63 +200,130 @@ test('metadata labels translate only known own keys and preserve the exact unkno
 
 test('backend-string audit lookups reject prototype properties and keep unknown fallbacks', () => {
   const unknownValues = [
-    'future_backend_field', 'auditActionEntry', 'polyps', '',
+    'future_backend_field',
+    'auditActionEntry',
+    'polyps',
+    '',
     ...Object.getOwnPropertyNames(Object.prototype),
   ];
-  const unexpectedTranslation = (key) => assert.fail(`Unexpected translation: ${String(key)}`);
+  const unexpectedTranslation = (key) =>
+    assert.fail(`Unexpected translation: ${String(key)}`);
   for (const value of unknownValues) {
-    assert.equal(audit.getAuditActionLabel({ action: value }, unexpectedTranslation), value || '-');
-    assert.equal(audit.getAuditActionLabel({ action: value, action_label: 'Backend action label' }, unexpectedTranslation), 'Backend action label');
-    assert.equal(audit.getAuditObjectTypeLabel(value, unexpectedTranslation), value || '-');
+    assert.equal(
+      audit.getAuditActionLabel({ action: value }, unexpectedTranslation),
+      value || '-',
+    );
+    assert.equal(
+      audit.getAuditActionLabel(
+        { action: value, action_label: 'Backend action label' },
+        unexpectedTranslation,
+      ),
+      'Backend action label',
+    );
+    assert.equal(
+      audit.getAuditObjectTypeLabel(value, unexpectedTranslation),
+      value || '-',
+    );
     assert.equal(audit.getAuditValueLabel(value, unexpectedTranslation), value);
-    assert.equal(audit.formatAuditMetadataValue(value, unexpectedTranslation), value || '-');
-    assert.equal(audit.getAuditMetadataKeyLabel(value, unexpectedTranslation), value.replace(/_/g, ' '));
+    assert.equal(
+      audit.formatAuditMetadataValue(value, unexpectedTranslation),
+      value || '-',
+    );
+    assert.equal(
+      audit.getAuditMetadataKeyLabel(value, unexpectedTranslation),
+      value.replace(/_/g, ' '),
+    );
     const entry = { action: value, description: value };
-    assert.equal(audit.getAuditDescriptionLabel(entry, unexpectedTranslation), value || '-');
-    assert.equal(audit.getAuditBusinessSummary(entry, unexpectedTranslation), value || '-');
+    assert.equal(
+      audit.getAuditDescriptionLabel(entry, unexpectedTranslation),
+      value || '-',
+    );
+    assert.equal(
+      audit.getAuditBusinessSummary(entry, unexpectedTranslation),
+      value || '-',
+    );
   }
-  assert.equal(audit.getAuditValueLabel('2026-10-29', unexpectedTranslation), '29/10/2026');
+  assert.equal(
+    audit.getAuditValueLabel('2026-10-29', unexpectedTranslation),
+    '29/10/2026',
+  );
 });
 
 test('account summaries reject inherited actions and descriptions while retaining their safe fallback', () => {
   for (const catalog of [fr, en]) {
-    for (const value of ['future_backend_field', '', ...Object.getOwnPropertyNames(Object.prototype)]) {
+    for (const value of [
+      'future_backend_field',
+      '',
+      ...Object.getOwnPropertyNames(Object.prototype),
+    ]) {
       const calls = [];
       const t = (key) => {
-        assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${String(key)}`);
+        assert.ok(
+          Object.hasOwn(catalog, key),
+          `Unknown translation key: ${String(key)}`,
+        );
         calls.push(key);
         return catalog[key];
       };
-      const entry = { object_type: 'account', action: value, description: value };
-      assert.equal(audit.getAuditDescriptionLabel(entry, t), catalog.auditObjectAccount);
-      assert.equal(audit.getAuditBusinessSummary(entry, t), catalog.auditObjectAccount);
+      const entry = {
+        object_type: 'account',
+        action: value,
+        description: value,
+      };
+      assert.equal(
+        audit.getAuditDescriptionLabel(entry, t),
+        catalog.auditObjectAccount,
+      );
+      assert.equal(
+        audit.getAuditBusinessSummary(entry, t),
+        catalog.auditObjectAccount,
+      );
       assert.deepEqual(calls, ['auditObjectAccount', 'auditObjectAccount']);
       calls.length = 0;
-      assert.equal(audit.getAuditDescriptionLabel({ ...entry, action: 'update' }, t), catalog.auditActionUpdate);
+      assert.equal(
+        audit.getAuditDescriptionLabel({ ...entry, action: 'update' }, t),
+        catalog.auditActionUpdate,
+      );
       assert.deepEqual(calls, ['auditActionUpdate']);
       calls.length = 0;
-      assert.equal(audit.getAuditDescriptionLabel({ ...entry, description: 'Member access created' }, t), catalog.auditDescriptionMemberCreated);
+      assert.equal(
+        audit.getAuditDescriptionLabel(
+          { ...entry, description: 'Member access created' },
+          t,
+        ),
+        catalog.auditDescriptionMemberCreated,
+      );
       assert.deepEqual(calls, ['auditDescriptionMemberCreated']);
     }
   }
 });
 
-const ccaEobReason = 'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. '
-  + "Environmental context now resolves through the target box under the product owner's approved product decision. "
-  + 'No location or movement history is modified.';
+const ccaEobReason =
+  'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. ' +
+  "Environmental context now resolves through the target box under the product owner's approved product decision. " +
+  'No location or movement history is modified.';
 const ccaEobSummary = {
   action: 'import',
   object_type: 'historical_correction',
   object_id: 'cca_eob_v2_20261016_v3',
   description: ccaEobReason,
-  metadata: { operation: 'cca_eob_v2_20261016_v3', moved: 72, plan_hash: 'unchanged-evidence' },
+  metadata: {
+    operation: 'cca_eob_v2_20261016_v3',
+    moved: 72,
+    plan_hash: 'unchanged-evidence',
+  },
 };
-const ccaEobEnglish = '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.';
-const ccaEobFrench = '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.';
+const ccaEobEnglish =
+  '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.';
+const ccaEobFrench =
+  '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.';
 
 test('CCA-EOB V3 summary uses the exact EN message and FR localization without mutating evidence', () => {
   const before = JSON.stringify(ccaEobSummary);
-  for (const [t, expected] of [[tEn, ccaEobEnglish], [tFr, ccaEobFrench]]) {
+  for (const [t, expected] of [
+    [tEn, ccaEobEnglish],
+    [tFr, ccaEobFrench],
+  ]) {
     assert.equal(audit.getAuditDescriptionLabel(ccaEobSummary, t), expected);
     assert.equal(audit.getAuditBusinessSummary(ccaEobSummary, t), expected);
     assert.ok(renderBusinessRow(ccaEobSummary, t).includes(expected));
@@ -189,17 +333,26 @@ test('CCA-EOB V3 summary uses the exact EN message and FR localization without m
 
 test('CCA-EOB V3 personal action summary uses its resource identity without raw metadata', () => {
   const personalEntry = {
-    action: 'import', description: ccaEobReason,
-    resource: { type: 'historical_correction', identifier: 'cca_eob_v2_20261016_v3' },
+    action: 'import',
+    description: ccaEobReason,
+    resource: {
+      type: 'historical_correction',
+      identifier: 'cca_eob_v2_20261016_v3',
+    },
     business_details: { type: 'reference', values: {} },
   };
-  assert.equal(audit.getAuditBusinessSummary(personalEntry, tEn), ccaEobEnglish);
+  assert.equal(
+    audit.getAuditBusinessSummary(personalEntry, tEn),
+    ccaEobEnglish,
+  );
   assert.equal(audit.getAuditBusinessSummary(personalEntry, tFr), ccaEobFrench);
 });
 
 test('CCA-EOB individual audits retain source/target boxes and ISO week in both languages', () => {
   const entry = {
-    action: 'update', object_type: 'box', object_id: 'CCA-EOB-2.005',
+    action: 'update',
+    object_type: 'box',
+    object_id: 'CCA-EOB-2.005',
     description: `${ccaEobReason} CCA-EOB-2.004 -> CCA-EOB-2.005; 2026-W08.`,
     metadata: { operation: 'cca_eob_v2_20261016_v3', measurement_id: 123 },
   };
@@ -223,9 +376,19 @@ test('other operations and unrelated audits never receive the CCA-EOB V3 summary
     { ...ccaEobSummary, object_type: 'box' },
     { ...ccaEobSummary, action: 'update' },
     { action: 'import', description: ccaEobReason },
-    { action: 'import', description: 'Unrelated audit', metadata: ccaEobSummary.metadata },
-    { action: 'import', description: ccaEobReason,
-      resource: { type: 'historical_correction', identifier: 'cca_eob_v2_20261016_v2' } },
+    {
+      action: 'import',
+      description: 'Unrelated audit',
+      metadata: ccaEobSummary.metadata,
+    },
+    {
+      action: 'import',
+      description: ccaEobReason,
+      resource: {
+        type: 'historical_correction',
+        identifier: 'cca_eob_v2_20261016_v2',
+      },
+    },
   ];
   for (const entry of entries) {
     for (const t of [tFr, tEn]) {
@@ -267,7 +430,10 @@ test('EN measurement creation is readable and distinct from a correction', () =>
 
 test('a legacy edited measurement keeps the correction wording', () => {
   const label = audit.getAuditDescriptionLabel(
-    { action: 'update', description: 'Biological measurement edited for 2026-09-15' },
+    {
+      action: 'update',
+      description: 'Biological measurement edited for 2026-09-15',
+    },
     tFr,
   );
   assert.equal(label, 'Relevé biologique corrigé');
@@ -295,9 +461,18 @@ test('the legacy measurement creation description is translated in EN', () => {
 });
 
 test('the legacy measurement creation is treated as a creation, not a correction', () => {
-  const legacy = { action: 'entry', description: 'Biological measurement recorded' };
-  const modernCreation = { action: 'entry', description: 'Biological measurement for 2026-09-15' };
-  const correction = { action: 'update', description: 'Biological measurement for 2026-09-15' };
+  const legacy = {
+    action: 'entry',
+    description: 'Biological measurement recorded',
+  };
+  const modernCreation = {
+    action: 'entry',
+    description: 'Biological measurement for 2026-09-15',
+  };
+  const correction = {
+    action: 'update',
+    description: 'Biological measurement for 2026-09-15',
+  };
 
   const legacyFr = audit.getAuditDescriptionLabel(legacy, tFr);
   const legacyEn = audit.getAuditDescriptionLabel(legacy, tEn);
@@ -335,13 +510,31 @@ test('Responsable events render readable FR and EN wording', () => {
 });
 
 test('box deactivation and reactivation are readable in both languages', () => {
-  const deactivated = { action: 'update', description: 'Box deactivated: ATL-AAU-1.001' };
-  const reactivated = { action: 'update', description: 'Box reactivated: ATL-AAU-1.001' };
+  const deactivated = {
+    action: 'update',
+    description: 'Box deactivated: ATL-AAU-1.001',
+  };
+  const reactivated = {
+    action: 'update',
+    description: 'Box reactivated: ATL-AAU-1.001',
+  };
 
-  assert.equal(audit.getAuditDescriptionLabel(deactivated, tFr), 'Boîte désactivée : ATL-AAU-1.001');
-  assert.equal(audit.getAuditDescriptionLabel(reactivated, tFr), 'Boîte réactivée : ATL-AAU-1.001');
-  assert.equal(audit.getAuditDescriptionLabel(deactivated, tEn), 'Box deactivated: ATL-AAU-1.001');
-  assert.equal(audit.getAuditDescriptionLabel(reactivated, tEn), 'Box reactivated: ATL-AAU-1.001');
+  assert.equal(
+    audit.getAuditDescriptionLabel(deactivated, tFr),
+    'Boîte désactivée : ATL-AAU-1.001',
+  );
+  assert.equal(
+    audit.getAuditDescriptionLabel(reactivated, tFr),
+    'Boîte réactivée : ATL-AAU-1.001',
+  );
+  assert.equal(
+    audit.getAuditDescriptionLabel(deactivated, tEn),
+    'Box deactivated: ATL-AAU-1.001',
+  );
+  assert.equal(
+    audit.getAuditDescriptionLabel(reactivated, tEn),
+    'Box reactivated: ATL-AAU-1.001',
+  );
 });
 
 test('member access descriptions are readable and never raw English in FR', () => {
@@ -352,15 +545,24 @@ test('member access descriptions are readable and never raw English in FR', () =
   ];
 
   for (const [description, frLabel] of cases) {
-    assert.equal(audit.getAuditDescriptionLabel({ action: 'update', description }, tFr), frLabel);
+    assert.equal(
+      audit.getAuditDescriptionLabel({ action: 'update', description }, tFr),
+      frLabel,
+    );
   }
 });
 
 test('member role and activation changes are readable', () => {
   assert.equal(audit.getAuditMetadataKeyLabel('role', tFr), 'Rôle');
-  assert.equal(audit.getAuditMetadataKeyLabel('acces_actif', tFr), 'Accès actif');
+  assert.equal(
+    audit.getAuditMetadataKeyLabel('acces_actif', tFr),
+    'Accès actif',
+  );
   assert.equal(audit.getAuditMetadataKeyLabel('role', tEn), 'Role');
-  assert.equal(audit.getAuditMetadataKeyLabel('acces_actif', tEn), 'Access active');
+  assert.equal(
+    audit.getAuditMetadataKeyLabel('acces_actif', tEn),
+    'Access active',
+  );
   assert.equal(audit.getAuditValueLabel('lab_technician', tFr), 'Technicien');
   assert.equal(audit.getAuditValueLabel('viewer', tEn), 'Read-only mode');
   assert.equal(audit.formatAuditMetadataValue(true, tFr), 'Oui');
@@ -371,7 +573,10 @@ test('raw is_responsable wording never reaches the interface', () => {
   const keyLabel = audit.getAuditMetadataKeyLabel('is_responsable', tFr);
   assert.equal(keyLabel, 'Statut Responsable');
   assert.equal(keyLabel.includes('is_responsable'), false);
-  assert.equal(audit.getAuditMetadataKeyLabel('is_responsable', tEn), 'Manager status');
+  assert.equal(
+    audit.getAuditMetadataKeyLabel('is_responsable', tEn),
+    'Manager status',
+  );
   assert.equal(audit.formatAuditMetadataValue(true, tFr), 'Oui');
 });
 
@@ -386,7 +591,10 @@ test('a scientific zero stays a real value', () => {
 });
 
 test('rich inline summaries preserve box wording, changes, notes, and zero', () => {
-  const recorded = { type: 'measurement', values: { polypes: 0, ephyrules: 3, salinite_psu: '2.00', note: 'Stable' } };
+  const recorded = {
+    type: 'measurement',
+    values: { polypes: 0, ephyrules: 3, salinite_psu: '2.00', note: 'Stable' },
+  };
   const corrected = {
     type: 'measurement',
     changes: {
@@ -396,25 +604,61 @@ test('rich inline summaries preserve box wording, changes, notes, and zero', () 
       note: { before: '', after: 'À surveiller' },
     },
   };
-  const movement = { type: 'box_movement', from_zone: 'Cabinet 15 C', to_zone: 'Cabinet 10 C' };
+  const movement = {
+    type: 'box_movement',
+    from_zone: 'Cabinet 15 C',
+    to_zone: 'Cabinet 10 C',
+  };
 
-  assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'entry', description: '', business_details: recorded }, tFr)), JSON.stringify(['Relevé ', ' effectué']));
-  assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'update', description: '', business_details: corrected }, tFr)), JSON.stringify(['Relevé ', ' corrigé']));
-  assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'update', description: '', business_details: movement }, tFr)), JSON.stringify(['', ' déplacée vers Cabinet 10 C']));
+  assert.equal(
+    JSON.stringify(
+      audit.getAuditBoxSummaryParts(
+        { action: 'entry', description: '', business_details: recorded },
+        tFr,
+      ),
+    ),
+    JSON.stringify(['Relevé ', ' effectué']),
+  );
+  assert.equal(
+    JSON.stringify(
+      audit.getAuditBoxSummaryParts(
+        { action: 'update', description: '', business_details: corrected },
+        tFr,
+      ),
+    ),
+    JSON.stringify(['Relevé ', ' corrigé']),
+  );
+  assert.equal(
+    JSON.stringify(
+      audit.getAuditBoxSummaryParts(
+        { action: 'update', description: '', business_details: movement },
+        tFr,
+      ),
+    ),
+    JSON.stringify(['', ' déplacée vers Cabinet 10 C']),
+  );
 
   const recordedItems = audit.getAuditInlineBusinessItems(recorded, tFr);
   assert.equal(recordedItems[0].value, '0');
   assert.equal(recordedItems[2].unit, undefined);
   assert.equal(recordedItems[2].value, '2.00');
   const correctedItems = audit.getAuditInlineBusinessItems(corrected, tFr);
-  assert.equal(JSON.stringify(correctedItems.map(({ key, before, after }) => ({ key, before, after }))), JSON.stringify([
-    { key: 'polypes', before: '0', after: '5' },
-    { key: 'ephyrules', before: '3', after: '8' },
-    { key: 'salinite_psu', before: '2.00', after: '2.80' },
-  ]));
+  assert.equal(
+    JSON.stringify(
+      correctedItems.map(({ key, before, after }) => ({ key, before, after })),
+    ),
+    JSON.stringify([
+      { key: 'polypes', before: '0', after: '5' },
+      { key: 'ephyrules', before: '3', after: '8' },
+      { key: 'salinite_psu', before: '2.00', after: '2.80' },
+    ]),
+  );
   assert.equal(audit.getAuditBusinessNote(recorded), 'Stable');
   assert.equal(audit.getAuditBusinessNote(corrected), 'À surveiller');
-  assert.equal(JSON.stringify(audit.getAuditInlineBusinessItems(movement, tFr)), JSON.stringify([]));
+  assert.equal(
+    JSON.stringify(audit.getAuditInlineBusinessItems(movement, tFr)),
+    JSON.stringify([]),
+  );
 });
 
 test('every UPDATE measurement event stays a correction even without a change payload', () => {
@@ -428,7 +672,10 @@ test('every UPDATE measurement event stays a correction even without a change pa
     JSON.stringify(audit.getAuditBoxSummaryParts(correction, tFr)),
     JSON.stringify(['Relevé ', ' corrigé']),
   );
-  assert.equal(audit.getAuditDescriptionLabel(correction, tFr), 'Relevé biologique corrigé');
+  assert.equal(
+    audit.getAuditDescriptionLabel(correction, tFr),
+    'Relevé biologique corrigé',
+  );
 });
 
 test('subculture summaries name all children and the parent in FR and EN', () => {
@@ -449,8 +696,14 @@ test('subculture summaries name all children and the parent in FR and EN', () =>
     },
   };
 
-  assert.equal(audit.getAuditBusinessSummary(oneChild, tFr), 'SF.002 créée via repiquage de SF.001');
-  assert.equal(audit.getAuditBusinessSummary(oneChild, tEn), 'SF.002 created by transplanting SF.001');
+  assert.equal(
+    audit.getAuditBusinessSummary(oneChild, tFr),
+    'SF.002 créée via repiquage de SF.001',
+  );
+  assert.equal(
+    audit.getAuditBusinessSummary(oneChild, tEn),
+    'SF.002 created by transplanting SF.001',
+  );
   assert.equal(
     audit.getAuditBusinessSummary(manyChildren, tFr),
     'SF.002, SF.003, SF.004 créées via repiquage de SF.001',
@@ -461,8 +714,14 @@ test('subculture summaries name all children and the parent in FR and EN', () =>
   );
   // The rich child+parent summary replaces the parent presentation, so no
   // second parent reference is rendered.
-  assert.equal(audit.hasAuditSubcultureSummary(oneChild.business_details), true);
-  assert.equal(audit.hasAuditSubcultureSummary(manyChildren.business_details), true);
+  assert.equal(
+    audit.hasAuditSubcultureSummary(oneChild.business_details),
+    true,
+  );
+  assert.equal(
+    audit.hasAuditSubcultureSummary(manyChildren.business_details),
+    true,
+  );
   assert.equal(audit.getAuditBoxSummaryParts(oneChild, tFr), null);
   assert.equal(audit.getAuditBoxSummaryParts(manyChildren, tFr), null);
 });
@@ -498,7 +757,10 @@ test('a subculture without parent or children invents no relation', () => {
   assert.equal(audit.getAuditBusinessSummary(orphan, tFr), 'Repiquage créé');
 
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
-  assert.match(timelineSource, /if \(!parentCode && !children\.length\) return null;/);
+  assert.match(
+    timelineSource,
+    /if \(!parentCode && !children\.length\) return null;/,
+  );
   assert.match(timelineSource, /if \(hidePrimaryResource\) return null;/);
 });
 
@@ -512,7 +774,10 @@ test('initial polyp wording distinguishes zero, one, plural, and missing values'
 
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
   assert.match(timelineSource, /child\.initial_polyp_count !== null/);
-  assert.match(timelineSource, /getAuditInitialPolypsLabel\(child\.initial_polyp_count, t\)/);
+  assert.match(
+    timelineSource,
+    /getAuditInitialPolypsLabel\(child\.initial_polyp_count, t\)/,
+  );
 });
 
 test('structured lifecycle transitions distinguish activation, reactivation, and deactivation', () => {
@@ -527,8 +792,14 @@ test('structured lifecycle transitions distinguish activation, reactivation, and
       description: 'Legacy wording must not decide the transition',
       business_details: { type: 'box_status', transition },
     };
-    assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts(entry, tFr)), JSON.stringify(['', frSuffix]));
-    assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts(entry, tEn)), JSON.stringify(['', enSuffix]));
+    assert.equal(
+      JSON.stringify(audit.getAuditBoxSummaryParts(entry, tFr)),
+      JSON.stringify(['', frSuffix]),
+    );
+    assert.equal(
+      JSON.stringify(audit.getAuditBoxSummaryParts(entry, tEn)),
+      JSON.stringify(['', enSuffix]),
+    );
   }
 });
 
@@ -575,22 +846,37 @@ test('known business events never fall through to raw English in FR', () => {
   ];
 
   for (const description of descriptions) {
-    const label = audit.getAuditDescriptionLabel({ action: 'update', description }, tFr);
+    const label = audit.getAuditDescriptionLabel(
+      { action: 'update', description },
+      tFr,
+    );
     assert.notEqual(label, description, `unmapped description: ${description}`);
   }
 });
 
 test('the qualified historical box status is translated', () => {
   const label = audit.getAuditDescriptionLabel(
-    { action: 'update', description: 'Historical box qualified as inactive: ATL-AAU-1.001' },
+    {
+      action: 'update',
+      description: 'Historical box qualified as inactive: ATL-AAU-1.001',
+    },
     tFr,
   );
   assert.equal(label, 'Boîte historique qualifiée (Inactive) : ATL-AAU-1.001');
 });
 
 test('legacy account snapshots never expose arbitrary technical usernames', () => {
-  for (const raw of ['internal_0123456789abcdef', 'legacy-tech', 'Camille DURAND', 'camille@example.org']) {
-    const entry = { object_type: 'account', object_id: raw, business_details: { type: 'account', values: { nom: raw, email: raw } } };
+  for (const raw of [
+    'internal_0123456789abcdef',
+    'legacy-tech',
+    'Camille DURAND',
+    'camille@example.org',
+  ]) {
+    const entry = {
+      object_type: 'account',
+      object_id: raw,
+      business_details: { type: 'account', values: { nom: raw, email: raw } },
+    };
     assert.equal(audit.getAuditTargetLabel(entry), '');
     assert.equal(audit.getAuditTargetLabel(entry, tFr), fr.historicalUser);
     assert.equal(audit.getAuditTargetLabel(entry, tEn), en.historicalUser);
@@ -603,7 +889,11 @@ test('administration account targets use normalized business details, never the 
     description: 'Member access updated',
     object_type: 'account',
     object_id: 'internal_0123456789abcdef',
-    account_identity: { first_name: 'Camille', last_name: 'Durand', email: 'camille@example.org' },
+    account_identity: {
+      first_name: 'Camille',
+      last_name: 'Durand',
+      email: 'camille@example.org',
+    },
     business_details: {
       type: 'account',
       values: { nom: 'Camille DURAND', email: 'camille@example.org' },
@@ -613,15 +903,26 @@ test('administration account targets use normalized business details, never the 
 
   const emailOnly = {
     ...entry,
-    account_identity: { first_name: '', last_name: '', email: 'camille@example.org' },
+    account_identity: {
+      first_name: '',
+      last_name: '',
+      email: 'camille@example.org',
+    },
     business_details: {
       type: 'account',
-      values: { nom: 'internal_0123456789abcdef', email: 'camille@example.org' },
+      values: {
+        nom: 'internal_0123456789abcdef',
+        email: 'camille@example.org',
+      },
     },
   };
   assert.equal(audit.getAuditTargetLabel(emailOnly), 'camille@example.org');
 
-  const noValues = { ...entry, account_identity: null, business_details: { type: 'account' } };
+  const noValues = {
+    ...entry,
+    account_identity: null,
+    business_details: { type: 'account' },
+  };
   assert.equal(audit.getAuditTargetLabel(noValues), '');
 
   const boxEntry = {
@@ -633,7 +934,10 @@ test('administration account targets use normalized business details, never the 
   assert.equal(audit.getAuditTargetLabel(boxEntry), 'ATL-AAU-1.001');
 
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  assert.match(adminSource, /formatReadableUserIdentity\(entry\.user_identity\) \|\| t\('historicalUser'\)/);
+  assert.match(
+    adminSource,
+    /formatReadableUserIdentity\(entry\.user_identity\) \|\| t\('historicalUser'\)/,
+  );
   assert.doesNotMatch(adminSource, /\{entry\.user\}/);
 });
 
@@ -643,7 +947,11 @@ test('personal resource labels never expose an internal identifier', () => {
       type: 'account',
       identifier: 'internal_0123456789abcdef',
       label: 'untrusted-label',
-      account_identity: { first_name: 'Camille', last_name: 'Durand', email: '' },
+      account_identity: {
+        first_name: 'Camille',
+        last_name: 'Durand',
+        email: '',
+      },
     }),
     'Camille DURAND',
   );
@@ -676,15 +984,39 @@ test('personal resource labels never expose an internal identifier', () => {
 test('raw audit object ids are never rendered as history targets', () => {
   // Alerts, species and strains store a primary key in object_id.
   const opaqueTargets = [
-    { action: 'update', description: 'Alert resolved: Temperature too high', object_type: 'alert', object_id: '123' },
-    { action: 'creation', description: 'Species created: Aurelia aurita', object_type: 'species', object_id: '42' },
-    { action: 'creation', description: 'Strain created: AAU', object_type: 'strain', object_id: '7' },
-    { action: 'update', description: 'Unknown event', object_type: 'widget', object_id: 'opaque-target' },
+    {
+      action: 'update',
+      description: 'Alert resolved: Temperature too high',
+      object_type: 'alert',
+      object_id: '123',
+    },
+    {
+      action: 'creation',
+      description: 'Species created: Aurelia aurita',
+      object_type: 'species',
+      object_id: '42',
+    },
+    {
+      action: 'creation',
+      description: 'Strain created: AAU',
+      object_type: 'strain',
+      object_id: '7',
+    },
+    {
+      action: 'update',
+      description: 'Unknown event',
+      object_type: 'widget',
+      object_id: 'opaque-target',
+    },
   ];
   for (const entry of opaqueTargets) {
     assert.equal(audit.getAuditTargetLabel(entry), '');
     assert.equal(
-      audit.getPersonalResourceLabel({ type: entry.object_type, identifier: entry.object_id, label: entry.object_id }),
+      audit.getPersonalResourceLabel({
+        type: entry.object_type,
+        identifier: entry.object_id,
+        label: entry.object_id,
+      }),
       '',
     );
   }
@@ -697,18 +1029,32 @@ test('raw audit object ids are never rendered as history targets', () => {
   ];
   for (const target of safeTargets) {
     assert.equal(
-      audit.getAuditTargetLabel({ action: 'update', description: 'Event', ...target }),
+      audit.getAuditTargetLabel({
+        action: 'update',
+        description: 'Event',
+        ...target,
+      }),
       target.object_id,
     );
   }
 
   // Defence in depth: an opaque id is refused even for an allowlisted type.
   assert.equal(
-    audit.getAuditTargetLabel({ action: 'update', description: 'Box moved', object_type: 'box', object_id: '550e8400-e29b-41d4-a716-446655440000' }),
+    audit.getAuditTargetLabel({
+      action: 'update',
+      description: 'Box moved',
+      object_type: 'box',
+      object_id: '550e8400-e29b-41d4-a716-446655440000',
+    }),
     '',
   );
   assert.equal(
-    audit.getAuditTargetLabel({ action: 'update', description: 'Box moved', object_type: 'box', object_id: '12345' }),
+    audit.getAuditTargetLabel({
+      action: 'update',
+      description: 'Box moved',
+      object_type: 'box',
+      object_id: '12345',
+    }),
     '',
   );
 
@@ -724,38 +1070,64 @@ test('raw audit object ids are never rendered as history targets', () => {
     '',
   );
   assert.equal(
-    audit.getPersonalResourceLabel({ type: 'box_inventory_initialization', identifier: '3', label: '3' }),
+    audit.getPersonalResourceLabel({
+      type: 'box_inventory_initialization',
+      identifier: '3',
+      label: '3',
+    }),
     '',
   );
 
   const presentationSource = readSource('../src/utils/auditPresentation.ts');
-  const allowlistStart = presentationSource.indexOf('const READABLE_TARGET_OBJECT_TYPES');
+  const allowlistStart = presentationSource.indexOf(
+    'const READABLE_TARGET_OBJECT_TYPES',
+  );
   const allowlistSource = presentationSource.slice(
     allowlistStart,
     presentationSource.indexOf(']);', allowlistStart),
   );
   assert.equal(allowlistSource.includes('box_inventory_initialization'), false);
-  for (const readableType of ['box', 'measurements', 'organization', 'probe', 'thermal_zone']) {
+  for (const readableType of [
+    'box',
+    'measurements',
+    'organization',
+    'probe',
+    'thermal_zone',
+  ]) {
     assert.equal(allowlistSource.includes(`'${readableType}'`), true);
   }
 
   // The safe summary keeps its business message, so nothing useful is lost.
   assert.equal(
-    audit.getAuditDescriptionLabel({ action: 'update', description: 'Alert resolved: Temperature too high' }, tFr),
+    audit.getAuditDescriptionLabel(
+      { action: 'update', description: 'Alert resolved: Temperature too high' },
+      tFr,
+    ),
     'Alerte résolue : Temperature too high',
   );
   assert.equal(
-    audit.getAuditDescriptionLabel({ action: 'creation', description: 'Species created: Aurelia aurita' }, tFr).includes('Aurelia aurita'),
+    audit
+      .getAuditDescriptionLabel(
+        { action: 'creation', description: 'Species created: Aurelia aurita' },
+        tFr,
+      )
+      .includes('Aurelia aurita'),
     true,
   );
   assert.equal(
-    audit.getPersonalResourceLabel({ type: 'alert', identifier: '123', label: '123' }),
+    audit.getPersonalResourceLabel({
+      type: 'alert',
+      identifier: '123',
+      label: '123',
+    }),
     '',
   );
 
   // No component renders a placeholder target, and the box preview stays in use.
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   for (const source of [adminSource, profileSource]) {
     assert.doesNotMatch(source, /targetLabel \|\| '-'/);
     assert.match(source, /<BoxTrackingPreview/);
@@ -763,9 +1135,21 @@ test('raw audit object ids are never rendered as history targets', () => {
 });
 
 test('action and object type labels are translated', () => {
-  assert.equal(audit.getAuditActionLabel({ action: 'entry' }, tFr), 'Nouvelle donnée enregistrée');
-  assert.equal(audit.getAuditActionLabel({ action: 'update' }, tEn), 'Change saved');
-  assert.equal(audit.getAuditActionLabel({ action: 'unknown', action_label: 'Custom' }, tFr), 'Custom');
+  assert.equal(
+    audit.getAuditActionLabel({ action: 'entry' }, tFr),
+    'Nouvelle donnée enregistrée',
+  );
+  assert.equal(
+    audit.getAuditActionLabel({ action: 'update' }, tEn),
+    'Change saved',
+  );
+  assert.equal(
+    audit.getAuditActionLabel(
+      { action: 'unknown', action_label: 'Custom' },
+      tFr,
+    ),
+    'Custom',
+  );
   assert.equal(audit.getAuditObjectTypeLabel('account', tFr), 'Compte');
   assert.equal(audit.getAuditObjectTypeLabel('box', tEn), 'Box');
   assert.equal(audit.getAuditObjectTypeLabel('', tFr), '-');
@@ -788,8 +1172,17 @@ test('corrected measurement changes render inline without a duplicate disclosure
   assert.equal(details.changes, null);
   assert.equal(audit.hasAuditBusinessDetails({ type: 'unknown' }), false);
   assert.equal(audit.hasAuditBusinessDetails(undefined), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: {} }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: { polypes: 0 } }), false);
+  assert.equal(
+    audit.hasAuditBusinessDetails({ type: 'measurement', values: {} }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'measurement',
+      values: { polypes: 0 },
+    }),
+    false,
+  );
   assert.equal(
     audit.hasAuditBusinessDetails({
       type: 'measurement',
@@ -821,22 +1214,57 @@ test('recorded measurement date and inline values do not create a disclosure', (
 
 test('real normalized notes render without empty filler text', () => {
   assert.equal(
-    audit.getAuditBusinessNote({ type: 'measurement', values: { notes: '  Healthy culture  ' } }),
+    audit.getAuditBusinessNote({
+      type: 'measurement',
+      values: { notes: '  Healthy culture  ' },
+    }),
     'Healthy culture',
   );
-  assert.equal(audit.getAuditBusinessNote({ type: 'box_movement', note: '  Routine move  ' }), 'Routine move');
-  assert.equal(audit.getAuditBusinessNote({ type: 'box_status', stop_reason: '  End of culture  ' }), 'End of culture');
-  assert.equal(audit.getAuditBusinessNote({ type: 'measurement', values: { notes: '   ' } }), '');
-  assert.equal(audit.getAuditBusinessNote({ type: 'box_movement', note: '' }), '');
+  assert.equal(
+    audit.getAuditBusinessNote({
+      type: 'box_movement',
+      note: '  Routine move  ',
+    }),
+    'Routine move',
+  );
+  assert.equal(
+    audit.getAuditBusinessNote({
+      type: 'box_status',
+      stop_reason: '  End of culture  ',
+    }),
+    'End of culture',
+  );
+  assert.equal(
+    audit.getAuditBusinessNote({
+      type: 'measurement',
+      values: { notes: '   ' },
+    }),
+    '',
+  );
+  assert.equal(
+    audit.getAuditBusinessNote({ type: 'box_movement', note: '' }),
+    '',
+  );
 
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  assert.match(timelineSource, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.match(
+    timelineSource,
+    /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/,
+  );
   assert.doesNotMatch(timelineSource, /title=\{note\}/);
   assert.match(timelineSource, /\{label\} \{note\}/);
-  assert.match(profileSource, /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/);
-  assert.match(adminSource, /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/);
+  assert.match(
+    profileSource,
+    /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/,
+  );
+  assert.match(
+    adminSource,
+    /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/,
+  );
 });
 
 test('a first location assignment is presented in the direct summary', () => {
@@ -846,11 +1274,16 @@ test('a first location assignment is presented in the direct summary', () => {
   );
   assert.equal(JSON.stringify(items), JSON.stringify([]));
   assert.equal(
-    JSON.stringify(audit.getAuditBoxSummaryParts({
-      action: 'update',
-      description: '',
-      business_details: { type: 'box_movement', to_zone: 'Nursery B' },
-    }, tFr)),
+    JSON.stringify(
+      audit.getAuditBoxSummaryParts(
+        {
+          action: 'update',
+          description: '',
+          business_details: { type: 'box_movement', to_zone: 'Nursery B' },
+        },
+        tFr,
+      ),
+    ),
     JSON.stringify(['', ' déplacée vers Nursery B']),
   );
 });
@@ -869,7 +1302,10 @@ test('salinity rendering preserves zero, hides null, and never duplicates PSU', 
     tFr,
   );
   const correction = audit.getAuditInlineBusinessItems(
-    { type: 'measurement', changes: { salinite_psu: { before: null, after: '0 PSU' } } },
+    {
+      type: 'measurement',
+      changes: { salinite_psu: { before: null, after: '0 PSU' } },
+    },
     tFr,
   );
 
@@ -880,40 +1316,74 @@ test('salinity rendering preserves zero, hides null, and never duplicates PSU', 
   assert.equal(JSON.stringify(missing), JSON.stringify([]));
   assert.equal(correction[0].before, '-');
   assert.equal(correction[0].after, '0');
-  assert.equal(JSON.stringify([...normal, ...zero, ...correction]).includes('- PSU'), false);
+  assert.equal(
+    JSON.stringify([...normal, ...zero, ...correction]).includes('- PSU'),
+    false,
+  );
 });
 
 test('movement history shows only a stored previous zone below its title', () => {
   const movement = {
     action: 'update',
     description: 'Box moved to Zone 5.0°C',
-    business_details: { type: 'box_movement', from_zone: 'Zone 15.0°C', to_zone: 'Zone 5.0°C' },
+    business_details: {
+      type: 'box_movement',
+      from_zone: 'Zone 15.0°C',
+      to_zone: 'Zone 5.0°C',
+    },
   };
-  const boxReference = { id: 1, global_code: 'CMA-JAP-1.001', species_scientific_name: 'Aurelia' };
+  const boxReference = {
+    id: 1,
+    global_code: 'CMA-JAP-1.001',
+    species_scientific_name: 'Aurelia',
+  };
   const html = renderBusinessRow(movement, tFr, boxReference);
   const text = html.replace(/<[^>]*>/g, '');
   assert.match(text, /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
   assert.match(text, /Anciennement : Zone 15\.0°C/);
-  assert.equal(audit.getAuditInlineBusinessItems(movement.business_details, tFr).length, 0);
+  assert.equal(
+    audit.getAuditInlineBusinessItems(movement.business_details, tFr).length,
+    0,
+  );
   assert.equal((html.match(/Zone 15\.0°C/g) ?? []).length, 1);
-  assert.match(renderBusinessRow(movement, tEn, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 moved to Zone 5\.0°C/);
+  assert.match(
+    renderBusinessRow(movement, tEn, boxReference).replace(/<[^>]*>/g, ''),
+    /CMA-JAP-1\.001 moved to Zone 5\.0°C/,
+  );
 
-  const initial = { ...movement, business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' } };
-  assert.match(renderBusinessRow(initial, tFr, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
+  const initial = {
+    ...movement,
+    business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' },
+  };
+  assert.match(
+    renderBusinessRow(initial, tFr, boxReference).replace(/<[^>]*>/g, ''),
+    /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/,
+  );
   assert.doesNotMatch(renderBusinessRow(initial), /Anciennement/);
 
-  const legacy = { ...movement, business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' } };
-  assert.match(renderBusinessRow(legacy, tFr, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
+  const legacy = {
+    ...movement,
+    business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' },
+  };
+  assert.match(
+    renderBusinessRow(legacy, tFr, boxReference).replace(/<[^>]*>/g, ''),
+    /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/,
+  );
   assert.doesNotMatch(renderBusinessRow(legacy), /Anciennement|Previously/);
 
   const producer = readSource('../../backend/apps/audit/services.py');
-  assert.match(producer, /from_zone=_safe_string\(metadata\.get\("from_thermal_zone_name"\), allow_empty=True\)/);
+  assert.match(
+    producer,
+    /from_zone=_safe_string\(metadata\.get\("from_thermal_zone_name"\), allow_empty=True\)/,
+  );
 });
 
 test('long notes stay complete in markup while the shared timeline preview is clamped', () => {
   const notes = [
     'a'.repeat(5000),
-    'This is a longer note with ordinary prose, several clauses, and enough text to continue past three lines in the action history. '.repeat(12),
+    'This is a longer note with ordinary prose, several clauses, and enough text to continue past three lines in the action history. '.repeat(
+      12,
+    ),
   ];
   for (const note of notes) {
     const entry = {
@@ -927,64 +1397,124 @@ test('long notes stay complete in markup while the shared timeline preview is cl
     assert.match(html, /class="audit-business-note" aria-label="Note : [^"]+"/);
     assert.ok(html.includes(note.trim()));
     assert.doesNotMatch(html, /title=/);
-    assert.equal(audit.getAuditBusinessNote(entry.business_details), note.trim());
-    assert.equal((html.match(/a/g) ?? []).length >= note.match(/a/g).length, true);
+    assert.equal(
+      audit.getAuditBusinessNote(entry.business_details),
+      note.trim(),
+    );
+    assert.equal(
+      (html.match(/a/g) ?? []).length >= note.match(/a/g).length,
+      true,
+    );
   }
 
   const noteCss = readSource('../src/styles/components/audit-timeline.css');
   const popoverCss = readSource('../src/styles/components/popovers.css');
   const adminCss = readSource('../src/styles/pages/administration.css');
   const profileCss = readSource('../src/styles/pages/profile.css');
-  assert.match(noteCss, /\.audit-business-note\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*overflow-wrap:\s*anywhere;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*3;/s);
+  assert.match(
+    noteCss,
+    /\.audit-business-note\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*overflow-wrap:\s*anywhere;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*3;/s,
+  );
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
-  assert.match(timelineSource, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.match(
+    timelineSource,
+    /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/,
+  );
   assert.doesNotMatch(timelineSource, /title=\{note\}/);
-  assert.match(popoverCss, /\.audit-linked-actions-list li\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(
+    popoverCss,
+    /\.audit-linked-actions-list li\s*\{[^}]*min-width:\s*0;/s,
+  );
   assert.match(adminCss, /\.admin-audit-main\s*\{[^}]*min-width:\s*0;/s);
   assert.match(profileCss, /\.profile-action-main\s*\{[^}]*min-width:\s*0;/s);
 });
 
 test('salinity summaries and immutable values are readable in both timelines', () => {
   for (const [t, recorded, updated] of [
-    [tFr, 'Salinité manuelle de Zone 15.0°C enregistrée', 'Salinité manuelle de Zone 15.0°C corrigée'],
-    [tEn, 'Manual salinity for Zone 15.0°C saved', 'Manual salinity for Zone 15.0°C corrected'],
+    [
+      tFr,
+      'Salinité manuelle de Zone 15.0°C enregistrée',
+      'Salinité manuelle de Zone 15.0°C corrigée',
+    ],
+    [
+      tEn,
+      'Manual salinity for Zone 15.0°C saved',
+      'Manual salinity for Zone 15.0°C corrected',
+    ],
   ]) {
     for (const [action, description, expected] of [
       ['creation', 'Manual salinity recorded: Zone 15.0°C', recorded],
       ['update', 'Manual salinity updated: Zone 15.0°C', updated],
     ]) {
-      assert.equal(audit.getAuditBusinessSummary({ action, description }, t), expected);
+      assert.equal(
+        audit.getAuditBusinessSummary({ action, description }, t),
+        expected,
+      );
     }
   }
-  const recorded = audit.getAuditInlineBusinessItems({
-    type: 'environment', values: { date: '2026-09-15', salinite_psu: '0.00', note: 'Stable' },
-  }, tFr);
-  const updated = audit.getAuditInlineBusinessItems({
-    type: 'environment',
-    values: { date: '2026-09-15', salinite_psu: '35.00' },
-    changes: { salinite_psu: { before: '0.00', after: '35.00' } },
-  }, tFr);
+  const recorded = audit.getAuditInlineBusinessItems(
+    {
+      type: 'environment',
+      values: { date: '2026-09-15', salinite_psu: '0.00', note: 'Stable' },
+    },
+    tFr,
+  );
+  const updated = audit.getAuditInlineBusinessItems(
+    {
+      type: 'environment',
+      values: { date: '2026-09-15', salinite_psu: '35.00' },
+      changes: { salinite_psu: { before: '0.00', after: '35.00' } },
+    },
+    tFr,
+  );
   assert.equal(recorded.find(({ key }) => key === 'date')?.value, '15/09/2026');
-  assert.equal(recorded.find(({ key }) => key === 'salinite_psu')?.value, '0.00');
-  assert.equal(updated.find(({ key }) => key === 'salinite_psu')?.before, '0.00');
-  assert.equal(updated.find(({ key }) => key === 'salinite_psu')?.after, '35.00');
+  assert.equal(
+    recorded.find(({ key }) => key === 'salinite_psu')?.value,
+    '0.00',
+  );
+  assert.equal(
+    updated.find(({ key }) => key === 'salinite_psu')?.before,
+    '0.00',
+  );
+  assert.equal(
+    updated.find(({ key }) => key === 'salinite_psu')?.after,
+    '35.00',
+  );
   assert.equal(updated.find(({ key }) => key === 'date')?.value, '15/09/2026');
   assert.equal(updated.filter(({ key }) => key === 'salinite_psu').length, 1);
-  assert.equal(audit.getAuditInlineBusinessItems({
-    type: 'environment', values: { salinite_psu: 0 },
-  }, tFr)[0].value, '0');
+  assert.equal(
+    audit.getAuditInlineBusinessItems(
+      {
+        type: 'environment',
+        values: { salinite_psu: 0 },
+      },
+      tFr,
+    )[0].value,
+    '0',
+  );
 
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
   for (const source of [adminSource, profileSource]) {
     assert.match(source, /<AuditPrimarySummary\b/);
     assert.match(source, /<AuditInlineBusinessSummary\b/);
-    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|expandedEntryId|isExpanded/);
+    assert.doesNotMatch(
+      source,
+      /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|expandedEntryId|isExpanded/,
+    );
   }
   assert.match(timelineSource, /getAuditBusinessSummary\(entry, t\)/);
-  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t, description, entry\)/);
-  assert.doesNotMatch(timelineSource, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/);
+  assert.match(
+    timelineSource,
+    /getAuditInlineBusinessItems\(details, t, description, entry\)/,
+  );
+  assert.doesNotMatch(
+    timelineSource,
+    /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/,
+  );
   assert.match(adminSource, /<AuditLinkedActionsPopover\b/);
 });
 
@@ -993,37 +1523,109 @@ test('manual environment rows keep the target in the title and use compact value
     [tFr, 'Température manuelle de Zone 15.0°C enregistrée'],
     [tEn, 'Manual temperature for Zone 15.0°C recorded'],
   ]) {
-    const entry = { action: 'update', object_type: 'thermal_zone', object_id: 'Zone 15.0°C',
+    const entry = {
+      action: 'update',
+      object_type: 'thermal_zone',
+      object_id: 'Zone 15.0°C',
       description: 'Manual temperature recorded: Zone 15.0°C',
-      business_details: { type: 'environment', values: { date: '2026-09-15', temperature_c: '15.00' } } };
+      business_details: {
+        type: 'environment',
+        values: { date: '2026-09-15', temperature_c: '15.00' },
+      },
+    };
     assert.equal(audit.getAuditBusinessSummary(entry, t), title);
     assert.equal(audit.hasAuditManualEnvironmentTarget(entry), true);
-    const items = audit.getAuditInlineBusinessItems(entry.business_details, t, entry.description);
-    assert.equal(JSON.stringify(Array.from(items, ({ value, unit, showLabel }) => [value, unit, showLabel])),
-      JSON.stringify([['15.00', '°C', false]]));
+    const items = audit.getAuditInlineBusinessItems(
+      entry.business_details,
+      t,
+      entry.description,
+    );
+    assert.equal(
+      JSON.stringify(
+        Array.from(items, ({ value, unit, showLabel }) => [
+          value,
+          unit,
+          showLabel,
+        ]),
+      ),
+      JSON.stringify([['15.00', '°C', false]]),
+    );
   }
-  const recorded = { type: 'environment', values: { date: '2026-09-15', salinite_psu: '33.00', note: 'test' } };
-  const corrected = { type: 'environment', values: { date: '2026-09-15', salinite_psu: '33.90', note: 'test' },
-    changes: { salinite_psu: { before: '33.00', after: '33.90' } } };
-  assert.equal(JSON.stringify(Array.from(audit.getAuditInlineBusinessItems(recorded, tFr,
-    'Manual salinity recorded: Zone 15.0°C'), ({ value, unit, showLabel }) => [value, unit, showLabel])),
-  JSON.stringify([['33.00', 'PSU', false]]));
-  assert.equal(JSON.stringify(Array.from(audit.getAuditInlineBusinessItems(corrected, tFr,
-    'Manual salinity updated: Zone 15.0°C'), ({ before, after, unit, showLabel }) => [before, after, unit, showLabel])),
-  JSON.stringify([['33.00', '33.90', 'PSU', false]]));
+  const recorded = {
+    type: 'environment',
+    values: { date: '2026-09-15', salinite_psu: '33.00', note: 'test' },
+  };
+  const corrected = {
+    type: 'environment',
+    values: { date: '2026-09-15', salinite_psu: '33.90', note: 'test' },
+    changes: { salinite_psu: { before: '33.00', after: '33.90' } },
+  };
+  assert.equal(
+    JSON.stringify(
+      Array.from(
+        audit.getAuditInlineBusinessItems(
+          recorded,
+          tFr,
+          'Manual salinity recorded: Zone 15.0°C',
+        ),
+        ({ value, unit, showLabel }) => [value, unit, showLabel],
+      ),
+    ),
+    JSON.stringify([['33.00', 'PSU', false]]),
+  );
+  assert.equal(
+    JSON.stringify(
+      Array.from(
+        audit.getAuditInlineBusinessItems(
+          corrected,
+          tFr,
+          'Manual salinity updated: Zone 15.0°C',
+        ),
+        ({ before, after, unit, showLabel }) => [
+          before,
+          after,
+          unit,
+          showLabel,
+        ],
+      ),
+    ),
+    JSON.stringify([['33.00', '33.90', 'PSU', false]]),
+  );
   assert.equal(audit.getAuditBusinessNote(corrected), 'test');
-  assert.equal(audit.hasAuditManualEnvironmentTarget({ description: 'Manual salinity recorded: ' }), false);
+  assert.equal(
+    audit.hasAuditManualEnvironmentTarget({
+      description: 'Manual salinity recorded: ',
+    }),
+    false,
+  );
 });
 
 test('manual environment descriptions without a zone stay translated in FR and EN', () => {
   const cases = [
-    ['Manual salinity recorded', 'Salinité manuelle enregistrée', 'Manual salinity recorded'],
-    ['Manual salinity updated', 'Salinité manuelle corrigée', 'Manual salinity corrected'],
-    ['Manual temperature recorded', 'Température manuelle enregistrée', 'Manual temperature recorded'],
+    [
+      'Manual salinity recorded',
+      'Salinité manuelle enregistrée',
+      'Manual salinity recorded',
+    ],
+    [
+      'Manual salinity updated',
+      'Salinité manuelle corrigée',
+      'Manual salinity corrected',
+    ],
+    [
+      'Manual temperature recorded',
+      'Température manuelle enregistrée',
+      'Manual temperature recorded',
+    ],
   ];
   for (const [description, frTitle, enTitle] of cases) {
     for (const suffix of ['', ':', ': ', ':    ']) {
-      const entry = { action: 'update', description: `${description}${suffix}`, object_type: 'thermal_zone', object_id: '' };
+      const entry = {
+        action: 'update',
+        description: `${description}${suffix}`,
+        object_type: 'thermal_zone',
+        object_id: '',
+      };
       assert.equal(audit.getAuditBusinessSummary(entry, tFr), frTitle);
       assert.equal(audit.getAuditBusinessSummary(entry, tEn), enTitle);
       assert.equal(audit.getAuditDescriptionLabel(entry, tFr), frTitle);
@@ -1032,26 +1634,53 @@ test('manual environment descriptions without a zone stay translated in FR and E
       assert.doesNotMatch(frTitle, /\bde\s*(?:enregistrée|corrigée)|:|Manual /);
       const html = renderBusinessRow({ ...entry, business_details: null });
       assert.match(html, new RegExp(frTitle));
-      assert.doesNotMatch(html, /Manual |de\s*(?:enregistrée|corrigée)|audit-target/);
+      assert.doesNotMatch(
+        html,
+        /Manual |de\s*(?:enregistrée|corrigée)|audit-target/,
+      );
     }
   }
 });
 
 test('complete deltas retain zero and use shared accessible old/new markup', () => {
   for (const details of [
-    { type: 'environment', changes: { salinite_psu: { before: 0, after: '33.90' } } },
-    { type: 'account', changes: { role: { before: 'viewer', after: 'admin' },
-      acces_actif: { before: false, after: true }, is_responsable: { before: false, after: true } } },
+    {
+      type: 'environment',
+      changes: { salinite_psu: { before: 0, after: '33.90' } },
+    },
+    {
+      type: 'account',
+      changes: {
+        role: { before: 'viewer', after: 'admin' },
+        acces_actif: { before: false, after: true },
+        is_responsable: { before: false, after: true },
+      },
+    },
   ]) {
-    const items = audit.getAuditInlineBusinessItems(details, tFr, 'Member access updated');
-    assert.ok(items.every(({ before, after }) => before !== undefined && after !== undefined));
+    const items = audit.getAuditInlineBusinessItems(
+      details,
+      tFr,
+      'Member access updated',
+    );
+    assert.ok(
+      items.every(
+        ({ before, after }) => before !== undefined && after !== undefined,
+      ),
+    );
     if (details.type === 'environment') {
       assert.equal(items[0].before, '0');
       assert.equal(items[0].after, '33.90');
     } else {
-      assert.equal(JSON.stringify(Array.from(items, ({ key, before, after }) => [key, before, after])),
-        JSON.stringify([['role', 'Lecteur', 'Administrateur'], ['acces_actif', 'Non', 'Oui'],
-          ['is_responsable', 'Non', 'Oui']]));
+      assert.equal(
+        JSON.stringify(
+          Array.from(items, ({ key, before, after }) => [key, before, after]),
+        ),
+        JSON.stringify([
+          ['role', 'Lecteur', 'Administrateur'],
+          ['acces_actif', 'Non', 'Oui'],
+          ['is_responsable', 'Non', 'Oui'],
+        ]),
+      );
     }
   }
   const source = readSource('../src/components/AuditTimeline.tsx');
@@ -1062,50 +1691,124 @@ test('complete deltas retain zero and use shared accessible old/new markup', () 
   assert.match(source, /t\('auditPrevious'\)/);
   assert.match(source, /t\('auditNew'\)/);
   assert.match(source, /!item.isDelta/);
-  assert.match(source, /<span className="audit-inline-value">\{item.value\}<\/span>/);
-  assert.match(source, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.match(
+    source,
+    /<span className="audit-inline-value">\{item.value\}<\/span>/,
+  );
+  assert.match(
+    source,
+    /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/,
+  );
   assert.doesNotMatch(source, /title=\{note\}/);
   assert.match(source, /\{label\} \{note\}/);
-  assert.match(css, /\.audit-inline-value-old \{ color: var\(--color-danger-hover\)/);
-  assert.match(css, /\.audit-inline-value-new \{ color: var\(--color-success\)/);
+  assert.match(
+    css,
+    /\.audit-inline-value-old \{ color: var\(--color-danger-hover\)/,
+  );
+  assert.match(
+    css,
+    /\.audit-inline-value-new \{ color: var\(--color-success\)/,
+  );
   assert.equal(tFr('auditBusinessNoteLabel'), 'Note :');
   assert.equal(tEn('auditBusinessNoteLabel'), 'Note:');
 });
 
 test('rendered manual readings and corrections keep units, delta order, and notes separate', () => {
-  const recorded = renderBusinessRow({ action: 'creation', description: 'Manual salinity recorded: Zone 15.0°C',
-    business_details: { type: 'environment', values: { salinite_psu: '33.00', note: 'test' } } });
+  const recorded = renderBusinessRow({
+    action: 'creation',
+    description: 'Manual salinity recorded: Zone 15.0°C',
+    business_details: {
+      type: 'environment',
+      values: { salinite_psu: '33.00', note: 'test' },
+    },
+  });
   assert.match(recorded, /Salinité manuelle de Zone 15.0°C enregistrée/);
-  assert.match(recorded, /class="audit-inline-value">33.00<\/span><span class="audit-inline-unit">PSU<\/span>/);
-  assert.doesNotMatch(recorded, /audit-inline-value-(?:old|new)|audit-change-arrow/);
-  assert.match(recorded, /<p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/);
-    assert.doesNotMatch(recorded, /title=/);
+  assert.match(
+    recorded,
+    /class="audit-inline-value">33.00<\/span><span class="audit-inline-unit">PSU<\/span>/,
+  );
+  assert.doesNotMatch(
+    recorded,
+    /audit-inline-value-(?:old|new)|audit-change-arrow/,
+  );
+  assert.match(
+    recorded,
+    /<p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/,
+  );
+  assert.doesNotMatch(recorded, /title=/);
 
-  const corrected = renderBusinessRow({ action: 'update', description: 'Manual salinity updated: Zone 15.0°C',
-    business_details: { type: 'environment', changes: { salinite_psu: { before: '33.00', after: '33.90' } },
-      values: { salinite_psu: '33.90', note: 'test' } } });
+  const corrected = renderBusinessRow({
+    action: 'update',
+    description: 'Manual salinity updated: Zone 15.0°C',
+    business_details: {
+      type: 'environment',
+      changes: { salinite_psu: { before: '33.00', after: '33.90' } },
+      values: { salinite_psu: '33.90', note: 'test' },
+    },
+  });
   assert.match(corrected, /Salinité manuelle de Zone 15.0°C corrigée/);
-  assert.match(corrected, /class="sr-only">Avant: <\/span><span class="audit-inline-value audit-inline-value-old">33.00<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value audit-inline-value-new">33.90<\/span><span class="audit-inline-unit">PSU<\/span>/);
-  assert.match(corrected, /<\/p><p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/);
-    assert.doesNotMatch(corrected, /title=/);
+  assert.match(
+    corrected,
+    /class="sr-only">Avant: <\/span><span class="audit-inline-value audit-inline-value-old">33.00<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value audit-inline-value-new">33.90<\/span><span class="audit-inline-unit">PSU<\/span>/,
+  );
+  assert.match(
+    corrected,
+    /<\/p><p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/,
+  );
+  assert.doesNotMatch(corrected, /title=/);
   assert.equal((corrected.match(/33.90/g) ?? []).length, 1);
 
-  const temperature = renderBusinessRow({ action: 'update', description: 'Manual temperature recorded: Zone 15.0°C',
-    business_details: { type: 'environment', values: { temperature_c: '15.00' } } });
+  const temperature = renderBusinessRow({
+    action: 'update',
+    description: 'Manual temperature recorded: Zone 15.0°C',
+    business_details: {
+      type: 'environment',
+      values: { temperature_c: '15.00' },
+    },
+  });
   assert.match(temperature, /Température manuelle de Zone 15.0°C enregistrée/);
-  assert.match(temperature, /class="audit-inline-value">15.00<\/span><span class="audit-inline-unit">°C<\/span>/);
-  assert.doesNotMatch(temperature, /audit-inline-value-(?:old|new)|audit-change-arrow/);
+  assert.match(
+    temperature,
+    /class="audit-inline-value">15.00<\/span><span class="audit-inline-unit">°C<\/span>/,
+  );
+  assert.doesNotMatch(
+    temperature,
+    /audit-inline-value-(?:old|new)|audit-change-arrow/,
+  );
 });
 
 test('rendered before/after pairs color both sides even when either value is zero', () => {
-  for (const [before, after] of [[0, 33], [33, 0]]) {
-    const html = renderBusinessRow({ action: 'update', description: 'Manual salinity updated: Zone 15.0°C',
-      business_details: { type: 'environment', changes: { salinite_psu: { before, after } } } });
-    assert.match(html, new RegExp(`audit-inline-value-old">${before}<\\/span>.*audit-change-arrow.*→.*audit-inline-value-new">${after}<\\/span>`));
+  for (const [before, after] of [
+    [0, 33],
+    [33, 0],
+  ]) {
+    const html = renderBusinessRow({
+      action: 'update',
+      description: 'Manual salinity updated: Zone 15.0°C',
+      business_details: {
+        type: 'environment',
+        changes: { salinite_psu: { before, after } },
+      },
+    });
+    assert.match(
+      html,
+      new RegExp(
+        `audit-inline-value-old">${before}<\\/span>.*audit-change-arrow.*→.*audit-inline-value-new">${after}<\\/span>`,
+      ),
+    );
   }
-  const html = renderBusinessRow({ action: 'update', description: 'Member access updated',
-    business_details: { type: 'account', changes: { role: { before: 'viewer', after: 'admin' },
-      acces_actif: { before: false, after: true }, is_responsable: { before: false, after: true } } } });
+  const html = renderBusinessRow({
+    action: 'update',
+    description: 'Member access updated',
+    business_details: {
+      type: 'account',
+      changes: {
+        role: { before: 'viewer', after: 'admin' },
+        acces_actif: { before: false, after: true },
+        is_responsable: { before: false, after: true },
+      },
+    },
+  });
   assert.equal((html.match(/audit-inline-value-old/g) ?? []).length, 3);
   assert.equal((html.match(/audit-inline-value-new/g) ?? []).length, 3);
   assert.equal((html.match(/class="audit-change-arrow"/g) ?? []).length, 3);
@@ -1114,92 +1817,301 @@ test('rendered before/after pairs color both sides even when either value is zer
 });
 
 test('identical before and after values remain readable but neutral', () => {
-  for (const [before, after] of [['33.00', '33.00'], [0, 0], [false, false]]) {
-    const details = typeof before === 'boolean'
-      ? { type: 'account', changes: { is_responsable: { before, after } } }
-      : { type: 'environment', changes: { salinite_psu: { before, after } } };
-    const description = typeof before === 'boolean' ? 'Member access updated' : 'Manual salinity updated: Zone 15.0°C';
-    const item = audit.getAuditInlineBusinessItems(details, tFr, description)[0];
+  for (const [before, after] of [
+    ['33.00', '33.00'],
+    [0, 0],
+    [false, false],
+  ]) {
+    const details =
+      typeof before === 'boolean'
+        ? { type: 'account', changes: { is_responsable: { before, after } } }
+        : { type: 'environment', changes: { salinite_psu: { before, after } } };
+    const description =
+      typeof before === 'boolean'
+        ? 'Member access updated'
+        : 'Manual salinity updated: Zone 15.0°C';
+    const item = audit.getAuditInlineBusinessItems(
+      details,
+      tFr,
+      description,
+    )[0];
     assert.equal(item.isDelta, false);
-    const html = renderBusinessRow({ action: 'update', description, business_details: details });
+    const html = renderBusinessRow({
+      action: 'update',
+      description,
+      business_details: details,
+    });
     assert.equal((html.match(/class="audit-inline-value"/g) ?? []).length, 2);
-    assert.match(html, /class="sr-only">Avant: <\/span><span class="audit-inline-value">[^<]+<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value">[^<]+<\/span>/);
+    assert.match(
+      html,
+      /class="sr-only">Avant: <\/span><span class="audit-inline-value">[^<]+<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value">[^<]+<\/span>/,
+    );
     assert.doesNotMatch(html, /audit-inline-value-(?:old|new)/);
   }
-  const distinctUnderlyingValues = { type: 'account', changes: { is_responsable: { before: false, after: 'Non' } } };
-  assert.equal(audit.getAuditInlineBusinessItems(distinctUnderlyingValues, tFr, 'Member access updated')[0].isDelta, true);
-  const missing = { type: 'environment', changes: { salinite_psu: { before: null, after: '' } } };
-  assert.equal(audit.getAuditInlineBusinessItems(missing, tFr)[0].isDelta, false);
+  const distinctUnderlyingValues = {
+    type: 'account',
+    changes: { is_responsable: { before: false, after: 'Non' } },
+  };
+  assert.equal(
+    audit.getAuditInlineBusinessItems(
+      distinctUnderlyingValues,
+      tFr,
+      'Member access updated',
+    )[0].isDelta,
+    true,
+  );
+  const missing = {
+    type: 'environment',
+    changes: { salinite_psu: { before: null, after: '' } },
+  };
+  assert.equal(
+    audit.getAuditInlineBusinessItems(missing, tFr)[0].isDelta,
+    false,
+  );
 });
 
 test('account changes and export counts remain visible without expansion', () => {
-  const account = audit.getAuditInlineBusinessItems({
-    type: 'account',
-    values: { nom: 'Alice', role: 'admin', acces_actif: true },
-    changes: { acces_actif: { before: false, after: true } },
-  }, tFr, 'Member access updated');
+  const account = audit.getAuditInlineBusinessItems(
+    {
+      type: 'account',
+      values: { nom: 'Alice', role: 'admin', acces_actif: true },
+      changes: { acces_actif: { before: false, after: true } },
+    },
+    tFr,
+    'Member access updated',
+  );
   assert.equal(account.length, 0); // The single activation has its own semantic title.
-  assert.equal(account.some(({ key }) => key === 'nom'), false);
-  assert.equal(audit.getAuditInlineBusinessItems({ type: 'export', box_count: 0 }, tFr)[0].value, '0');
+  assert.equal(
+    account.some(({ key }) => key === 'nom'),
+    false,
+  );
+  assert.equal(
+    audit.getAuditInlineBusinessItems({ type: 'export', box_count: 0 }, tFr)[0]
+      .value,
+    '0',
+  );
 });
 
 test('account creation uses current structured identity and the recorded role', () => {
-  const entry = { action: 'creation', description: 'Member access created', object_type: 'account',
-    object_id: 'internal_123', account_identity: { first_name: 'Sophie', last_name: 'Lèbre', email: 'sophie@example.org' }, business_details: { type: 'account',
-      values: { nom: 'Sophie LÈBRE', email: 'sophie@example.org', role: 'admin', acces_actif: true, is_responsable: false } } };
-  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur créé');
-  assert.equal(audit.getAuditTargetLabel(entry, tFr), 'Sophie LÈBRE <sophie@example.org> rôle : Administrateur');
-  assert.equal(audit.getAuditTargetLabel(entry, tEn), 'Sophie LÈBRE <sophie@example.org> role: Administrator');
-  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr).length, 0);
-  assert.equal(audit.getAuditTargetLabel({ ...entry, business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } } }, tFr), 'Sophie LÈBRE <sophie@example.org>');
+  const entry = {
+    action: 'creation',
+    description: 'Member access created',
+    object_type: 'account',
+    object_id: 'internal_123',
+    account_identity: {
+      first_name: 'Sophie',
+      last_name: 'Lèbre',
+      email: 'sophie@example.org',
+    },
+    business_details: {
+      type: 'account',
+      values: {
+        nom: 'Sophie LÈBRE',
+        email: 'sophie@example.org',
+        role: 'admin',
+        acces_actif: true,
+        is_responsable: false,
+      },
+    },
+  };
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tFr),
+    'Accès utilisateur créé',
+  );
+  assert.equal(
+    audit.getAuditTargetLabel(entry, tFr),
+    'Sophie LÈBRE <sophie@example.org> rôle : Administrateur',
+  );
+  assert.equal(
+    audit.getAuditTargetLabel(entry, tEn),
+    'Sophie LÈBRE <sophie@example.org> role: Administrator',
+  );
+  assert.equal(
+    audit.getAuditInlineBusinessItems(entry.business_details, tFr).length,
+    0,
+  );
+  assert.equal(
+    audit.getAuditTargetLabel(
+      {
+        ...entry,
+        business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } },
+      },
+      tFr,
+    ),
+    'Sophie LÈBRE <sophie@example.org>',
+  );
 });
 
 test('account transitions have factual titles without redundant fields', () => {
   const cases = [
-    ['Institution Responsable granted by platform', 'is_responsable', false, true, 'Statut Responsable accordé par la plateforme'],
-    ['Institution Responsable revoked by platform', 'is_responsable', true, false, 'Statut Responsable retiré par la plateforme'],
-    ['Member access updated', 'acces_actif', true, false, 'Compte utilisateur désactivé'],
-    ['Member access updated', 'acces_actif', false, true, 'Compte utilisateur réactivé'],
-    ['Member access updated', 'role', 'viewer', 'lab_technician', 'Rôle utilisateur modifié en Technicien'],
+    [
+      'Institution Responsable granted by platform',
+      'is_responsable',
+      false,
+      true,
+      'Statut Responsable accordé par la plateforme',
+    ],
+    [
+      'Institution Responsable revoked by platform',
+      'is_responsable',
+      true,
+      false,
+      'Statut Responsable retiré par la plateforme',
+    ],
+    [
+      'Member access updated',
+      'acces_actif',
+      true,
+      false,
+      'Compte utilisateur désactivé',
+    ],
+    [
+      'Member access updated',
+      'acces_actif',
+      false,
+      true,
+      'Compte utilisateur réactivé',
+    ],
+    [
+      'Member access updated',
+      'role',
+      'viewer',
+      'lab_technician',
+      'Rôle utilisateur modifié en Technicien',
+    ],
   ];
   for (const [description, key, before, after, title] of cases) {
-    const entry = { action: 'update', description, business_details: { type: 'account',
-      values: { nom: 'Ayoub AKKOUH', role: 'lab_technician', acces_actif: true, is_responsable: false },
-      changes: { [key]: { before, after } } } };
+    const entry = {
+      action: 'update',
+      description,
+      business_details: {
+        type: 'account',
+        values: {
+          nom: 'Ayoub AKKOUH',
+          role: 'lab_technician',
+          acces_actif: true,
+          is_responsable: false,
+        },
+        changes: { [key]: { before, after } },
+      },
+    };
     assert.equal(audit.getAuditBusinessSummary(entry, tFr), title);
-    assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, description).length, 0);
-    assert.equal(audit.getAuditBusinessSummary(entry, tEn).includes('Member access updated'), false);
+    assert.equal(
+      audit.getAuditInlineBusinessItems(
+        entry.business_details,
+        tFr,
+        description,
+      ).length,
+      0,
+    );
+    assert.equal(
+      audit
+        .getAuditBusinessSummary(entry, tEn)
+        .includes('Member access updated'),
+      false,
+    );
   }
 });
 
 test('multi-field account changes remain compact and do not invent a role hierarchy', () => {
-  const entry = { action: 'update', description: 'Member access updated', business_details: { type: 'account',
-    values: { nom: 'Ayoub AKKOUH', role: 'lab_technician', acces_actif: false },
-    changes: { role: { before: 'viewer', after: 'lab_technician' }, acces_actif: { before: true, after: false } } } };
-  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur modifié');
-  assert.deepEqual(Array.from(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description),
-    ({ label, before, after, value }) => [label, before, after, value]),
-  [['Rôle', 'Lecteur', 'Technicien', undefined], ['Compte', 'Oui', 'Non', undefined]]);
-  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description).some(({ label }) => label.includes('Avant:')), false);
+  const entry = {
+    action: 'update',
+    description: 'Member access updated',
+    business_details: {
+      type: 'account',
+      values: {
+        nom: 'Ayoub AKKOUH',
+        role: 'lab_technician',
+        acces_actif: false,
+      },
+      changes: {
+        role: { before: 'viewer', after: 'lab_technician' },
+        acces_actif: { before: true, after: false },
+      },
+    },
+  };
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tFr),
+    'Accès utilisateur modifié',
+  );
+  assert.deepEqual(
+    Array.from(
+      audit.getAuditInlineBusinessItems(
+        entry.business_details,
+        tFr,
+        entry.description,
+      ),
+      ({ label, before, after, value }) => [label, before, after, value],
+    ),
+    [
+      ['Rôle', 'Lecteur', 'Technicien', undefined],
+      ['Compte', 'Oui', 'Non', undefined],
+    ],
+  );
+  assert.equal(
+    audit
+      .getAuditInlineBusinessItems(
+        entry.business_details,
+        tFr,
+        entry.description,
+      )
+      .some(({ label }) => label.includes('Avant:')),
+    false,
+  );
 });
 
 test('unknown Responsable provenance stays generic and shows the actual change', () => {
-  const entry = { action: 'update', description: 'Member access updated', business_details: {
-    type: 'account', changes: { is_responsable: { before: false, after: true } },
-  } };
-  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur modifié');
-  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description)[0].after, 'Oui');
+  const entry = {
+    action: 'update',
+    description: 'Member access updated',
+    business_details: {
+      type: 'account',
+      changes: { is_responsable: { before: false, after: true } },
+    },
+  };
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tFr),
+    'Accès utilisateur modifié',
+  );
+  assert.equal(
+    audit.getAuditInlineBusinessItems(
+      entry.business_details,
+      tFr,
+      entry.description,
+    )[0].after,
+    'Oui',
+  );
 });
 
 test('correction retains scientific zero without duplicating action provenance', () => {
-  const entry = { action: 'update', description: 'Biological measurement edited for 2026-09-15',
-    business_details: { type: 'measurement', values: { polypes: 0, ephyrules: 0, salinite_psu: '33.00' } } };
-  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Relevé biologique corrigé');
-  assert.deepEqual(Array.from(audit.getAuditInlineBusinessItems(entry.business_details, tFr), ({ value }) => value), ['0', '0', '33.00']);
+  const entry = {
+    action: 'update',
+    description: 'Biological measurement edited for 2026-09-15',
+    business_details: {
+      type: 'measurement',
+      values: { polypes: 0, ephyrules: 0, salinite_psu: '33.00' },
+    },
+  };
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tFr),
+    'Relevé biologique corrigé',
+  );
+  assert.deepEqual(
+    Array.from(
+      audit.getAuditInlineBusinessItems(entry.business_details, tFr),
+      ({ value }) => value,
+    ),
+    ['0', '0', '33.00'],
+  );
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   for (const source of [adminSource, profileSource]) {
-    assert.doesNotMatch(source, /getAuditEditedMark|auditEditedMark|Corrigé le/);
+    assert.doesNotMatch(
+      source,
+      /getAuditEditedMark|auditEditedMark|Corrigé le/,
+    );
     assert.match(source, /<AuditInlineBusinessSummary/);
   }
 });
@@ -1217,8 +2129,14 @@ test('movement summaries render the real transition inline without duplicate det
     },
   };
 
-  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Boîte déplacée vers Cabinet B');
-  assert.equal(audit.getAuditBusinessSummary(entry, tEn), 'Box moved to Cabinet B');
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tFr),
+    'Boîte déplacée vers Cabinet B',
+  );
+  assert.equal(
+    audit.getAuditBusinessSummary(entry, tEn),
+    'Box moved to Cabinet B',
+  );
   assert.equal(
     JSON.stringify(audit.getAuditBusinessDetailContent(entry.business_details)),
     JSON.stringify({ values: null, changes: null }),
@@ -1232,7 +2150,10 @@ test('manual temperature details keep the business date and hide repeated change
   });
   assert.equal(
     JSON.stringify(temperature),
-    JSON.stringify({ values: { date: '2026-09-14', temperature_c: '12.5' }, changes: null }),
+    JSON.stringify({
+      values: { date: '2026-09-14', temperature_c: '12.5' },
+      changes: null,
+    }),
   );
 
   const account = audit.getAuditBusinessDetailContent({
@@ -1252,17 +2173,36 @@ test('manual temperature details keep the business date and hide repeated change
 
 test('safe alert, species, and strain targets remain in final summaries without opaque ids', () => {
   const cases = [
-    ['Alert resolved: Température haute', 'Alerte résolue : Température haute', 'Alert resolved: Température haute'],
-    ['Species created: Aurelia aurita', 'Espèce créée : Aurelia aurita', 'Species created: Aurelia aurita'],
-    ['Species updated: Aurelia aurita', 'Espèce modifiée : Aurelia aurita', 'Species updated: Aurelia aurita'],
+    [
+      'Alert resolved: Température haute',
+      'Alerte résolue : Température haute',
+      'Alert resolved: Température haute',
+    ],
+    [
+      'Species created: Aurelia aurita',
+      'Espèce créée : Aurelia aurita',
+      'Species created: Aurelia aurita',
+    ],
+    [
+      'Species updated: Aurelia aurita',
+      'Espèce modifiée : Aurelia aurita',
+      'Species updated: Aurelia aurita',
+    ],
     ['Strain created: 1-ATL', 'Souche créée : 1-ATL', 'Strain created: 1-ATL'],
-    ['Strain updated: 1-ATL', 'Souche modifiée : 1-ATL', 'Strain updated: 1-ATL'],
+    [
+      'Strain updated: 1-ATL',
+      'Souche modifiée : 1-ATL',
+      'Strain updated: 1-ATL',
+    ],
   ];
   for (const [description, frLabel, enLabel] of cases) {
     const entry = { action: 'update', description, object_id: '123' };
     assert.equal(audit.getAuditBusinessSummary(entry, tFr), frLabel);
     assert.equal(audit.getAuditBusinessSummary(entry, tEn), enLabel);
-    assert.equal(audit.getAuditBusinessSummary(entry, tFr).includes('123'), false);
+    assert.equal(
+      audit.getAuditBusinessSummary(entry, tFr).includes('123'),
+      false,
+    );
   }
 });
 
@@ -1287,10 +2227,17 @@ test('loading another personal action page appends only unknown actions', () => 
   const current = [{ id: 3 }, { id: 2 }];
   const incoming = [{ id: 2 }, { id: 1 }];
   assert.equal(
-    JSON.stringify(personalActions.mergePersonalActionPage(current, incoming).map((entry) => entry.id)),
+    JSON.stringify(
+      personalActions
+        .mergePersonalActionPage(current, incoming)
+        .map((entry) => entry.id),
+    ),
     JSON.stringify([3, 2, 1]),
   );
-  assert.equal(JSON.stringify(personalActions.mergePersonalActionPage([], [])), JSON.stringify([]));
+  assert.equal(
+    JSON.stringify(personalActions.mergePersonalActionPage([], [])),
+    JSON.stringify([]),
+  );
 });
 
 function loadedPersonalActionsState() {
@@ -1304,12 +2251,18 @@ function loadedPersonalActionsState() {
 }
 
 test('a load-more failure keeps the displayed actions and the next offset', () => {
-  const failed = personalActions.applyPersonalActionsOutcome(loadedPersonalActionsState(), {
-    kind: 'load-more-error',
-    message: 'Network error',
-  });
+  const failed = personalActions.applyPersonalActionsOutcome(
+    loadedPersonalActionsState(),
+    {
+      kind: 'load-more-error',
+      message: 'Network error',
+    },
+  );
 
-  assert.equal(JSON.stringify(failed.entries.map((entry) => entry.id)), JSON.stringify([3, 2]));
+  assert.equal(
+    JSON.stringify(failed.entries.map((entry) => entry.id)),
+    JSON.stringify([3, 2]),
+  );
   assert.equal(failed.hasMore, true);
   assert.equal(failed.nextOffset, 2);
   assert.equal(failed.loadMoreError, 'Network error');
@@ -1329,16 +2282,26 @@ test('a retry after a load-more failure requests the same offset', () => {
 });
 
 test('a successful retry merges without duplicates and clears the pagination error', () => {
-  const failed = personalActions.applyPersonalActionsOutcome(loadedPersonalActionsState(), {
-    kind: 'load-more-error',
-    message: 'Network error',
-  });
+  const failed = personalActions.applyPersonalActionsOutcome(
+    loadedPersonalActionsState(),
+    {
+      kind: 'load-more-error',
+      message: 'Network error',
+    },
+  );
   const retried = personalActions.applyPersonalActionsOutcome(failed, {
     kind: 'load-more-page',
-    page: { results: [{ id: 2 }, { id: 1 }], has_more: false, next_offset: null },
+    page: {
+      results: [{ id: 2 }, { id: 1 }],
+      has_more: false,
+      next_offset: null,
+    },
   });
 
-  assert.equal(JSON.stringify(retried.entries.map((entry) => entry.id)), JSON.stringify([3, 2, 1]));
+  assert.equal(
+    JSON.stringify(retried.entries.map((entry) => entry.id)),
+    JSON.stringify([3, 2, 1]),
+  );
   assert.equal(retried.loadMoreError, null);
   assert.equal(retried.hasMore, false);
   assert.equal(retried.nextOffset, null);
@@ -1382,7 +2345,10 @@ test('a fresh initial page clears both error states', () => {
 
   assert.equal(reloaded.error, null);
   assert.equal(reloaded.loadMoreError, null);
-  assert.equal(JSON.stringify(reloaded.entries.map((entry) => entry.id)), JSON.stringify([9]));
+  assert.equal(
+    JSON.stringify(reloaded.entries.map((entry) => entry.id)),
+    JSON.stringify([9]),
+  );
 });
 
 test('the empty personal actions state carries no error', () => {
@@ -1406,8 +2372,14 @@ test('all eight audit families use the central FR/EN presentation registry', () 
     ['references', 'Référentiels', 'References'],
   ];
 
-  assert.equal(JSON.stringify(audit.AUDIT_FAMILIES), JSON.stringify(expected.map(([family]) => family)));
-  assert.equal(JSON.stringify(Object.keys(audit.AUDIT_FAMILY_PRESENTATION)), JSON.stringify(audit.AUDIT_FAMILIES));
+  assert.equal(
+    JSON.stringify(audit.AUDIT_FAMILIES),
+    JSON.stringify(expected.map(([family]) => family)),
+  );
+  assert.equal(
+    JSON.stringify(Object.keys(audit.AUDIT_FAMILY_PRESENTATION)),
+    JSON.stringify(audit.AUDIT_FAMILIES),
+  );
   for (const [family, frLabel, enLabel] of expected) {
     assert.equal(audit.getAuditFamilyLabel(family, tFr), frLabel);
     assert.equal(audit.getAuditFamilyLabel(family, tEn), enLabel);
@@ -1417,17 +2389,40 @@ test('all eight audit families use the central FR/EN presentation registry', () 
 
 test('event family fallback uses the canonical plural taxonomy', () => {
   const cases = [
-    [{ family: 'measurements', action: 'custom', description: '' }, 'measurements'],
+    [
+      { family: 'measurements', action: 'custom', description: '' },
+      'measurements',
+    ],
     [{ action: 'transfer', object_type: 'box', description: '' }, 'transfers'],
-    [{ action: 'subculture', object_type: 'box', description: '' }, 'subcultures'],
-    [{ action: 'export', object_type: 'measurements', description: '' }, 'exports'],
+    [
+      { action: 'subculture', object_type: 'box', description: '' },
+      'subcultures',
+    ],
+    [
+      { action: 'export', object_type: 'measurements', description: '' },
+      'exports',
+    ],
     [{ action: 'update', object_type: 'account', description: '' }, 'accounts'],
-    [{ action: 'update', object_type: 'probe', description: '' }, 'environment'],
-    [{ action: 'creation', object_type: 'organization', description: '' }, 'references'],
-    [{ action: 'custom', object_type: 'mystery', description: 'Unknown action' }, 'boxes'],
+    [
+      { action: 'update', object_type: 'probe', description: '' },
+      'environment',
+    ],
+    [
+      { action: 'creation', object_type: 'organization', description: '' },
+      'references',
+    ],
+    [
+      {
+        action: 'custom',
+        object_type: 'mystery',
+        description: 'Unknown action',
+      },
+      'boxes',
+    ],
   ];
 
-  for (const [entry, family] of cases) assert.equal(audit.getAuditEventFamily(entry), family);
+  for (const [entry, family] of cases)
+    assert.equal(audit.getAuditEventFamily(entry), family);
 });
 
 test('field ordering prioritizes biological measurements without dropping unknown keys', () => {
@@ -1441,43 +2436,91 @@ test('field ordering prioritizes biological measurements without dropping unknow
   ]);
   assert.equal(
     JSON.stringify(ordered.map(([key]) => key)),
-    JSON.stringify(['polypes', 'ephyrules', 'salinite_psu', 'date', 'notes', 'source']),
+    JSON.stringify([
+      'polypes',
+      'ephyrules',
+      'salinite_psu',
+      'date',
+      'notes',
+      'source',
+    ]),
   );
 });
 
 test('structured changes support French and English shapes and missing sides', () => {
-  assert.equal(JSON.stringify(audit.getAuditValueChange({ avant: 0, apres: 0 })), JSON.stringify({ before: 0, after: 0 }));
-  assert.equal(JSON.stringify(audit.getAuditValueChange({ before: 4, after: 0 })), JSON.stringify({ before: 4, after: 0 }));
+  assert.equal(
+    JSON.stringify(audit.getAuditValueChange({ avant: 0, apres: 0 })),
+    JSON.stringify({ before: 0, after: 0 }),
+  );
+  assert.equal(
+    JSON.stringify(audit.getAuditValueChange({ before: 4, after: 0 })),
+    JSON.stringify({ before: 4, after: 0 }),
+  );
   assert.equal(audit.getAuditValueChange({ value: 4 }), null);
-  assert.equal(audit.formatAuditChange({ before: null, after: 0 }, tEn), '- -> 0');
-  assert.equal(audit.formatAuditChange({ before: '', after: undefined }, tFr), '- -> -');
+  assert.equal(
+    audit.formatAuditChange({ before: null, after: 0 }, tEn),
+    '- -> 0',
+  );
+  assert.equal(
+    audit.formatAuditChange({ before: '', after: undefined }, tFr),
+    '- -> -',
+  );
 });
 
 test('business metadata formatting keeps scalars readable and hides unknown structures', () => {
-  assert.equal(audit.formatAuditMetadataValue([0, 4, 'active'], tEn), '0, 4, Active');
-  assert.equal(audit.formatAuditMetadataValue({ before: 4, after: 0 }, tEn), '4 -> 0');
-  assert.equal(audit.formatAuditMetadataValue({ transition: { from: 'active', to: 'inactive' } }, tEn), 'Information unavailable');
-  assert.equal(audit.formatAuditMetadataValue('internal_0123456789abcdef', tEn), '-');
+  assert.equal(
+    audit.formatAuditMetadataValue([0, 4, 'active'], tEn),
+    '0, 4, Active',
+  );
+  assert.equal(
+    audit.formatAuditMetadataValue({ before: 4, after: 0 }, tEn),
+    '4 -> 0',
+  );
+  assert.equal(
+    audit.formatAuditMetadataValue(
+      { transition: { from: 'active', to: 'inactive' } },
+      tEn,
+    ),
+    'Information unavailable',
+  );
+  assert.equal(
+    audit.formatAuditMetadataValue('internal_0123456789abcdef', tEn),
+    '-',
+  );
 });
 
 test('linked action popover displays the authorized actor supplied by the payload', () => {
   const source = readSource('../src/components/AuditLinkedActionsPopover.tsx');
   const popoverCss = readSource('../src/styles/components/popovers.css');
-  assert.match(source, /formatReadableUserIdentity\(linkedEntry\.user_identity\) \|\| t\('historicalUser'\)/);
+  assert.match(
+    source,
+    /formatReadableUserIdentity\(linkedEntry\.user_identity\) \|\| t\('historicalUser'\)/,
+  );
   assert.match(source, /auditLinkedActionAuthor/);
   assert.equal(tFr('auditLinkedActionAuthor'), 'par {name}');
   assert.equal(tEn('auditLinkedActionAuthor'), 'by {name}');
   // The author is secondary metadata, never louder than the action summary.
-  assert.match(popoverCss, /\.audit-linked-action-author \{[^}]*color: var\(--color-muted\);[^}]*\}/s);
-  assert.match(popoverCss, /\.audit-linked-action-author \{[^}]*font-size: \.7rem;[^}]*\}/s);
+  assert.match(
+    popoverCss,
+    /\.audit-linked-action-author \{[^}]*color: var\(--color-muted\);[^}]*\}/s,
+  );
+  assert.match(
+    popoverCss,
+    /\.audit-linked-action-author \{[^}]*font-size: \.7rem;[^}]*\}/s,
+  );
 });
 
 test('demo measurement actions are translated without mutating existing audit rows', () => {
-  const source = readSource('../../backend/apps/cultures/management/commands/seed_demo_data.py');
+  const source = readSource(
+    '../../backend/apps/cultures/management/commands/seed_demo_data.py',
+  );
   assert.match(source, /AuditLog\.objects\.get_or_create/);
   assert.doesNotMatch(source, /AuditLog\.objects\.update_or_create/);
   assert.match(source, /"description": "Biological measurement recorded"/);
-  assert.doesNotMatch(source, /"description": "Demo biological measurement entry\."/);
+  assert.doesNotMatch(
+    source,
+    /"description": "Demo biological measurement entry\."/,
+  );
   assert.equal(
     audit.getAuditDescriptionLabel(
       { action: 'entry', description: 'Demo biological measurement entry.' },
@@ -1491,7 +2534,10 @@ test('new timeline labels exist in both languages', () => {
   const expected = {
     auditPrevious: ['Avant', 'Previous'],
     auditNew: ['Après', 'New'],
-    auditValueUnavailable: ['Information non disponible', 'Information unavailable'],
+    auditValueUnavailable: [
+      'Information non disponible',
+      'Information unavailable',
+    ],
   };
   for (const [key, [frLabel, enLabel]] of Object.entries(expected)) {
     assert.equal(tFr(key), frLabel);
@@ -1501,11 +2547,25 @@ test('new timeline labels exist in both languages', () => {
 
 test('day grouping uses the caller-selected timestamp', () => {
   const entries = [
-    { id: 1, created_at: '2026-09-14T23:30:00Z', effective_at: '2026-09-15T10:00:00Z' },
-    { id: 2, created_at: '2026-09-15T11:00:00Z', effective_at: '2026-09-15T11:00:00Z' },
+    {
+      id: 1,
+      created_at: '2026-09-14T23:30:00Z',
+      effective_at: '2026-09-15T10:00:00Z',
+    },
+    {
+      id: 2,
+      created_at: '2026-09-15T11:00:00Z',
+      effective_at: '2026-09-15T11:00:00Z',
+    },
   ];
-  const profileGroups = audit.groupAuditEntriesByDay(entries, (entry) => entry.created_at);
-  const adminGroups = audit.groupAuditEntriesByDay(entries, (entry) => entry.effective_at);
+  const profileGroups = audit.groupAuditEntriesByDay(
+    entries,
+    (entry) => entry.created_at,
+  );
+  const adminGroups = audit.groupAuditEntriesByDay(
+    entries,
+    (entry) => entry.effective_at,
+  );
   assert.equal(profileGroups.flatMap((group) => group.entries).length, 2);
   assert.equal(adminGroups.flatMap((group) => group.entries).length, 2);
   assert.equal(adminGroups[0].entries[0].id, 1);
@@ -1521,27 +2581,53 @@ test('administration family and date reloads invalidate pagination state', () =>
 
   assert.match(invalidationSource, /requestGeneration\.current \+= 1/);
   assert.match(invalidationSource, /setIsLoadingMore\(false\)/);
-  assert.match(sectionSource, /setState\(createAdminAuditState\(activeOrganizationId\)\)/);
+  assert.match(
+    sectionSource,
+    /setState\(createAdminAuditState\(activeOrganizationId\)\)/,
+  );
   assert.match(sectionSource, /offset: 0/);
   // One declaration plus the family and date filter call sites.
-  assert.equal((sectionSource.match(/invalidateAuditRequests\(\)/g) ?? []).length, 3);
-  assert.match(sectionSource, /\[activeOrganizationId, dateFilter, familyFilter\]/);
-  assert.match(sectionSource, /if \(!isActive \|\| requestGeneration\.current !== generation\) return;/);
-  assert.match(sectionSource, /if \(requestGeneration\.current !== generation\) return;/);
+  assert.equal(
+    (sectionSource.match(/invalidateAuditRequests\(\)/g) ?? []).length,
+    3,
+  );
+  assert.match(
+    sectionSource,
+    /\[activeOrganizationId, dateFilter, familyFilter\]/,
+  );
+  assert.match(
+    sectionSource,
+    /if \(!isActive \|\| requestGeneration\.current !== generation\) return;/,
+  );
+  assert.match(
+    sectionSource,
+    /if \(requestGeneration\.current !== generation\) return;/,
+  );
 });
 
 test('administration pagination failure preserves entries, filters, total, and retry offset', () => {
-  const loaded = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(7), {
-    kind: 'initial-page',
-    organizationId: 7,
-    page: { results: [{ id: 3 }, { id: 2 }], has_more: true, next_offset: 40, total_count: 47 },
-  });
+  const loaded = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(7),
+    {
+      kind: 'initial-page',
+      organizationId: 7,
+      page: {
+        results: [{ id: 3 }, { id: 2 }],
+        has_more: true,
+        next_offset: 40,
+        total_count: 47,
+      },
+    },
+  );
   const failed = adminAudit.applyAdminAuditOutcome(loaded, {
     kind: 'load-more-error',
     organizationId: 7,
     message: 'Network error',
   });
-  assert.equal(JSON.stringify(failed.entries.map((entry) => entry.id)), JSON.stringify([3, 2]));
+  assert.equal(
+    JSON.stringify(failed.entries.map((entry) => entry.id)),
+    JSON.stringify([3, 2]),
+  );
   assert.equal(failed.nextOffset, 40);
   assert.equal(failed.totalCount, 47);
   assert.equal(failed.loadMoreError, 'Network error');
@@ -1558,11 +2644,19 @@ test('administration pagination failure preserves entries, filters, total, and r
 });
 
 test('administration retry merges safely while preserving the filtered total', () => {
-  const loaded = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(7), {
-    kind: 'initial-page',
-    organizationId: 7,
-    page: { results: [{ id: 3 }, { id: 2 }], has_more: true, next_offset: 40, total_count: 47 },
-  });
+  const loaded = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(7),
+    {
+      kind: 'initial-page',
+      organizationId: 7,
+      page: {
+        results: [{ id: 3 }, { id: 2 }],
+        has_more: true,
+        next_offset: 40,
+        total_count: 47,
+      },
+    },
+  );
   const failed = adminAudit.applyAdminAuditOutcome(loaded, {
     kind: 'load-more-error',
     organizationId: 7,
@@ -1571,9 +2665,16 @@ test('administration retry merges safely while preserving the filtered total', (
   const retried = adminAudit.applyAdminAuditOutcome(failed, {
     kind: 'load-more-page',
     organizationId: 7,
-    page: { results: [{ id: 2 }, { id: 1 }], has_more: false, next_offset: null },
+    page: {
+      results: [{ id: 2 }, { id: 1 }],
+      has_more: false,
+      next_offset: null,
+    },
   });
-  assert.equal(JSON.stringify(retried.entries.map((entry) => entry.id)), JSON.stringify([3, 2, 1]));
+  assert.equal(
+    JSON.stringify(retried.entries.map((entry) => entry.id)),
+    JSON.stringify([3, 2, 1]),
+  );
   assert.equal(retried.loadMoreError, null);
   assert.equal(retried.nextOffset, null);
   assert.equal(retried.totalCount, 47);
@@ -1592,7 +2693,13 @@ test('administration queries preserve family, date, pagination, and empty-filter
     'limit=40&offset=80&include_options=1&include_total=1&family=transfers&date=2026-09-15',
   );
   assert.equal(
-    adminAudit.buildAdminAuditQuery({ family: '', date: '', includeOptions: true, limit: 40, offset: 0 }),
+    adminAudit.buildAdminAuditQuery({
+      family: '',
+      date: '',
+      includeOptions: true,
+      limit: 40,
+      offset: 0,
+    }),
     'limit=40&offset=0&include_options=1',
   );
 
@@ -1605,21 +2712,40 @@ test('administration queries preserve family, date, pagination, and empty-filter
 });
 
 test('administration count uses the exact filtered backend total', () => {
-  const unfiltered = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(7), {
-    kind: 'initial-page',
-    organizationId: 7,
-    page: { results: [{ id: 3 }, { id: 2 }], has_more: true, next_offset: 40, total_count: 10 },
-  });
-  const measurements = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(7), {
-    kind: 'initial-page',
-    organizationId: 7,
-    page: { results: [{ id: 3 }], has_more: false, next_offset: null, total_count: 6 },
-  });
-  const unavailable = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(7), {
-    kind: 'initial-page',
-    organizationId: 7,
-    page: { results: [{ id: 3 }], has_more: true, next_offset: 40 },
-  });
+  const unfiltered = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(7),
+    {
+      kind: 'initial-page',
+      organizationId: 7,
+      page: {
+        results: [{ id: 3 }, { id: 2 }],
+        has_more: true,
+        next_offset: 40,
+        total_count: 10,
+      },
+    },
+  );
+  const measurements = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(7),
+    {
+      kind: 'initial-page',
+      organizationId: 7,
+      page: {
+        results: [{ id: 3 }],
+        has_more: false,
+        next_offset: null,
+        total_count: 6,
+      },
+    },
+  );
+  const unavailable = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(7),
+    {
+      kind: 'initial-page',
+      organizationId: 7,
+      page: { results: [{ id: 3 }], has_more: true, next_offset: 40 },
+    },
+  );
 
   assert.equal(unfiltered.totalCount, 10);
   assert.equal(measurements.totalCount, 6);
@@ -1629,23 +2755,58 @@ test('administration count uses the exact filtered backend total', () => {
 test('normalized business detail forms are rendered without raw metadata fallback', () => {
   const cases = [
     [
-      { type: 'measurement', values: { polypes: 0 }, changes: { ephyrules: { before: 2, after: 0 } } },
-      { values: null, changes: null },
-    ],
-    [{ type: 'box', values: { notes: 'Stable' } }, { values: null, changes: null }],
-    [{ type: 'environment', changes: { temperature_c: { before: 12, after: 0 } } }, { values: null, changes: { temperature_c: { before: 12, after: 0 } } }],
-    [{ type: 'account', values: { role: 'viewer' } }, { values: { role: 'viewer' }, changes: null }],
-    [{ type: 'reference', values: { nom: 'Aurelia' } }, { values: { nom: 'Aurelia' }, changes: null }],
-    [
-      { type: 'transfer_out', destination_organization: 'Ocean Lab', date: '2026-09-15', polyp_count: 0, note: '' },
+      {
+        type: 'measurement',
+        values: { polypes: 0 },
+        changes: { ephyrules: { before: 2, after: 0 } },
+      },
       { values: null, changes: null },
     ],
     [
-      { type: 'transfer_import', source_global_code: 'ATL-AAU-1.001', source_organization: 'Aquarium' },
+      { type: 'box', values: { notes: 'Stable' } },
       { values: null, changes: null },
     ],
     [
-      { type: 'box_movement', from_zone: 'A', to_zone: 'B', moved_at: '2026-09-15', note: 'Routine' },
+      {
+        type: 'environment',
+        changes: { temperature_c: { before: 12, after: 0 } },
+      },
+      { values: null, changes: { temperature_c: { before: 12, after: 0 } } },
+    ],
+    [
+      { type: 'account', values: { role: 'viewer' } },
+      { values: { role: 'viewer' }, changes: null },
+    ],
+    [
+      { type: 'reference', values: { nom: 'Aurelia' } },
+      { values: { nom: 'Aurelia' }, changes: null },
+    ],
+    [
+      {
+        type: 'transfer_out',
+        destination_organization: 'Ocean Lab',
+        date: '2026-09-15',
+        polyp_count: 0,
+        note: '',
+      },
+      { values: null, changes: null },
+    ],
+    [
+      {
+        type: 'transfer_import',
+        source_global_code: 'ATL-AAU-1.001',
+        source_organization: 'Aquarium',
+      },
+      { values: null, changes: null },
+    ],
+    [
+      {
+        type: 'box_movement',
+        from_zone: 'A',
+        to_zone: 'B',
+        moved_at: '2026-09-15',
+        note: 'Routine',
+      },
       { values: null, changes: null },
     ],
     [
@@ -1658,17 +2819,47 @@ test('normalized business detail forms are rendered without raw metadata fallbac
       },
       { values: null, changes: null },
     ],
-    [{ type: 'box_inventory_initialization', box_count: 0, target_status: 'active' }, { values: { box_count: 0, statut: 'active' }, changes: null }],
     [
-      { type: 'export', box_count: 0, measurement_count: 0, week_count: 0, filters: { include_other_zones: false } },
-      { values: { box_count: 0, measurement_count: 0, week_count: 0, include_other_zones: false }, changes: null },
+      {
+        type: 'box_inventory_initialization',
+        box_count: 0,
+        target_status: 'active',
+      },
+      { values: { box_count: 0, statut: 'active' }, changes: null },
+    ],
+    [
+      {
+        type: 'export',
+        box_count: 0,
+        measurement_count: 0,
+        week_count: 0,
+        filters: { include_other_zones: false },
+      },
+      {
+        values: {
+          box_count: 0,
+          measurement_count: 0,
+          week_count: 0,
+          include_other_zones: false,
+        },
+        changes: null,
+      },
     ],
   ];
 
   for (const [details, expected] of cases) {
-    assert.equal(JSON.stringify(audit.getAuditBusinessDetailContent(details)), JSON.stringify(expected));
+    assert.equal(
+      JSON.stringify(audit.getAuditBusinessDetailContent(details)),
+      JSON.stringify(expected),
+    );
   }
-  for (const details of [null, undefined, { type: 'subculture' }, { type: 'unknown' }, { type: 'future' }]) {
+  for (const details of [
+    null,
+    undefined,
+    { type: 'subculture' },
+    { type: 'unknown' },
+    { type: 'future' },
+  ]) {
     assert.equal(
       JSON.stringify(audit.getAuditBusinessDetailContent(details)),
       JSON.stringify({ values: null, changes: null }),
@@ -1677,11 +2868,14 @@ test('normalized business detail forms are rendered without raw metadata fallbac
 });
 
 test('organization switches clear administration rows and ignore late responses', () => {
-  const organizationOne = adminAudit.applyAdminAuditOutcome(adminAudit.createAdminAuditState(1), {
-    kind: 'initial-page',
-    organizationId: 1,
-    page: { results: [{ id: 10 }], has_more: false, next_offset: null },
-  });
+  const organizationOne = adminAudit.applyAdminAuditOutcome(
+    adminAudit.createAdminAuditState(1),
+    {
+      kind: 'initial-page',
+      organizationId: 1,
+      page: { results: [{ id: 10 }], has_more: false, next_offset: null },
+    },
+  );
   assert.equal(organizationOne.entries.length, 1);
 
   const organizationTwo = adminAudit.createAdminAuditState(2);
@@ -1716,12 +2910,23 @@ test('family options render eight choices in laboratory-first presentation order
   // no filter pill until the product decision is taken again.
 
   assert.match(sectionSource, /family_options\?: AdminAuditFamilyOption\[\]/);
-  assert.match(sectionSource, /setFamilyOptions\(response\.family_options \?\? \[\]\)/);
+  assert.match(
+    sectionSource,
+    /setFamilyOptions\(response\.family_options \?\? \[\]\)/,
+  );
   assert.match(sectionSource, /const counts = new Map\(familyOptions\?\.map/);
   assert.match(sectionSource, /const allCount = familyOptions\?\.reduce/);
-  assert.equal(JSON.stringify([...orderSource.matchAll(/'([^']+)'/g)].map((match) => match[1])), JSON.stringify(expectedOrder));
+  assert.equal(
+    JSON.stringify(
+      [...orderSource.matchAll(/'([^']+)'/g)].map((match) => match[1]),
+    ),
+    JSON.stringify(expectedOrder),
+  );
   assert.match(sectionSource, /onSelect=\{\(\) => selectFamily\(''\)\}/);
-  assert.match(sectionSource, /\{ADMIN_AUDIT_FAMILY_ORDER\.map\(\(family\) => \(/);
+  assert.match(
+    sectionSource,
+    /\{ADMIN_AUDIT_FAMILY_ORDER\.map\(\(family\) => \(/,
+  );
   assert.match(sectionSource, /count=\{counts\.get\(family\)\}/);
   assert.match(sectionSource, /label=\{getAuditFamilyLabel\(family, t\)\}/);
   assert.match(sectionSource, /aria-pressed=\{isSelected\}/);
@@ -1729,37 +2934,87 @@ test('family options render eight choices in laboratory-first presentation order
 
 test('administration header stacks the date filter below the family filters', () => {
   const sectionSource = readSource('../src/components/AdminAuditSection.tsx');
-  const inventorySource = readSource('../src/components/BoxInventoryAdminSection.tsx');
-  const administrationCss = readSource('../src/styles/pages/administration.css');
+  const inventorySource = readSource(
+    '../src/components/BoxInventoryAdminSection.tsx',
+  );
+  const administrationCss = readSource(
+    '../src/styles/pages/administration.css',
+  );
   const frSource = readSource('../src/i18n/fr.ts');
   const enSource = readSource('../src/i18n/en.ts');
-  const headingStart = sectionSource.indexOf('<header className="box-inventory-heading">');
+  const headingStart = sectionSource.indexOf(
+    '<header className="box-inventory-heading">',
+  );
   const headingEnd = sectionSource.indexOf('</header>', headingStart);
   const headingSource = sectionSource.slice(headingStart, headingEnd);
-  const filterBarStart = sectionSource.indexOf('<div className="admin-audit-filter-bar">');
-  const filterBarEnd = sectionSource.indexOf('<div className="admin-audit-page-body">', filterBarStart);
+  const filterBarStart = sectionSource.indexOf(
+    '<div className="admin-audit-filter-bar">',
+  );
+  const filterBarEnd = sectionSource.indexOf(
+    '<div className="admin-audit-page-body">',
+    filterBarStart,
+  );
   const filterBarSource = sectionSource.slice(filterBarStart, filterBarEnd);
-  const familyFiltersStart = sectionSource.indexOf('<div className="admin-audit-family-filters"');
-  const dateFilterStart = sectionSource.indexOf('<label className="admin-audit-date-filter">');
-
+  const familyFiltersStart = sectionSource.indexOf(
+    '<div className="admin-audit-family-filters"',
+  );
+  const dateFilterStart = sectionSource.indexOf(
+    '<label className="admin-audit-date-filter">',
+  );
 
   assert.match(inventorySource, /<header className="box-inventory-heading">/);
   assert.equal(headingStart >= 0, true);
-  assert.doesNotMatch(headingSource, /admin-audit-date-filter|admin-audit-result-count|<p>/);
-  assert.doesNotMatch(sectionSource, /admin-audit-result-count|adminAuditCount|admin-audit-filter-meta/);
+  assert.doesNotMatch(
+    headingSource,
+    /admin-audit-date-filter|admin-audit-result-count|<p>/,
+  );
+  assert.doesNotMatch(
+    sectionSource,
+    /admin-audit-result-count|adminAuditCount|admin-audit-filter-meta/,
+  );
   assert.equal(filterBarStart > headingEnd, true);
-  assert.equal(familyFiltersStart > filterBarStart && familyFiltersStart < filterBarEnd, true);
-  assert.equal(dateFilterStart > familyFiltersStart && dateFilterStart < filterBarEnd, true);
-  assert.match(sectionSource, /<span className="sr-only">\{t\('adminAuditFilterDate'\)\}<\/span>/);
-  assert.doesNotMatch(filterBarSource, /state\.totalCount|state\.entries\.length/);
-  assert.match(administrationCss, /\.admin-audit-filter-bar \{[^}]*display: grid;/s);
-  assert.match(administrationCss, /\.admin-audit-family-filters \{[^}]*display: flex;[^}]*flex-wrap: wrap;/s);
-  assert.match(administrationCss, /\.admin-audit-date-filter \{[^}]*width: max-content;/s);
-  assert.match(administrationCss, /\.admin-audit-date-filter input \{[^}]*width: 164px;[^}]*min-height: 36px;/s);
+  assert.equal(
+    familyFiltersStart > filterBarStart && familyFiltersStart < filterBarEnd,
+    true,
+  );
+  assert.equal(
+    dateFilterStart > familyFiltersStart && dateFilterStart < filterBarEnd,
+    true,
+  );
+  assert.match(
+    sectionSource,
+    /<span className="sr-only">\{t\('adminAuditFilterDate'\)\}<\/span>/,
+  );
+  assert.doesNotMatch(
+    filterBarSource,
+    /state\.totalCount|state\.entries\.length/,
+  );
+  assert.match(
+    administrationCss,
+    /\.admin-audit-filter-bar \{[^}]*display: grid;/s,
+  );
+  assert.match(
+    administrationCss,
+    /\.admin-audit-family-filters \{[^}]*display: flex;[^}]*flex-wrap: wrap;/s,
+  );
+  assert.match(
+    administrationCss,
+    /\.admin-audit-date-filter \{[^}]*width: max-content;/s,
+  );
+  assert.match(
+    administrationCss,
+    /\.admin-audit-date-filter input \{[^}]*width: 164px;[^}]*min-height: 36px;/s,
+  );
   assert.doesNotMatch(administrationCss, /\.admin-audit-filter-meta/);
   assert.doesNotMatch(administrationCss, /\.admin-audit-result-count/);
-  assert.match(administrationCss, /\.admin-audit-family-filters button \{[^}]*min-height: 36px;[^}]*padding: 0 var\(--space-3\);[^}]*font-size: .76rem;/s);
-  assert.match(administrationCss, /\.admin-audit-family-filters small \{[^}]*font-size: .66rem;/s);
+  assert.match(
+    administrationCss,
+    /\.admin-audit-family-filters button \{[^}]*min-height: 36px;[^}]*padding: 0 var\(--space-3\);[^}]*font-size: .76rem;/s,
+  );
+  assert.match(
+    administrationCss,
+    /\.admin-audit-family-filters small \{[^}]*font-size: .66rem;/s,
+  );
   assert.match(sectionSource, /onSelect=\{\(\) => selectFamily\(''\)\}/);
   assert.match(sectionSource, /setDateFilter\(event\.target\.value\)/);
   for (const source of [sectionSource, administrationCss, frSource, enSource]) {
@@ -1774,7 +3029,10 @@ test('family filter pills are ergonomic controls with uniform hit areas', () => 
   const css = readSource('../src/styles/pages/administration.css');
   const sectionSource = readSource('../src/components/AdminAuditSection.tsx');
   const filtersStart = css.indexOf('.admin-audit-family-filters {');
-  const filtersCss = css.slice(filtersStart, css.indexOf('.admin-audit-page-body {'));
+  const filtersCss = css.slice(
+    filtersStart,
+    css.indexOf('.admin-audit-page-body {'),
+  );
   const buttonCss = filtersCss.slice(
     filtersCss.indexOf('.admin-audit-family-filters button {'),
     filtersCss.indexOf('.admin-audit-family-filters button:is('),
@@ -1788,26 +3046,46 @@ test('family filter pills are ergonomic controls with uniform hit areas', () => 
 
   // A label or count never wraps inside a pill, so every pill keeps one height.
   assert.match(buttonCss, /white-space: nowrap;/);
-  assert.match(filtersCss, /\.admin-audit-family-filters small \{[^}]*white-space: nowrap;/s);
+  assert.match(
+    filtersCss,
+    /\.admin-audit-family-filters small \{[^}]*white-space: nowrap;/s,
+  );
 
   // Hover, press and selected states stay distinct.
-  assert.match(filtersCss, /\.admin-audit-family-filters button:is\(:hover, :focus-visible\) \{[^}]*background: var\(--color-surface-subtle\);/s);
-  assert.match(filtersCss, /\.admin-audit-family-filters button:active \{[^}]*background: var\(--color-surface-info\);/s);
-  assert.match(filtersCss, /\.admin-audit-family-filters button\[aria-pressed='true'\] \{[^}]*background: var\(--color-primary-faint\);/s);
+  assert.match(
+    filtersCss,
+    /\.admin-audit-family-filters button:is\(:hover, :focus-visible\) \{[^}]*background: var\(--color-surface-subtle\);/s,
+  );
+  assert.match(
+    filtersCss,
+    /\.admin-audit-family-filters button:active \{[^}]*background: var\(--color-surface-info\);/s,
+  );
+  assert.match(
+    filtersCss,
+    /\.admin-audit-family-filters button\[aria-pressed='true'\] \{[^}]*background: var\(--color-primary-faint\);/s,
+  );
   assert.match(
     filtersCss,
     /\.admin-audit-family-filters button\[aria-pressed='true'\]:is\(:hover, :focus-visible\) \{[^}]*background: var\(--color-primary-soft\);/s,
   );
 
   // Keyboard and screen-reader affordances stay intact.
-  assert.match(filtersCss, /\.admin-audit-family-filters button:focus-visible,[^}]*outline: 2px solid var\(--color-primary\);/s);
-  assert.match(sectionSource, /role="group" aria-label=\{t\('adminAuditFilterFamily'\)\}/);
+  assert.match(
+    filtersCss,
+    /\.admin-audit-family-filters button:focus-visible,[^}]*outline: 2px solid var\(--color-primary\);/s,
+  );
+  assert.match(
+    sectionSource,
+    /role="group" aria-label=\{t\('adminAuditFilterFamily'\)\}/,
+  );
   assert.match(sectionSource, /aria-pressed=\{isSelected\}/);
 });
 
 test('history headings omit filler text and action counts while using the application body font', () => {
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const adminCss = readSource('../src/styles/pages/administration.css');
   const profileCss = readSource('../src/styles/pages/profile.css');
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
@@ -1815,12 +3093,27 @@ test('history headings omit filler text and action counts while using the applic
   const enSource = readSource('../src/i18n/en.ts');
 
   assert.doesNotMatch(adminSource, /adminAuditCount|admin-audit-result-count/);
-  assert.doesNotMatch(profileSource, /profileActionsText|profileActionsCount|profile-actions-count/);
-  assert.match(adminCss, /\.admin-audit-stream \{[^}]*font-family: var\(--font-body\);/s);
-  assert.match(profileCss, /\.profile-actions-stream \{[^}]*font-family: var\(--font-body\);/s);
-  assert.match(timelineCss, /\.audit-day-heading \{[^}]*font-family: var\(--font-body\);/s);
+  assert.doesNotMatch(
+    profileSource,
+    /profileActionsText|profileActionsCount|profile-actions-count/,
+  );
+  assert.match(
+    adminCss,
+    /\.admin-audit-stream \{[^}]*font-family: var\(--font-body\);/s,
+  );
+  assert.match(
+    profileCss,
+    /\.profile-actions-stream \{[^}]*font-family: var\(--font-body\);/s,
+  );
+  assert.match(
+    timelineCss,
+    /\.audit-day-heading \{[^}]*font-family: var\(--font-body\);/s,
+  );
   for (const source of [frSource, enSource]) {
-    assert.doesNotMatch(source, /adminAuditCount|profileActionsText|profileActionsCount/);
+    assert.doesNotMatch(
+      source,
+      /adminAuditCount|profileActionsText|profileActionsCount/,
+    );
   }
 });
 
@@ -1870,19 +3163,37 @@ test('action titles and inline values reuse the Polypbase display typography', (
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
 
-  assert.match(adminCss, /\.admin-audit-summary \{[^}]*font-family: var\(--font-display\);/s);
-  assert.match(profileCss, /\.profile-action-summary \{[^}]*font-family: var\(--font-display\);/s);
-  assert.match(timelineCss, /\.audit-inline-business-summary \{[^}]*font-family: var\(--font-display\);[^}]*font-variant-numeric: tabular-nums;/s);
+  assert.match(
+    adminCss,
+    /\.admin-audit-summary \{[^}]*font-family: var\(--font-display\);/s,
+  );
+  assert.match(
+    profileCss,
+    /\.profile-action-summary \{[^}]*font-family: var\(--font-display\);/s,
+  );
+  assert.match(
+    timelineCss,
+    /\.audit-inline-business-summary \{[^}]*font-family: var\(--font-display\);[^}]*font-variant-numeric: tabular-nums;/s,
+  );
 
   // Quiet labels, readable values: the Inventory count pattern.
-  assert.match(timelineCss, /\.audit-inline-label \{ color: var\(--color-muted\); \}/);
-  assert.match(timelineCss, /\.audit-inline-value \{ color: var\(--color-ink\); font-weight: 600; \}/);
+  assert.match(
+    timelineCss,
+    /\.audit-inline-label \{ color: var\(--color-muted\); \}/,
+  );
+  assert.match(
+    timelineCss,
+    /\.audit-inline-value \{ color: var\(--color-ink\); font-weight: 600; \}/,
+  );
   assert.match(timelineSource, /className="audit-inline-label"/);
   assert.match(timelineSource, /className="audit-inline-value"/);
 
   // The box code keeps its own identity treatment and is never wrapped in the
   // inline value styling.
-  assert.doesNotMatch(timelineSource, /audit-inline-value[^>]*box-tracking-preview/);
+  assert.doesNotMatch(
+    timelineSource,
+    /audit-inline-value[^>]*box-tracking-preview/,
+  );
 });
 
 test('administration rows use distinct hour, author, action, and controls columns', () => {
@@ -1893,29 +3204,45 @@ test('administration rows use distinct hour, author, action, and controls column
   const rowSource = sectionSource.slice(rowStart, rowEnd);
 
   const timeStart = rowSource.indexOf('<time className="admin-audit-time"');
-  const authorStart = rowSource.indexOf('<strong className="admin-audit-author">');
+  const authorStart = rowSource.indexOf(
+    '<strong className="admin-audit-author">',
+  );
   const actionStart = rowSource.indexOf('<div className="admin-audit-main">');
-  const controlsStart = rowSource.indexOf('<div className="admin-audit-row-actions">');
+  const controlsStart = rowSource.indexOf(
+    '<div className="admin-audit-row-actions">',
+  );
   assert.equal(timeStart >= 0, true);
   assert.equal(authorStart > timeStart, true);
   assert.equal(actionStart > authorStart, true);
   assert.equal(controlsStart > actionStart, true);
   assert.doesNotMatch(rowSource, /admin-audit-anchor/);
-  assert.match(cssSource, /\.admin-audit-row \{[^}]*grid-template-columns: 56px minmax\(120px, 160px\) minmax\(0, 1fr\) auto;/s);
+  assert.match(
+    cssSource,
+    /\.admin-audit-row \{[^}]*grid-template-columns: 56px minmax\(120px, 160px\) minmax\(0, 1fr\) auto;/s,
+  );
 });
 
 test('administration audit is extracted and remounts for each organization', () => {
   const adminViewSource = readSource('../src/components/AdminView.tsx');
   const sectionSource = readSource('../src/components/AdminAuditSection.tsx');
 
-  assert.match(adminViewSource, /import AdminAuditSection from '\.\/AdminAuditSection';/);
-  assert.equal(adminViewSource.includes('function AdminAuditLogSection'), false);
+  assert.match(
+    adminViewSource,
+    /import AdminAuditSection from '\.\/AdminAuditSection';/,
+  );
+  assert.equal(
+    adminViewSource.includes('function AdminAuditLogSection'),
+    false,
+  );
   assert.equal(adminViewSource.includes('function AdminAuditRow'), false);
   assert.match(
     adminViewSource,
     /<AdminAuditSection\s+activeOrganizationId=\{activeOrganizationId\}\s+key=\{activeOrganizationId\}/,
   );
-  assert.match(sectionSource, /setState\(createAdminAuditState\(activeOrganizationId\)\)/);
+  assert.match(
+    sectionSource,
+    /setState\(createAdminAuditState\(activeOrganizationId\)\)/,
+  );
   assert.match(sectionSource, /requestGeneration\.current = generation/);
   assert.match(sectionSource, /setIsLoadingMore\(false\)/);
 });
@@ -1923,14 +3250,28 @@ test('administration audit is extracted and remounts for each organization', () 
 test('timeline changes expose accessible before and after labels', () => {
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
 
-  assert.match(timelineSource, /<span className="sr-only">\{t\('auditPrevious'\)\}: <\/span>/);
-  assert.match(timelineSource, /<span className="sr-only">\{t\('auditNew'\)\}: <\/span>/);
-  assert.match(timelineSource, /className="audit-change-arrow" aria-hidden="true"/);
-  assert.doesNotMatch(timelineSource, /aria-controls=\{controls\}|aria-expanded=\{isExpanded\}/);
+  assert.match(
+    timelineSource,
+    /<span className="sr-only">\{t\('auditPrevious'\)\}: <\/span>/,
+  );
+  assert.match(
+    timelineSource,
+    /<span className="sr-only">\{t\('auditNew'\)\}: <\/span>/,
+  );
+  assert.match(
+    timelineSource,
+    /className="audit-change-arrow" aria-hidden="true"/,
+  );
+  assert.doesNotMatch(
+    timelineSource,
+    /aria-controls=\{controls\}|aria-expanded=\{isExpanded\}/,
+  );
 });
 
 test('Profile and Admin use typed box references with a plain safe fallback', () => {
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
 
   for (const [source, label] of [
@@ -1940,19 +3281,27 @@ test('Profile and Admin use typed box references with a plain safe fallback', ()
     assert.match(source, /entry\.box_reference \? \(/);
     assert.match(source, /boxId=\{entry\.box_reference\.id\}/);
     assert.match(source, /code=\{entry\.box_reference\.global_code\}/);
-    assert.match(source, /speciesName=\{entry\.box_reference\.species_scientific_name\}/);
+    assert.match(
+      source,
+      /speciesName=\{entry\.box_reference\.species_scientific_name\}/,
+    );
     assert.match(source, label);
     // A target line only exists for the typed box reference or a safe label.
     assert.doesNotMatch(source, /\|\| '-'\}<\/span>\}/);
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
 
-    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|isExpanded|expandedEntryId/);
+    assert.doesNotMatch(
+      source,
+      /<AuditDisclosureButton\b|<AuditBusinessDetail\b|isExpanded|expandedEntryId/,
+    );
   }
 });
 
 test('Profile and Admin share inline summaries without duplicating resolved box targets', () => {
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
 
   assert.match(timelineSource, /export function AuditPrimarySummary/);
@@ -1963,23 +3312,86 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   assert.match(timelineSource, /export function AuditInlineBusinessSummary/);
   for (const source of [profileSource, adminSource]) {
     assert.match(source, /<AuditPrimarySummary/);
-    assert.match(source, /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/);
-    assert.match(source, /hasInlineBoxSummary \|\| hasSubcultureSummary \? null/);
-    assert.match(source, /hidePrimaryResource=\{hasInlineBoxSummary \|\| hasSubcultureSummary\}/);
+    assert.match(
+      source,
+      /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/,
+    );
+    assert.match(
+      source,
+      /hasInlineBoxSummary \|\| hasSubcultureSummary \? null/,
+    );
+    assert.match(
+      source,
+      /hidePrimaryResource=\{hasInlineBoxSummary \|\| hasSubcultureSummary\}/,
+    );
     // Masking the parent is conditional on the rich child+parent summary.
-    assert.match(source, /const hasSubcultureSummary = hasAuditSubcultureSummary\(entry\.business_details\);/);
+    assert.match(
+      source,
+      /const hasSubcultureSummary = hasAuditSubcultureSummary\(entry\.business_details\);/,
+    );
   }
 });
 
 test('normalized details do not duplicate measurement values already inline', () => {
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', changes: { polypes: { before: 0, after: 5 } } }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: { date: '2026-09-15', polypes: 0 } }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'box_movement', from_zone: 'A', to_zone: 'B' }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'box_status', transition: { from: 'active', to: 'inactive' }, stop_reason: 'End' }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'transfer_import', source_organization: 'Ocean Lab' }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'transfer_out', destination_organization: 'Ocean Lab', date: '2026-09-15' }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'box', values: { date: '2026-09-15' } }), false);
-  assert.equal(audit.hasAuditBusinessDetails({ type: 'account', changes: { role: { before: 'viewer', after: 'admin' } } }), true);
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'measurement',
+      changes: { polypes: { before: 0, after: 5 } },
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'measurement',
+      values: { date: '2026-09-15', polypes: 0 },
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'box_movement',
+      from_zone: 'A',
+      to_zone: 'B',
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'box_status',
+      transition: { from: 'active', to: 'inactive' },
+      stop_reason: 'End',
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'transfer_import',
+      source_organization: 'Ocean Lab',
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'transfer_out',
+      destination_organization: 'Ocean Lab',
+      date: '2026-09-15',
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'box',
+      values: { date: '2026-09-15' },
+    }),
+    false,
+  );
+  assert.equal(
+    audit.hasAuditBusinessDetails({
+      type: 'account',
+      changes: { role: { before: 'viewer', after: 'admin' } },
+    }),
+    true,
+  );
 });
 
 test('row context keeps only useful subculture and transfer relations', () => {
@@ -1989,25 +3401,58 @@ test('row context keeps only useful subculture and transfer relations', () => {
   assert.match(timelineSource, /if \(context\.transfer\)/);
   assert.equal(timelineSource.includes('context.movement'), false);
   assert.equal(timelineSource.includes('context.measurement'), false);
-  assert.equal(timelineSource.includes('auditRelationMeasurementCorrection'), false);
-  assert.equal(timelineSource.slice(timelineSource.indexOf('export function AuditContextSummary')).includes('description'), false);
+  assert.equal(
+    timelineSource.includes('auditRelationMeasurementCorrection'),
+    false,
+  );
+  assert.equal(
+    timelineSource
+      .slice(timelineSource.indexOf('export function AuditContextSummary'))
+      .includes('description'),
+    false,
+  );
   assert.equal(timelineSource.includes('deactivated'), false);
   assert.equal(timelineSource.includes('reactivated'), false);
 });
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   test(`${language.toUpperCase()} quantitative subculture shows before/after, allocated total and final codes with zeros`, () => {
-    const t = translator({ ...catalog, subcultureAllocatedPolyps: language === 'fr' ? 'Polypes alloués' : 'Allocated polyps' });
+    const t = translator({
+      ...catalog,
+      subcultureAllocatedPolyps:
+        language === 'fr' ? 'Polypes alloués' : 'Allocated polyps',
+    });
     const details = {
-      type: 'subculture', parent_global_code: 'SF.001', child_global_codes: ['OLD.002', 'OLD.003'],
-      parent_polyp_count_before: 100, allocated_polyp_count: 100, parent_polyp_count_after: 0,
+      type: 'subculture',
+      parent_global_code: 'SF.001',
+      child_global_codes: ['OLD.002', 'OLD.003'],
+      parent_polyp_count_before: 100,
+      allocated_polyp_count: 100,
+      parent_polyp_count_after: 0,
       allocations: [
-        { child_box_id: 981723, child_global_code: 'SF.003', allocated_polyps: 100, position: 2 },
-        { child_box_id: 981724, child_global_code: 'SF.002', allocated_polyps: 0, position: 1 },
+        {
+          child_box_id: 981723,
+          child_global_code: 'SF.003',
+          allocated_polyps: 100,
+          position: 2,
+        },
+        {
+          child_box_id: 981724,
+          child_global_code: 'SF.002',
+          allocated_polyps: 0,
+          position: 1,
+        },
       ],
       subculture_event_id: 981725,
     };
-    const entry = { action: 'subculture', description: 'Subculture created from SF.001', business_details: details };
+    const entry = {
+      action: 'subculture',
+      description: 'Subculture created from SF.001',
+      business_details: details,
+    };
     const summary = audit.getAuditBusinessSummary(entry, t);
     assert.match(summary, /SF\.002 \(0 /);
     assert.match(summary, /SF\.003 \(100 /);
@@ -2023,22 +3468,35 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
     assert.match(markup, /audit-child-allocation/);
     assert.match(markup, /\(0 /);
     assert.match(markup, /audit-change-arrow/);
-    assert.doesNotMatch(markup, /OLD\.|98172|child_box_id|subculture_event_id|undefined|null|audit-inline-value-new/);
+    assert.doesNotMatch(
+      markup,
+      /OLD\.|98172|child_box_id|subculture_event_id|undefined|null|audit-inline-value-new/,
+    );
   });
 }
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   test(`${language}: partial audit shows known children and unknown allocation without a parent result`, () => {
     const t = translator(catalog);
-    const details = { type: 'subculture', parent_global_code: 'SF.001',
-      parent_polyp_count_before: 100, allocated_polyp_count: null, parent_polyp_count_after: null,
+    const details = {
+      type: 'subculture',
+      parent_global_code: 'SF.001',
+      parent_polyp_count_before: 100,
+      allocated_polyp_count: null,
+      parent_polyp_count_after: null,
       allocations: [
         { child_global_code: 'SF.002', allocated_polyps: 30, position: 0 },
         { child_global_code: 'SF.003', allocated_polyps: 0, position: 1 },
         { child_global_code: 'SF.004', allocated_polyps: null, position: 2 },
       ],
     };
-    const summary = audit.getAuditBusinessSummary({ description: '', business_details: details }, t);
+    const summary = audit.getAuditBusinessSummary(
+      { description: '', business_details: details },
+      t,
+    );
     assert.ok(summary.includes(`SF.002 (30 ${catalog.polyps})`));
     assert.ok(summary.includes(`SF.003 (0 ${catalog.polyps})`));
     assert.ok(summary.includes(`SF.004 (${catalog.subcultureUnknown})`));
@@ -2048,26 +3506,63 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
 }
 
 test('quantitative audit preserves allocated zero and never turns absent balance fields into zero', () => {
-  const details = { type: 'subculture', parent_polyp_count_before: 0, parent_polyp_count_after: 0, allocated_polyp_count: 0 };
+  const details = {
+    type: 'subculture',
+    parent_polyp_count_before: 0,
+    parent_polyp_count_after: 0,
+    allocated_polyp_count: 0,
+  };
   const items = audit.getAuditInlineBusinessItems(details, tFr);
   assert.equal(items[0].before, '0');
   assert.equal(items[0].after, '0');
   assert.equal(items[1].value, '0');
-  assert.equal(audit.getAuditInlineBusinessItems({ type: 'subculture', parent_polyp_count_before: null, parent_polyp_count_after: null, allocated_polyp_count: null }, tFr).length, 0);
-  assert.equal(audit.getAuditInlineBusinessItems({ type: 'subculture' }, tFr).length, 0);
-  assert.equal(audit.getAuditSubcultureAllocations({ type: 'subculture', allocations: [{ child_global_code: '', child_box_id: 99, allocated_polyps: 0 }] }).length, 0);
-  assert.equal(audit.getAuditSubcultureAllocations({ type: 'subculture', allocations: [{ child_global_code: 'SF.002', allocated_polyps: null }] })[0].count, null);
+  assert.equal(
+    audit.getAuditInlineBusinessItems(
+      {
+        type: 'subculture',
+        parent_polyp_count_before: null,
+        parent_polyp_count_after: null,
+        allocated_polyp_count: null,
+      },
+      tFr,
+    ).length,
+    0,
+  );
+  assert.equal(
+    audit.getAuditInlineBusinessItems({ type: 'subculture' }, tFr).length,
+    0,
+  );
+  assert.equal(
+    audit.getAuditSubcultureAllocations({
+      type: 'subculture',
+      allocations: [
+        { child_global_code: '', child_box_id: 99, allocated_polyps: 0 },
+      ],
+    }).length,
+    0,
+  );
+  assert.equal(
+    audit.getAuditSubcultureAllocations({
+      type: 'subculture',
+      allocations: [{ child_global_code: 'SF.002', allocated_polyps: null }],
+    })[0].count,
+    null,
+  );
 });
 
 test('subculture allocation summaries degrade safely before the new translation is integrated', () => {
   const details = { type: 'subculture', allocated_polyp_count: 0 };
   for (const translator of [tFr, tEn]) {
-    const fallback = (key) => key === 'subcultureAllocatedPolyps' ? key : translator(key);
+    const fallback = (key) =>
+      key === 'subcultureAllocatedPolyps' ? key : translator(key);
     const item = audit.getAuditInlineBusinessItems(details, fallback)[0];
     assert.equal(item.label, translator('polyps'));
     assert.equal(item.value, '0');
     assert.notEqual(item.label, 'subcultureAllocatedPolyps');
-    const translated = audit.getAuditInlineBusinessItems(details, translator)[0];
+    const translated = audit.getAuditInlineBusinessItems(
+      details,
+      translator,
+    )[0];
     assert.equal(translated.label, translator('subcultureAllocatedPolyps'));
     assert.equal(translated.value, '0');
   }
@@ -2091,22 +3586,36 @@ test('inline facts use normalized business data and never expose raw metadata', 
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
   }
   for (const source of sources.slice(0, 2)) {
-    assert.match(source, /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/);
-    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|isExpanded/);
+    assert.match(
+      source,
+      /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/,
+    );
+    assert.doesNotMatch(
+      source,
+      /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|isExpanded/,
+    );
   }
-  assert.doesNotMatch(sources[2], /<AuditDisclosureButton\b|<AuditBusinessDetail\b|chevron-down/);
+  assert.doesNotMatch(
+    sources[2],
+    /<AuditDisclosureButton\b|<AuditBusinessDetail\b|chevron-down/,
+  );
   assert.doesNotMatch(presentationSource, /entry\.metadata\?\.valeurs/);
 });
 
 test('audit measurement actions reuse RowActionMenu and remain capability-driven', () => {
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  const actionsSource = readSource('../src/components/AuditLinkedActionsPopover.tsx');
+  const actionsSource = readSource(
+    '../src/components/AuditLinkedActionsPopover.tsx',
+  );
   const rowMenuSource = readSource('../src/components/RowActionMenu.tsx');
 
   assert.match(adminSource, /<AuditLinkedActionsPopover/);
   assert.match(actionsSource, /<RowActionMenu/);
   assert.match(actionsSource, /if \(entry\.editable_measurement\)/);
-  assert.match(actionsSource, /onEditMeasurement\(entry\.editable_measurement\)/);
+  assert.match(
+    actionsSource,
+    /onEditMeasurement\(entry\.editable_measurement\)/,
+  );
   assert.match(actionsSource, /if \(entry\.related_action_count > 0\)/);
   assert.match(actionsSource, /action: 'view-linked-actions'/);
   assert.match(actionsSource, /if \(!actions\.length\) return null/);
@@ -2123,24 +3632,49 @@ test('linked measurement popup is lazy, anchored, retryable, and chronological',
   const source = readSource('../src/components/AuditLinkedActionsPopover.tsx');
   const hookSource = readSource('../src/hooks/useAnchoredPopover.ts');
 
-  assert.match(source, /useAnchoredPopover<HTMLButtonElement>\(isLinkedOpen, closeLinked, 'end'\)/);
+  assert.match(
+    source,
+    /useAnchoredPopover<HTMLButtonElement>\(isLinkedOpen, closeLinked, 'end'\)/,
+  );
   assert.match(source, /role="dialog"/);
-  assert.match(source, /apiGet<LinkedAuditResponse>\(`\/api\/accounts\/audit-log\/\$\{entryId\}\/linked\/`/);
-  assert.match(source, /if \(!controller\.signal\.aborted\) setEntries\(response\.results\)/);
+  assert.match(
+    source,
+    /apiGet<LinkedAuditResponse>\(`\/api\/accounts\/audit-log\/\$\{entryId\}\/linked\/`/,
+  );
+  assert.match(
+    source,
+    /if \(!controller\.signal\.aborted\) setEntries\(response\.results\)/,
+  );
   assert.match(source, /setRetry\(\(current\) => current \+ 1\)/);
   assert.match(source, /<time dateTime=\{linkedEntry\.effective_at\}>/);
-  assert.match(source, /<AuditInlineBusinessSummary entry=\{linkedEntry\} description=\{linkedEntry\.description\} details=\{linkedEntry\.business_details\}/);
-  assert.match(source, /<AuditBusinessNote details=\{linkedEntry\.business_details\}/);
-  assert.match(source, /linkedAnchorRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(
+    source,
+    /<AuditInlineBusinessSummary entry=\{linkedEntry\} description=\{linkedEntry\.description\} details=\{linkedEntry\.business_details\}/,
+  );
+  assert.match(
+    source,
+    /<AuditBusinessNote details=\{linkedEntry\.business_details\}/,
+  );
+  assert.match(
+    source,
+    /linkedAnchorRef\.current\?\.focus\(\{ preventScroll: true \}\)/,
+  );
   assert.match(hookSource, /event\.key !== 'Escape'/);
-  assert.match(hookSource, /document\.dispatchEvent\(new CustomEvent\(OPEN_EVENT/);
+  assert.match(
+    hookSource,
+    /document\.dispatchEvent\(new CustomEvent\(OPEN_EVENT/,
+  );
 });
 
 test('audit presentation avoids technical UI, rigid rails, and final family icons', () => {
-  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const profileSource = readSource(
+    '../src/components/ProfileActionsSection.tsx',
+  );
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
-  const linkedSource = readSource('../src/components/AuditLinkedActionsPopover.tsx');
+  const linkedSource = readSource(
+    '../src/components/AuditLinkedActionsPopover.tsx',
+  );
   const presentationSource = readSource('../src/utils/auditPresentation.ts');
   const frSource = readSource('../src/i18n/fr.ts');
   const enSource = readSource('../src/i18n/en.ts');
@@ -2148,7 +3682,15 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
   const middleDot = String.fromCodePoint(0xb7);
 
-  for (const source of [profileSource, adminSource, timelineSource, linkedSource, presentationSource, frSource, enSource]) {
+  for (const source of [
+    profileSource,
+    adminSource,
+    timelineSource,
+    linkedSource,
+    presentationSource,
+    frSource,
+    enSource,
+  ]) {
     assert.equal(source.includes(middleDot), false);
     assert.equal(source.includes('auditDetailTechnical'), false);
   }
@@ -2164,7 +3706,10 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
   );
   assert.match(familyFilterCss, /display: flex;/);
   assert.match(familyFilterCss, /flex-wrap: wrap;/);
-  assert.doesNotMatch(timelineCss, /\.audit-detail-region|\.audit-disclosure-button/);
+  assert.doesNotMatch(
+    timelineCss,
+    /\.audit-detail-region|\.audit-disclosure-button/,
+  );
   for (const family of audit.AUDIT_FAMILIES) {
     assert.equal(audit.AUDIT_FAMILY_PRESENTATION[family].icon, null);
   }
