@@ -84,10 +84,10 @@ const catalogues = loadI18n().translations;
 const SERVER_NOW = Date.parse('2026-10-05T10:00:00Z');
 const pending = (overrides = {}) => ({
   id: 1,
-  full_name: 'Ada LOVELACE',
-  first_name: 'Ada',
-  last_name: 'LOVELACE',
-  email: 'ada@example.org',
+  full_name: 'Invitee FIXTURE',
+  first_name: 'Invitee',
+  last_name: 'FIXTURE',
+  email: 'invitee@example.org',
   role: 'viewer',
   role_label: 'Lecteur',
   status: 'pending',
@@ -161,27 +161,27 @@ for (const language of ['fr', 'en']) {
     const cases = [
       [
         legacy({
-          first_name: '  ÉLISE-ANNE ',
-          last_name: ' du  Pont-Müller ',
+          first_name: '  ÉQUIPE-TEST ',
+          last_name: ' du  Groupe-Témoin ',
           full_name: 'Wrong Name',
         }),
-        'Élise-Anne DU PONT-MÜLLER',
+        'Équipe-Test DU GROUPE-TÉMOIN',
       ],
       [
         legacy({
-          first_name: 'JEAN LUC',
+          first_name: 'LAB TECH',
           last_name: '',
           full_name: 'Wrong Name',
         }),
-        'Jean Luc',
+        'Lab Tech',
       ],
       [
         legacy({
           first_name: '',
-          last_name: 'du pont',
+          last_name: 'du groupe',
           full_name: 'Wrong Name',
         }),
-        'DU PONT',
+        'DU GROUPE',
       ],
       [legacy(), 'old@example.org'],
     ];
@@ -436,9 +436,9 @@ function renderTeam(overrides = {}) {
   const members = [
     {
       membership_id: 7,
-      first_name: 'Grace',
-      last_name: 'HOPPER',
-      email: 'grace@example.org',
+      first_name: 'Member',
+      last_name: 'FIXTURE',
+      email: 'member@example.org',
       role: 'viewer',
       role_label: 'Lecteur',
       is_active: true,
@@ -493,7 +493,7 @@ test('members and invitations render together, with the invitation subsection im
   );
   const subsection = children[memberTable + 1];
   assert.ok(memberTable >= 0);
-  assert.match(text(children[memberTable]), /Grace HOPPER/);
+  assert.match(text(children[memberTable]), /Member FIXTURE/);
   assert.equal(subsection.type, 'section');
   assert.ok(hasClass(subsection, 'account-invitations'));
   const heading = nodes(subsection).find((node) => node.type === 'h3');
@@ -537,7 +537,7 @@ test('invitation loading, empty, error and retry states remain below the members
     );
     assert.ok(subsection);
     if (context.filteredMembers.length)
-      assert.match(text(tree), /Grace HOPPER/);
+      assert.match(text(tree), /Member FIXTURE/);
     if (context.invitationsError) {
       assert.match(text(subsection), /Invitation (load|refresh) failed/);
       const retry = nodes(subsection).find((node) => node.type === 'button');

@@ -147,7 +147,7 @@ test('an exact unclassified BoxMovement survives unresolved periods without chan
       recorded_movement_id: 105,
       can_correct: true,
       notes: 'Original note',
-      actor: { first_name: 'Jules', last_name: 'Poncet' },
+      actor: { first_name: 'History', last_name: 'Recorder' },
     },
   );
   const before = JSON.stringify(recorded);

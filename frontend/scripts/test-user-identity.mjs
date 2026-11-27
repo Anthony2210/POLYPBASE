@@ -64,37 +64,41 @@ const audit = compile(
 );
 const timeline = compile(read('../src/utils/biologicalTimeline.ts'));
 const current = Object.freeze({
-  first_name: '  ÉLISE-ANNE ',
-  last_name: ' du  Pont-Müller ',
-  email: 'elise@example.org',
+  first_name: '  ÉQUIPE-TEST ',
+  last_name: ' du  Groupe-Témoin ',
+  email: 'team-fixture@example.org',
 });
-const readable = 'Élise-Anne DU PONT-MÜLLER';
+const readable = 'Équipe-Test DU GROUPE-TÉMOIN';
 const raw = 'legacy.tech-42';
 
 const cases = [
   [
     {
-      first_name: '  JEAN  LUC ',
+      first_name: '  LAB  TECH ',
       last_name: '',
       email: 'fallback@example.org',
     },
-    'Jean Luc',
+    'Lab Tech',
   ],
   [
     {
       first_name: '',
-      last_name: ' du pont-müller ',
+      last_name: ' du groupe-témoin ',
       email: 'fallback@example.org',
     },
-    'DU PONT-MÜLLER',
+    'DU GROUPE-TÉMOIN',
   ],
   [
     { first_name: '', last_name: '', email: '  Person.Name@example.org ' },
     'Person.Name@example.org',
   ],
   [
-    { first_name: 'jean-pIERRE d’ÉTÉ', last_name: 'de l’hôpital', email: '' },
-    'Jean-Pierre D’Été DE L’HÔPITAL',
+    {
+      first_name: 'test-éQUIPE d’ÉTÉ',
+      last_name: 'de l’équipe test',
+      email: '',
+    },
+    'Test-Équipe D’Été DE L’ÉQUIPE TEST',
   ],
   [current, readable],
   [{ first_name: '  ', last_name: '\t', email: ' ' }, ''],

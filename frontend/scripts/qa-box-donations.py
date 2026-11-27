@@ -58,7 +58,7 @@ def proposal(direction, index):
         "history_verified_at": "2026-11-15T10:00:00Z",
     }
     if direction == "outgoing":
-        identity = {"first_name": "Alex", "last_name": "Test", "email": "qa@example.test"}
+        identity = {"first_name": "Donor", "last_name": "Test", "email": "qa@example.test"}
         row.update(created_by=identity, cancelled_by=identity if index % 2 == 0 else None,
                    history_verification={"verified_by": identity, "verified_at": row["history_verified_at"],
                                          "snapshot_version": "1.0", "sha256": "a" * 64,
@@ -152,7 +152,7 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
         if "temperature" in path and path.startswith("/api/boxes/"):
             return respond({"results": [], "series": [], "points": []})
         if path == "/api/accounts/members/":
-            member = {"membership_id": 1, "user_id": 10, "full_name": "Alex Témoin", "first_name": "Alex",
+            member = {"membership_id": 1, "user_id": 10, "full_name": "Donor Témoin", "first_name": "Donor",
                       "last_name": "Témoin", "email": "qa@example.test", "organization": REFERENCE.ORG,
                       "role": "admin", "role_label": "Admin", "is_responsable": False,
                       "is_active": True, "last_login": None, "is_self": True}

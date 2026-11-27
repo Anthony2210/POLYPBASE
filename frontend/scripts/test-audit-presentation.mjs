@@ -869,8 +869,8 @@ test('legacy account snapshots never expose arbitrary technical usernames', () =
   for (const raw of [
     'internal_0123456789abcdef',
     'legacy-tech',
-    'Camille DURAND',
-    'camille@example.org',
+    'Audit SUBJECT',
+    'audit-subject@example.org',
   ]) {
     const entry = {
       object_type: 'account',
@@ -890,33 +890,36 @@ test('administration account targets use normalized business details, never the 
     object_type: 'account',
     object_id: 'internal_0123456789abcdef',
     account_identity: {
-      first_name: 'Camille',
-      last_name: 'Durand',
-      email: 'camille@example.org',
+      first_name: 'Audit',
+      last_name: 'Subject',
+      email: 'audit-subject@example.org',
     },
     business_details: {
       type: 'account',
-      values: { nom: 'Camille DURAND', email: 'camille@example.org' },
+      values: { nom: 'Audit SUBJECT', email: 'audit-subject@example.org' },
     },
   };
-  assert.equal(audit.getAuditTargetLabel(entry), 'Camille DURAND');
+  assert.equal(audit.getAuditTargetLabel(entry), 'Audit SUBJECT');
 
   const emailOnly = {
     ...entry,
     account_identity: {
       first_name: '',
       last_name: '',
-      email: 'camille@example.org',
+      email: 'audit-subject@example.org',
     },
     business_details: {
       type: 'account',
       values: {
         nom: 'internal_0123456789abcdef',
-        email: 'camille@example.org',
+        email: 'audit-subject@example.org',
       },
     },
   };
-  assert.equal(audit.getAuditTargetLabel(emailOnly), 'camille@example.org');
+  assert.equal(
+    audit.getAuditTargetLabel(emailOnly),
+    'audit-subject@example.org',
+  );
 
   const noValues = {
     ...entry,
@@ -948,12 +951,12 @@ test('personal resource labels never expose an internal identifier', () => {
       identifier: 'internal_0123456789abcdef',
       label: 'untrusted-label',
       account_identity: {
-        first_name: 'Camille',
-        last_name: 'Durand',
+        first_name: 'Audit',
+        last_name: 'Subject',
         email: '',
       },
     }),
-    'Camille DURAND',
+    'Audit SUBJECT',
   );
   assert.equal(
     audit.getPersonalResourceLabel({
@@ -1874,7 +1877,7 @@ test('account changes and export counts remain visible without expansion', () =>
   const account = audit.getAuditInlineBusinessItems(
     {
       type: 'account',
-      values: { nom: 'Alice', role: 'admin', acces_actif: true },
+      values: { nom: 'Test Administrator', role: 'admin', acces_actif: true },
       changes: { acces_actif: { before: false, after: true } },
     },
     tFr,
@@ -1899,15 +1902,15 @@ test('account creation uses current structured identity and the recorded role', 
     object_type: 'account',
     object_id: 'internal_123',
     account_identity: {
-      first_name: 'Sophie',
-      last_name: 'Lèbre',
-      email: 'sophie@example.org',
+      first_name: 'Admin',
+      last_name: 'Témoin',
+      email: 'admin@example.org',
     },
     business_details: {
       type: 'account',
       values: {
-        nom: 'Sophie LÈBRE',
-        email: 'sophie@example.org',
+        nom: 'Admin TÉMOIN',
+        email: 'admin@example.org',
         role: 'admin',
         acces_actif: true,
         is_responsable: false,
@@ -1920,11 +1923,11 @@ test('account creation uses current structured identity and the recorded role', 
   );
   assert.equal(
     audit.getAuditTargetLabel(entry, tFr),
-    'Sophie LÈBRE <sophie@example.org> rôle : Administrateur',
+    'Admin TÉMOIN <admin@example.org> rôle : Administrateur',
   );
   assert.equal(
     audit.getAuditTargetLabel(entry, tEn),
-    'Sophie LÈBRE <sophie@example.org> role: Administrator',
+    'Admin TÉMOIN <admin@example.org> role: Administrator',
   );
   assert.equal(
     audit.getAuditInlineBusinessItems(entry.business_details, tFr).length,
@@ -1934,11 +1937,11 @@ test('account creation uses current structured identity and the recorded role', 
     audit.getAuditTargetLabel(
       {
         ...entry,
-        business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } },
+        business_details: { type: 'account', values: { nom: 'Admin TÉMOIN' } },
       },
       tFr,
     ),
-    'Sophie LÈBRE <sophie@example.org>',
+    'Admin TÉMOIN <admin@example.org>',
   );
 });
 
@@ -1987,7 +1990,7 @@ test('account transitions have factual titles without redundant fields', () => {
       business_details: {
         type: 'account',
         values: {
-          nom: 'Ayoub AKKOUH',
+          nom: 'Lab TECHNICIAN',
           role: 'lab_technician',
           acces_actif: true,
           is_responsable: false,
@@ -2020,7 +2023,7 @@ test('multi-field account changes remain compact and do not invent a role hierar
     business_details: {
       type: 'account',
       values: {
-        nom: 'Ayoub AKKOUH',
+        nom: 'Lab TECHNICIAN',
         role: 'lab_technician',
         acces_actif: false,
       },

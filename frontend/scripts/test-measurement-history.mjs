@@ -674,19 +674,19 @@ for (const language of ['fr', 'en']) {
   test(`${language}: measurement and operation history use structured names, email or historical fallback`, () => {
     const identities = [
       {
-        first_name: 'ÉLISE-Anne',
-        last_name: 'du Pont-Müller',
+        first_name: 'ÉQUIPE-Test',
+        last_name: 'du Groupe-Témoin',
         email: 'fallback@example.org',
       },
-      { first_name: 'LÉA', last_name: '', email: '' },
-      { first_name: '', last_name: 'de la tour', email: '' },
+      { first_name: 'TÉMOIN', last_name: '', email: '' },
+      { first_name: '', last_name: 'de la cellule test', email: '' },
       { first_name: '', last_name: '', email: 'person@example.org' },
       null,
     ];
     const expected = [
-      'Élise-Anne DU PONT-MÜLLER',
-      'Léa',
-      'DE LA TOUR',
+      'Équipe-Test DU GROUPE-TÉMOIN',
+      'Témoin',
+      'DE LA CELLULE TEST',
       'person@example.org',
       catalogs[language].historicalUser,
     ];

@@ -100,7 +100,7 @@ def box_detail(state):
 
 
 def evidence(revision=12):
-    return {'id': 1, 'evidence_url': 'https://lab.example/read-only', 'created_by': 'Alex QA',
+    return {'id': 1, 'evidence_url': 'https://lab.example/read-only', 'created_by': 'QA Validator',
             'created_at': '2026-11-16T10:00:00Z', 'revision': revision}
 
 

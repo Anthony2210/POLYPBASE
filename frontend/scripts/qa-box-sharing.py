@@ -35,7 +35,7 @@ def date_input(hours):
 
 ORG = {"id": 1, "name": "Laboratoire témoin", "slug": "synthetic"}
 PROFILE = {
-    "id": 10, "email": "recipient@example.test", "first_name": "Alex", "last_name": "Témoin",
+    "id": 10, "email": "recipient@example.test", "first_name": "Recipient", "last_name": "Témoin",
     "is_superuser": False, "interface_language": "fr", "organizations": [ORG], "active_organization": ORG,
     "memberships": [{"organization": ORG, "role": "admin", "role_label": "Admin", "is_responsable": False}],
     "available_languages": [{"code": "fr", "label": "Français"}, {"code": "en", "label": "English"}],
@@ -94,7 +94,7 @@ def share_record(identifier, body):
             "invitation": {"generation": 1, "issued_at": instant(0), "expires_at": body["invitation_expires_at"], "accepted_at": None,
                            "delivery": {"status": "uncertain", "updated_at": instant(0)}},
             "access_expires_at": body["access_expires_at"], "revoked_at": None, "created_at": instant(0),
-            "created_by": {"first_name": "Alex", "last_name": "Témoin", "email": PROFILE["email"]},
+            "created_by": {"first_name": "Recipient", "last_name": "Témoin", "email": PROFILE["email"]},
             "capture": {"captured_at": instant(0), "content_sha256": "a" * 64} if body["mode"] == "frozen" else None}
 
 

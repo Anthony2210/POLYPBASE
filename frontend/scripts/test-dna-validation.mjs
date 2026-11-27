@@ -44,7 +44,7 @@ const links = load('../src/components/DnaEvidenceLink.tsx', {
 const validation = {
   id: 4,
   evidence_url: 'https://lab.example/proof',
-  created_by: 'Alex',
+  created_by: 'QA Validator',
   created_at: '2026-11-16T10:00:00Z',
   revision: 8,
 };
@@ -188,7 +188,7 @@ for (const language of ['fr', 'en']) {
             n.props.url === validation.evidence_url,
         ),
     );
-    assert.ok(JSON.stringify(h.render()).includes('Alex'));
+    assert.ok(JSON.stringify(h.render()).includes('QA Validator'));
     assert.equal(h.button(copy.dnaEdit), undefined);
     assert.equal(h.button(copy.dnaRevoke), undefined);
   });

@@ -750,7 +750,7 @@ test('historical origin remains last with a subsequent unpaired movement and kee
     can_correct: true,
     from_thermal_zone: { id: 10, name: 'Zone 10.0°C' },
     to_thermal_zone: { id: 15, name: 'Zone 15.0°C' },
-    actor: { first_name: 'Jules', last_name: 'Poncet' },
+    actor: { first_name: 'History', last_name: 'Recorder' },
     notes: 'Original movement note',
   };
   for (const language of ['fr', 'en']) {
@@ -1077,7 +1077,7 @@ test('only audited operational movements receive the POLYPBASE label without cha
     can_correct: true,
     from_thermal_zone: { id: 10, name: 'Zone 10.0°C' },
     to_thermal_zone: { id: 15, name: 'Zone 15.0°C' },
-    actor: { first_name: 'Jules', last_name: 'Poncet' },
+    actor: { first_name: 'History', last_name: 'Recorder' },
     notes: 'Original note',
   };
   const before = JSON.stringify(recorded);
@@ -1102,7 +1102,7 @@ test('only audited operational movements receive the POLYPBASE label without cha
       h.find((node) => node.type === 'time')[0].props.dateTime,
       recorded.occurred_at,
     );
-    assert.ok(h.html.includes('Jules'));
+    assert.ok(h.html.includes('History RECORDER'));
     assert.ok(h.html.includes('Original note'));
     assert.equal(
       h.find((node) =>
@@ -1841,8 +1841,8 @@ test('empty movement history is compact and contains no invented events', () => 
 test('one movement keeps actual locations, timestamp, structured author and notes', () => {
   const row = movement({
     user_identity: {
-      first_name: 'Élise',
-      last_name: 'du Pont-Martin',
+      first_name: 'Équipe',
+      last_name: 'du Groupe-Témoin',
       email: '',
     },
     notes: 'Line one\nLine two <script>not markup</script>',
@@ -1861,7 +1861,7 @@ test('one movement keeps actual locations, timestamp, structured author and note
   );
   assert.equal(
     text(h.find((node) => node.type === 'small')[0]),
-    'Élise DU PONT-MARTIN',
+    'Équipe DU GROUPE-TÉMOIN',
   );
   assert.doesNotMatch(h.html, /internal_unchanged/);
   assert.equal(text(h.find((node) => node.type === 'p')[0]), row.notes);
