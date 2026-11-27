@@ -49,7 +49,7 @@ accuracy, and traceability come before decoration.
   its menu entry is absent and `/administration...` routes redirect to `/` with no
   intermediate screen.
 - **Direction.** Do not introduce a new visual style on your own. When a change
-  needs a new look, present two or three options and let Anthony choose.
+  needs a new look, present two or three options and let the product owner choose.
 
 ## Generic design skills
 

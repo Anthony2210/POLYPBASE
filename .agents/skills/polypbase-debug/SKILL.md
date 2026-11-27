@@ -23,7 +23,7 @@ installed, follow its discipline; this skill adds what is specific to Polypbase.
    whether it reproduces.
 2. **Classify it.** Code defect, data anomaly, or unclear business rule. The
    current behavior is not necessarily the intended rule. If the intended rule is
-   unclear, stop and list the question under "To confirm by Anthony".
+   unclear, stop and list the question under "To confirm".
 3. **Reproduce.** Write a failing test with synthetic data first: API, service, or
    component level. For red CI, read `gh run view <run-id> --log-failed`.
 4. **Trace the value** through each layer: input parsing, API client, serializer,
@@ -48,7 +48,7 @@ Evidence: failing test, command output, or trace
 Proposed fix: smallest change; other paths with the same pattern
 Regression test: ...
 Not verified: ...
-To confirm by Anthony: ...
+To confirm: ...
 ```
 
 If the user asked only for a diagnosis, stop before fixing.

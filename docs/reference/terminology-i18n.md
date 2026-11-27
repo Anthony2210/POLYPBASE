@@ -2,7 +2,7 @@
 
 Read this reference when working on any user-visible text, i18n, translation, or domain term. The i18n mechanisms (`frontend/src/i18n/` catalogues, FR/EN parity, `CONTENT_LANGUAGES`) are in [`frontend-ux.md`](frontend.md).
 
-Sources: product decisions approved by Anthony and historical translations from the “Traduction Polypbase” workbook, archived outside the repository. The terminology rules below are the reference for new development. Changes actually applied to the application are tracked in docs/translation-review/application/register.csv. Earlier cleanup proposals are not decisions that can be applied automatically.
+Sources: product decisions approved by the product owner and historical translations from the “Traduction Polypbase” workbook, archived outside the repository. The terminology rules below are the reference for new development. Changes actually applied to the application are tracked in docs/translation-review/application/register.csv. Earlier cleanup proposals are not decisions that can be applied automatically.
 
 ## A. Confirmed product vocabulary
 
@@ -60,13 +60,13 @@ Examples:
 
 The current values `Provenance not established` and `Needs review` are preserved by the register (T019/T022, then T764/T763) and protected in `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` and `To be checked` reflect the historical worksheet, not a decision to replace the wording in the application. Any alignment requires a new explicit decision.
 
-Application catalogues are never automatically rewritten from the historical workbook. Discrepancies identified during cleanup are kept in private archives outside the repository. Decisions and changes actually reviewed in the application are tracked in docs/translation-review/application/register.csv. Unresolved discrepancies must not be corrected automatically. adminZoneTypeCabinet was aligned with Emplacement / Rack in the application by Anthony's explicit decision (2026-10-28).
+Application catalogues are never automatically rewritten from the historical workbook. Discrepancies identified during cleanup are kept in private archives outside the repository. Decisions and changes actually reviewed in the application are tracked in docs/translation-review/application/register.csv. Unresolved discrepancies must not be corrected automatically. adminZoneTypeCabinet was aligned with Emplacement / Rack in the application by the product owner's explicit decision (2026-10-28).
 
 Every change to FR/EN application text, or decision not to change it, is tracked in `docs/translation-review/application/register.csv` and checked by `check_register.py` (see the README in that directory).
 
 ## D. Unresolved language choices
 
-Do not treat these as normative. Reuse the current approved value and raise the question with Anthony.
+Do not treat these as normative. Reuse the current approved value and raise the question with the product owner.
 
 - English wording still proposed in `translation_review_queue.csv` (status other than `confirmed_product_decision`): none is approved.
 - Japanese adaptations requiring new wording: movement provenance, 継代 / 移植 on an audit key, 機関 / 所属機関, the term for transfers between institutions, 撤去 for the end of a period, last known location, JA terms for Appartenance and Accès, and the request to contact an administrator in Django's transplant denial message.
@@ -82,7 +82,7 @@ The overall audit of visible permission-denial messages (frontend and Django mes
 
 1. Look up the key, the code that displays it, and the domain context ([domain reference](../INDEX.md)). The FR word alone is not enough.
 2. Reuse a term from section A or B if it covers exactly that meaning.
-3. Otherwise, do not invent product or scientific terminology: ask Anthony. New Japanese wording remains unresolved.
+3. Otherwise, do not invent product or scientific terminology: ask the product owner. New Japanese wording remains unresolved.
 4. Add all new user-visible text in FR and EN to the catalogues, preserve variables (`{zone}`, `{count}`, etc.), and do not use the middle dot.
 5. For the shared workbook: always identify a row by its exact key, never by row number; never restore a deleted key or deduplicate based on matching text.
 

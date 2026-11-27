@@ -86,6 +86,6 @@ For user-facing behavior:
 
 Run `git diff --check` and `git status --short`. Report the behavior verified, checks
 run, failures or skipped checks, viewports exercised, and remaining risks. In PRs,
-use **Not verified** for skipped checks and **To confirm by Anthony** for specific
+use **Not verified** for skipped checks and **To confirm** for specific
 manual checks or decisions. Do not commit, push, or deploy unless the user explicitly
 asks.
