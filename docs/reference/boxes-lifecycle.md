@@ -94,6 +94,8 @@ The server assigns child codes: `BoxCodeNamespace` reserves consecutive suffixes
 
 A transplant creates no artificial biological record and uses no weekly slot. Later corrections remain allowed without recalculating snapshots. If the parent reaches zero, only then does the UI offer optional deactivation, using the existing permissions and lifecycle service in a separate transaction.
 
+Each child takes the parent's [planned weekday](#planned-weekday) by default. Sending `copy_planned_weekday: false` for a child leaves its day empty. The parent is never changed, and no weekday audit is written for the children.
+
 The detailed contract, inspected consumers, and concurrency strategy are in [`../../backend/QUANTITATIVE_SUBCULTURE.md`](annexes/quantitative-subculture.md).
 
 Do not infer parentage from similar codes.
@@ -133,6 +135,15 @@ DNA validation is integrated in the code (PR #19, then added to box creation). D
 - `App.tsx` still coordinates mutations through the existing API client. The badge is not updated optimistically: reload after success. A `409` blocks further attempts until an explicit reload, without replaying the write. `AuditTimeline` shows business summaries and before → after links in Actions and in Administration history.
 
 Historical results and limits: [`../qa/box-dna-validation/README.md`](../archive/rapports/qa-box-dna-validation.md). Screenshots and `report.json` remain outside the repository. The 382 historical checks use fixtures of the real `BoxPage` with a mocked API, not end-to-end Django QA.
+
+## Planned weekday
+
+`Box.planned_weekday` is the day of the week planned for the box's weekly record, as an ISO number: `1` = Monday through `7` = Sunday. It is empty (`null`) by default, which means no day is planned. No migration assigns days. A database check accepts only `null` or `1` to `7`.
+
+- Reading: the box list, box detail, and Overview payloads expose `planned_weekday` read-only to every member of the institution.
+- Writing: `PATCH /api/boxes/<box_id>/planned-weekday/` with `{"planned_weekday": 1..7 | null}`. Only an active Admin of the box's institution may set or clear it, with the same checks as the other admin box actions. A Technician or a read-only user gets `403`; a box of another institution or a merged box gets `404`. Other values, strings, and booleans get `400`. The rule does not depend on the box status: active, inactive, and pending boxes can be edited.
+- Audit: each real change writes an `AuditLog` (`event: box_planned_weekday_updated`) whose `modifications.planned_weekday` stores the before and after values. It appears in the box history like other box field changes. Saving the same value writes nothing. The Django admin shows the field read-only.
+- Transplants: see [Transplants and lineages](#transplants-and-lineages).
 
 ## Entry points
 

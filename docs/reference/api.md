@@ -78,6 +78,7 @@ the file. It fails if the file is missing or differs from the generated inventor
 | `/api/boxes/<int:box_id>/measurements/<int:pk>/` | `PATCH` | `apps.cultures.api_views.BoxMeasurementDetailAPIView` |
 | `/api/boxes/<int:box_id>/move/` | `POST` | `apps.cultures.api_views.BoxMoveAPIView` |
 | `/api/boxes/<int:box_id>/movements/<int:pk>/` | `PATCH` | `apps.cultures.api_views.BoxMovementDetailAPIView` |
+| `/api/boxes/<int:box_id>/planned-weekday/` | `PATCH` | `apps.cultures.api_views.BoxPlannedWeekdayAPIView` |
 | `/api/boxes/<int:box_id>/qualify/` | `POST` | `apps.cultures.api_views.BoxQualifyAPIView` |
 | `/api/boxes/<int:box_id>/scan/` | `POST` | `apps.cultures.api_views.BoxScanAPIView` |
 | `/api/boxes/<int:box_id>/subcultures/` | `POST` | `apps.cultures.api_views.BoxSubcultureCreateAPIView` |
