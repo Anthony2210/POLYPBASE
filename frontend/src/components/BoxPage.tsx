@@ -1018,7 +1018,7 @@ export default function BoxPage({
               </span>
             </div>
             <Metric
-              label={t('polyps')}
+              label={t('polypCountLabel')}
               value={formatMeasurementCount(
                 weeklyMeasurement && showWeeklyMeasurementSummary
                   ? weeklyMeasurement.polyp_count
@@ -1026,7 +1026,7 @@ export default function BoxPage({
               )}
             />
             <Metric
-              label={t('ephyraeFull')}
+              label={t('ephyraeCountLabel')}
               value={formatMeasurementCount(
                 weeklyMeasurement && showWeeklyMeasurementSummary
                   ? weeklyMeasurement.ephyrae_count
@@ -1150,11 +1150,11 @@ export default function BoxPage({
                       className="measurement-field-label"
                       htmlFor="measurement-polyps"
                     >
-                      {t('polyps')}
+                      {t('polypCountLabel')}
                     </label>
                     <div className="count-stepper">
                       <StepperButton
-                        aria-label={`${t('polyps')} -1`}
+                        aria-label={`${t('polypCountLabel')} -1`}
                         onStep={() =>
                           setForm((current) => ({
                             ...current,
@@ -1180,7 +1180,7 @@ export default function BoxPage({
                         }
                       />
                       <StepperButton
-                        aria-label={`${t('polyps')} +1`}
+                        aria-label={`${t('polypCountLabel')} +1`}
                         onStep={() =>
                           setForm((current) => ({
                             ...current,
@@ -1213,11 +1213,11 @@ export default function BoxPage({
                       className="measurement-field-label"
                       htmlFor="measurement-ephyrae"
                     >
-                      {t('ephyraeFull')}
+                      {t('ephyraeCountLabel')}
                     </label>
                     <div className="count-stepper">
                       <StepperButton
-                        aria-label={`${t('ephyraeFull')} -1`}
+                        aria-label={`${t('ephyraeCountLabel')} -1`}
                         onStep={() =>
                           setForm((current) => ({
                             ...current,
@@ -1245,7 +1245,7 @@ export default function BoxPage({
                         }
                       />
                       <StepperButton
-                        aria-label={`${t('ephyraeFull')} +1`}
+                        aria-label={`${t('ephyraeCountLabel')} +1`}
                         onStep={() =>
                           setForm((current) => ({
                             ...current,
@@ -1414,7 +1414,7 @@ export default function BoxPage({
                 {' '}
                 {subcultureSuccess.parent_polyp_count_before} →{' '}
                 {subcultureSuccess.parent_polyp_count_after}{' '}
-                {t('polyps').toLocaleLowerCase()}
+                {t('polypCountLabel').toLocaleLowerCase()}
               </>
             ) : null}
             {' — '}

@@ -413,6 +413,32 @@ test('changed validated targets must move to ai even if their source hash is fre
   );
 });
 
+test('a reviewer revision is accepted only for the exact approved transition', () => {
+  const key = 'weeklyDueNow';
+  const before = { fr: 'à relever', en: 'to record', ja: '記録待ち' };
+  const after = { ...before, ja: '未記録' };
+  const make = (copy, review = statuses(copy), name = key) =>
+    parseSections(section('labels', { [name]: copy }, { [name]: review }));
+  assert.deepEqual(validatedChanges(make(before), make(after)), []);
+  const stale = {
+    ...statuses(after),
+    ja: { ...statuses(after).ja, source_sha256: sha256('other') },
+  };
+  for (const candidate of [
+    make({ ...after, ja: '別の訳' }),
+    make(after, stale),
+  ]) {
+    assert.equal(validatedChanges(make(before), candidate).length, 1);
+  }
+  assert.equal(
+    validatedChanges(
+      make(before, statuses(before), 'other'),
+      make(after, statuses(after), 'other'),
+    ).length,
+    1,
+  );
+});
+
 test('changing a validated value without a status record reports a clear error', () => {
   const base = inventory();
   const current = inventory({ ...values, en: 'Tea {x}' });

@@ -7,8 +7,45 @@ import {
   parseSections,
   readSections,
   sectionsDirectory,
+  sha256,
   statusDirectory,
 } from './i18n-sections.mjs';
+
+// Product owner approval, 2026-11-27. Each fingerprint binds the exact EN
+// source, previous JA, and reviewer-supplied JA; a later edit is not approved.
+const approvedJapaneseRevisions = new Map([
+  [
+    'analysisTabLineage',
+    '54a307bb613a0d10d97afb8179b1b19611a97009463e7d37a4348268551d56f2',
+  ],
+  [
+    'lastMeasurement',
+    'e6fb0a3a2a1aae3251490ddf33f5a56512a0d654df7573b1af313a6ff58c8e14',
+  ],
+  [
+    'overviewByZone',
+    '340b882dca7fc0f59cc8564b6e70657720f4ab4ca0c00eb85dc4f79c50c8aae0',
+  ],
+  [
+    'overviewZoneUpToDate',
+    '0bb2db5c6c89a479a7af8af7762fb67aa7e9b4a8ed05f3b05ed28a6f7c245efa',
+  ],
+  [
+    'weeklyDueNow',
+    'd6bc747eaf61098a070c46ae91a37b6fd067384b19702b5374a10207463bfc52',
+  ],
+]);
+
+function isApprovedJapaneseRevision(key, before, after, status) {
+  const fingerprint = approvedJapaneseRevisions.get(key);
+  return (
+    fingerprint !== undefined &&
+    before.en === after.en &&
+    status.reviewer === 'japanese-reviewer' &&
+    status.source_sha256 === sha256(after.en) &&
+    fingerprint === sha256(JSON.stringify([after.en, before.ja, after.ja]))
+  );
+}
 
 /** Compare values, not source layout or metadata alone, with the reviewed baseline. */
 export function validatedChanges(previous, current) {
@@ -29,7 +66,13 @@ export function validatedChanges(previous, current) {
         errors.push(
           `${label}: changed validated value has no status record; set it to ai`,
         );
-      } else if (status.status !== 'ai') {
+      } else if (
+        status.status !== 'ai' &&
+        !(
+          language === 'ja' &&
+          isApprovedJapaneseRevision(key, before.values, after.values, status)
+        )
+      ) {
         errors.push(`${label}: changed validated value must be set to ai`);
       }
     }

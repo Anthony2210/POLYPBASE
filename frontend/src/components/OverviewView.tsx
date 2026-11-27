@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Language, Translator } from '../i18n';
 
-import type { BoxDetail, OverviewBox, OverviewMeasurementPoint } from '../types';
-import { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures, type OverviewHistoryState } from '../utils/overviewHistory';
+import type {
+  BoxDetail,
+  OverviewBox,
+  OverviewMeasurementPoint,
+} from '../types';
+import {
+  createOverviewHistory,
+  overviewDefaultRange,
+  scopeOverviewTemperatures,
+  type OverviewHistoryState,
+} from '../utils/overviewHistory';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 import PageLoader from './PageLoader';
@@ -10,7 +19,10 @@ import PolypbaseIcon from './PolypbaseIcon';
 import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
 import TemperatureHistoryStatus from './TemperatureHistoryStatus';
 import { useHistoricalTemperatures } from '../hooks/useHistoricalTemperatures';
-import { loadHistoricalTemperatures, weeklyTrendTemperatures } from '../utils/historicalTemperature';
+import {
+  loadHistoricalTemperatures,
+  weeklyTrendTemperatures,
+} from '../utils/historicalTemperature';
 import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
 import { useTemperatureChartActivation } from '../hooks/useTemperatureChartActivation';
 import { loadTemperatureHistory } from '../utils/temperatureHistory';
@@ -69,15 +81,19 @@ export default function OverviewView({
     // Share two slots across all cards and both sources, not two slots per card.
     const queue = createTemperatureLoadQueue(2);
     return {
-      daily: (boxId, range, signal) => queue.run(signal, () => loadTemperatureHistory(boxId, range, signal)),
-      historical: (boxId, range, signal) => queue.run(signal, () => loadHistoricalTemperatures(boxId, range, signal)),
+      daily: (boxId, range, signal) =>
+        queue.run(signal, () => loadTemperatureHistory(boxId, range, signal)),
+      historical: (boxId, range, signal) =>
+        queue.run(signal, () =>
+          loadHistoricalTemperatures(boxId, range, signal),
+        ),
     };
   }, []);
   const overviewBoxes = boxes ?? [];
   const noZoneLabel = t('noZone');
   const trackedEntries = useMemo<OverviewEntry[]>(
-    () => overviewBoxes
-      .map((box) => {
+    () =>
+      overviewBoxes.map((box) => {
         const latest = getLastItem(box.measurements);
         const daysSince = latest ? getDaysSinceDate(latest.date) : null;
         const status = getWeeklyStatus(daysSince);
@@ -89,7 +105,12 @@ export default function OverviewView({
           daysSince,
           status,
           zoneName,
-          searchText: [box.global_code, box.species_name, box.strain_code, zoneName]
+          searchText: [
+            box.global_code,
+            box.species_name,
+            box.strain_code,
+            zoneName,
+          ]
             .join(' ')
             .toLocaleLowerCase(),
         };
@@ -97,38 +118,67 @@ export default function OverviewView({
     [noZoneLabel, overviewBoxes],
   );
   const speciesOptions = useMemo(
-    () => Array.from(new Set(trackedEntries.map((entry) => entry.box.species_name))).sort(),
+    () =>
+      Array.from(
+        new Set(trackedEntries.map((entry) => entry.box.species_name)),
+      ).sort(),
     [trackedEntries],
   );
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredEntries = useMemo(
-    () => trackedEntries.filter((entry) => {
-      if (focusFilter === 'done' && entry.status !== 'ok') return false;
-      if (focusFilter === 'due' && entry.status !== 'due') return false;
-      if (focusFilter === 'soon' && entry.status !== 'soon') return false;
-      if (speciesFilter && entry.box.species_name !== speciesFilter) return false;
-      if (zoneFilter && entry.zoneName !== zoneFilter) return false;
-      return !normalizedQuery || entry.searchText.includes(normalizedQuery);
-    }).sort((first, second) => sortOverviewEntries(first, second, sortOrder)),
-    [focusFilter, normalizedQuery, sortOrder, speciesFilter, trackedEntries, zoneFilter],
+    () =>
+      trackedEntries
+        .filter((entry) => {
+          if (focusFilter === 'done' && entry.status !== 'ok') return false;
+          if (focusFilter === 'due' && entry.status !== 'due') return false;
+          if (focusFilter === 'soon' && entry.status !== 'soon') return false;
+          if (speciesFilter && entry.box.species_name !== speciesFilter)
+            return false;
+          if (zoneFilter && entry.zoneName !== zoneFilter) return false;
+          return !normalizedQuery || entry.searchText.includes(normalizedQuery);
+        })
+        .sort((first, second) => sortOverviewEntries(first, second, sortOrder)),
+    [
+      focusFilter,
+      normalizedQuery,
+      sortOrder,
+      speciesFilter,
+      trackedEntries,
+      zoneFilter,
+    ],
   );
   const visibleEntries = filteredEntries.slice(0, visibleCount);
-  const doneCount = trackedEntries.filter((entry) => entry.status === 'ok').length;
-  const dueCount = trackedEntries.filter((entry) => entry.status === 'due').length;
-  const soonCount = trackedEntries.filter((entry) => entry.status === 'soon').length;
-  const zoneSummaries = useMemo(() => buildOverviewZoneSummaries(trackedEntries), [trackedEntries]);
-  const toggleFocusFilter = (targetFilter: Exclude<OverviewFocusFilter, 'all'>) => {
-    setFocusFilter((currentFilter) => (currentFilter === targetFilter ? 'all' : targetFilter));
+  const doneCount = trackedEntries.filter(
+    (entry) => entry.status === 'ok',
+  ).length;
+  const dueCount = trackedEntries.filter(
+    (entry) => entry.status === 'due',
+  ).length;
+  const soonCount = trackedEntries.filter(
+    (entry) => entry.status === 'soon',
+  ).length;
+  const zoneSummaries = useMemo(
+    () => buildOverviewZoneSummaries(trackedEntries),
+    [trackedEntries],
+  );
+  const toggleFocusFilter = (
+    targetFilter: Exclude<OverviewFocusFilter, 'all'>,
+  ) => {
+    setFocusFilter((currentFilter) =>
+      currentFilter === targetFilter ? 'all' : targetFilter,
+    );
   };
   const toggleZoneFilter = (targetZoneName: string) => {
-    setZoneFilter((currentZoneName) => (currentZoneName === targetZoneName ? '' : targetZoneName));
+    setZoneFilter((currentZoneName) =>
+      currentZoneName === targetZoneName ? '' : targetZoneName,
+    );
   };
   const hasCustomizedOverview = Boolean(
-    focusFilter !== 'all'
-    || speciesFilter
-    || zoneFilter
-    || normalizedQuery
-    || sortOrder !== 'oldest',
+    focusFilter !== 'all' ||
+      speciesFilter ||
+      zoneFilter ||
+      normalizedQuery ||
+      sortOrder !== 'oldest',
   );
   const resetOverview = () => {
     setFocusFilter('all');
@@ -138,6 +188,7 @@ export default function OverviewView({
     setSortOrder('oldest');
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Restart pagination when a filter changes.
   useEffect(() => {
     setVisibleCount(12);
   }, [focusFilter, normalizedQuery, sortOrder, speciesFilter, zoneFilter]);
@@ -149,7 +200,12 @@ export default function OverviewView({
   return (
     <section className="overview-page">
       <header className="overview-intro overview-intro-priority">
-        <div className="overview-summary-actions" aria-label={t('overviewFilters')}>
+        {/* biome-ignore lint/a11y/useSemanticElements: These navigation filters are not form fields. */}
+        <div
+          className="overview-summary-actions"
+          role="group"
+          aria-label={t('overviewFilters')}
+        >
           <button
             type="button"
             aria-pressed={focusFilter === 'done'}
@@ -184,13 +240,18 @@ export default function OverviewView({
       </header>
 
       {zoneSummaries.length ? (
-        <section className="overview-zone-progress" aria-label={t('overviewByZone')}>
+        <section
+          className="overview-zone-progress"
+          aria-label={t('overviewByZone')}
+        >
           <header>
             <h2>{t('overviewByZone')}</h2>
           </header>
           <div
             className="overview-zone-progress-list"
-            data-layout={zoneSummaries.length > 5 ? 'many' : zoneSummaries.length}
+            data-layout={
+              zoneSummaries.length > 5 ? 'many' : zoneSummaries.length
+            }
           >
             {zoneSummaries.map((summary) => {
               const isZoneActive = zoneFilter === summary.zoneName;
@@ -222,12 +283,16 @@ export default function OverviewView({
         </section>
       ) : null}
 
-      <section className="overview-filters overview-filters-priority" aria-label={t('overviewFilters')}>
+      <section
+        className="overview-filters overview-filters-priority"
+        aria-label={t('overviewFilters')}
+      >
         <header className="overview-filters-header">
           <div>
             <strong>{t('overviewRefineList')}</strong>
             <span>
-              <b>{visibleEntries.length}</b>/{filteredEntries.length} {t('overviewShowing')}
+              <b>{visibleEntries.length}</b>/{filteredEntries.length}{' '}
+              {t('overviewShowing')}
             </span>
           </div>
           {hasCustomizedOverview ? (
@@ -251,10 +316,15 @@ export default function OverviewView({
           </label>
           <label>
             <span>{t('speciesLabel')}</span>
-            <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
+            <select
+              value={speciesFilter}
+              onChange={(event) => setSpeciesFilter(event.target.value)}
+            >
               <option value="">{t('overviewFilterAllSpecies')}</option>
               {speciesOptions.map((speciesName) => (
-                <option key={speciesName} value={speciesName}>{speciesName}</option>
+                <option key={speciesName} value={speciesName}>
+                  {speciesName}
+                </option>
               ))}
             </select>
           </label>
@@ -289,8 +359,10 @@ export default function OverviewView({
                 key={entry.box.id}
               >
                 <header>
+                  {/* biome-ignore lint/a11y/useSemanticElements: This reading summary has no form fields. */}
                   <div
                     className="overview-reading-age"
+                    role="group"
                     aria-label={`${entry.daysSince == null ? t('weeklyNoRecentReading') : t('weeklyLastReading')} ${entry.daysSince ?? ''}`.trim()}
                   >
                     <strong>
@@ -312,17 +384,28 @@ export default function OverviewView({
                       <button
                         type="button"
                         className="overview-zone-button"
-                        onClick={() => onOpenZone(entry.box.thermal_zone!.id)}
+                        onClick={() => {
+                          const zone = entry.box.thermal_zone;
+                          if (zone) onOpenZone(zone.id);
+                        }}
                       >
                         {entry.zoneName}
                       </button>
                     ) : (
-                      <small className="overview-zone-label">{entry.zoneName}</small>
+                      <small className="overview-zone-label">
+                        {entry.zoneName}
+                      </small>
                     )}
                   </div>
                 </header>
 
-                <OverviewMiniChart box={entry.box} loadHistory={loadHistory} temperatureLoaders={temperatureLoaders} language={language} t={t} />
+                <OverviewMiniChart
+                  box={entry.box}
+                  loadHistory={loadHistory}
+                  temperatureLoaders={temperatureLoaders}
+                  language={language}
+                  t={t}
+                />
               </article>
             ))}
           </div>
@@ -338,7 +421,9 @@ export default function OverviewView({
         </div>
       ) : (
         <p className="muted compact-text">
-          {trackedEntries.length ? t('overviewEmpty') : t('weeklyNoActiveBoxes')}
+          {trackedEntries.length
+            ? t('overviewEmpty')
+            : t('weeklyNoActiveBoxes')}
         </p>
       )}
     </section>
@@ -370,10 +455,12 @@ function buildOverviewZoneSummaries(entries: OverviewEntry[]) {
     summaries.set(entry.zoneName, currentSummary);
   });
 
-  return Array.from(summaries.values()).sort((first, second) => (
-    getOverviewZoneTemperature(first.zoneName) - getOverviewZoneTemperature(second.zoneName)
-    || first.zoneName.localeCompare(second.zoneName)
-  ));
+  return Array.from(summaries.values()).sort(
+    (first, second) =>
+      getOverviewZoneTemperature(first.zoneName) -
+        getOverviewZoneTemperature(second.zoneName) ||
+      first.zoneName.localeCompare(second.zoneName),
+  );
 }
 
 function getOverviewZoneTemperature(zoneName: string) {
@@ -384,10 +471,15 @@ function getOverviewZoneTemperature(zoneName: string) {
   return Number.isFinite(temperature) ? temperature : Number.POSITIVE_INFINITY;
 }
 
-function sortOverviewEntries(first: OverviewEntry, second: OverviewEntry, order: OverviewSortOrder) {
+function sortOverviewEntries(
+  first: OverviewEntry,
+  second: OverviewEntry,
+  order: OverviewSortOrder,
+) {
   const firstDays = first.daysSince ?? 9999;
   const secondDays = second.daysSince ?? 9999;
-  const dayDiff = order === 'oldest' ? secondDays - firstDays : firstDays - secondDays;
+  const dayDiff =
+    order === 'oldest' ? secondDays - firstDays : firstDays - secondDays;
   return dayDiff || first.box.global_code.localeCompare(second.box.global_code);
 }
 
@@ -401,8 +493,15 @@ function getDaysSinceDate(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsedDate.getTime())) return null;
   const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return Math.max(0, Math.floor((todayStart.getTime() - parsedDate.getTime()) / 86_400_000));
+  const todayStart = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  );
+  return Math.max(
+    0,
+    Math.floor((todayStart.getTime() - parsedDate.getTime()) / 86_400_000),
+  );
 }
 
 function OverviewMiniChart({
@@ -418,40 +517,85 @@ function OverviewMiniChart({
   language: Language;
   t: Translator;
 }) {
-  const recentWindow = useMemo(() => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)), [box]);
+  const recentWindow = useMemo(
+    () => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)),
+    [box],
+  );
   const earliestDate = box.earliest_biological_measurement_on;
   // The whole recorded history is the default view; the extent never shrinks below 3 months.
-  const defaultWindow = useMemo(() => ({
-    startDate: earliestDate && earliestDate < recentWindow.startDate ? earliestDate : recentWindow.startDate,
-    endDate: recentWindow.endDate,
-  }), [earliestDate, recentWindow]);
-  const initialState = useMemo<OverviewHistoryState>(() => ({
-    range: defaultWindow, measurements: box.measurements, locations: box.locations ?? [],
-    temperatures: scopeOverviewTemperatures(box),
-    complete: box.history_complete === true, loading: false, failedRange: null,
-  }), [box, defaultWindow]);
+  const defaultWindow = useMemo(
+    () => ({
+      startDate:
+        earliestDate && earliestDate < recentWindow.startDate
+          ? earliestDate
+          : recentWindow.startDate,
+      endDate: recentWindow.endDate,
+    }),
+    [earliestDate, recentWindow],
+  );
+  const initialState = useMemo<OverviewHistoryState>(
+    () => ({
+      range: defaultWindow,
+      measurements: box.measurements,
+      locations: box.locations ?? [],
+      temperatures: scopeOverviewTemperatures(box),
+      complete: box.history_complete === true,
+      loading: false,
+      failedRange: null,
+    }),
+    [box, defaultWindow],
+  );
   const [history, setHistory] = useState(initialState);
-  const controller = useRef<ReturnType<typeof createOverviewHistory> | null>(null);
+  const controller = useRef<ReturnType<typeof createOverviewHistory> | null>(
+    null,
+  );
   useEffect(() => {
     setHistory(initialState);
-    const current = createOverviewHistory(initialState, box.history_start_date,
-      () => loadHistory(box.id), setHistory);
+    const current = createOverviewHistory(
+      initialState,
+      box.history_start_date,
+      () => loadHistory(box.id),
+      setHistory,
+    );
     controller.current = current;
     // The default range is the full history: load it at once if the payload was partial.
     void current.select(initialState.range);
-    return () => { current.dispose(); controller.current = null; };
+    return () => {
+      current.dispose();
+      controller.current = null;
+    };
   }, [box, initialState, loadHistory]);
-  const orderedMeasurements = useMemo(() => history.measurements.filter((point) => point.duplicate_of == null)
-    .sort((left, right) => left.date.localeCompare(right.date)), [history.measurements]);
+  const orderedMeasurements = useMemo(
+    () =>
+      history.measurements
+        .filter((point) => point.duplicate_of == null)
+        .sort((left, right) => left.date.localeCompare(right.date)),
+    [history.measurements],
+  );
   const extentEnd = defaultWindow.endDate;
   const extentStart = defaultWindow.startDate;
   const { startDate, endDate } = history.range;
   const temperatureActivation = useTemperatureChartActivation(box.id);
   const temperatureBoxId = temperatureActivation.active ? box.id : undefined;
-  const temperatureHistory = useTemperatureHistory(temperatureBoxId, startDate, endDate, box, temperatureLoaders.daily);
-  const historicalTemperatures = useHistoricalTemperatures(temperatureBoxId, startDate, endDate, box, temperatureLoaders.historical);
+  const temperatureHistory = useTemperatureHistory(
+    temperatureBoxId,
+    startDate,
+    endDate,
+    box,
+    temperatureLoaders.daily,
+  );
+  const historicalTemperatures = useHistoricalTemperatures(
+    temperatureBoxId,
+    startDate,
+    endDate,
+    box,
+    temperatureLoaders.historical,
+  );
   const chartTemperatures = useMemo(
-    () => [...temperatureHistory.points, ...weeklyTrendTemperatures(historicalTemperatures.points)],
+    () => [
+      ...temperatureHistory.points,
+      ...weeklyTrendTemperatures(historicalTemperatures.points),
+    ],
     [temperatureHistory.points, historicalTemperatures.points],
   );
 
@@ -472,15 +616,30 @@ function OverviewMiniChart({
         extentEnd={extentEnd}
         extentStart={extentStart}
         language={language}
-        onChange={(nextStart, nextEnd) => { void controller.current?.select({ startDate: nextStart, endDate: nextEnd }); }}
+        onChange={(nextStart, nextEnd) => {
+          void controller.current?.select({
+            startDate: nextStart,
+            endDate: nextEnd,
+          });
+        }}
         startDate={startDate}
       />
-      {history.loading ? <p className="sr-only" role="status">{t('overviewHistoryLoading')}</p> : null}
+      {history.loading ? (
+        <p className="sr-only" role="status">
+          {t('overviewHistoryLoading')}
+        </p>
+      ) : null}
       {history.failedRange ? (
         <div role="alert">
           <p>{t('overviewHistoryFailed')}</p>
-          <button type="button" className="secondary-button compact-button"
-            onClick={() => { if (history.failedRange) void controller.current?.select(history.failedRange); }}>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            onClick={() => {
+              if (history.failedRange)
+                void controller.current?.select(history.failedRange);
+            }}
+          >
             {t('overviewHistoryRetry')}
           </button>
         </div>
@@ -495,33 +654,49 @@ function OverviewMiniChart({
           polypCount: point.polyp_count,
           ephyraeCount: point.ephyrae_count,
           salinity: point.salinity_psu,
-          environmentLocations: point.environment_locations === undefined && point.environment_source_box != null
-            ? []
-            : point.environment_locations?.map((location) => ({
-              id: location.id, name: location.thermal_zone.name,
-              startsAt: location.starts_at, endsAt: location.ends_at,
-              endDateUnknown: location.end_date_unknown,
-            })) ?? null,
+          environmentLocations:
+            point.environment_locations === undefined &&
+            point.environment_source_box != null
+              ? []
+              : (point.environment_locations?.map((location) => ({
+                  id: location.id,
+                  name: location.thermal_zone.name,
+                  startsAt: location.starts_at,
+                  endsAt: location.ends_at,
+                  endDateUnknown: location.end_date_unknown,
+                })) ?? null),
         }))}
         locations={locations}
         temperatures={chartTemperatures}
-        temperatureStatus={<>
-          <TemperatureHistoryStatus {...temperatureHistory} language={language} />
-          <HistoricalTemperatureStatus {...historicalTemperatures} language={language} />
-        </>}
+        temperatureStatus={
+          <>
+            <TemperatureHistoryStatus
+              {...temperatureHistory}
+              language={language}
+            />
+            <HistoricalTemperatureStatus
+              {...historicalTemperatures}
+              language={language}
+            />
+          </>
+        }
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),
           closeDetail: t('close'),
-          empty: t(!earliestDate && !orderedMeasurements.length ? 'overviewNoHistoryEver' : 'overviewNoHistory'),
-          ephyrae: t('ephyraeFull'),
+          empty: t(
+            !earliestDate && !orderedMeasurements.length
+              ? 'overviewNoHistoryEver'
+              : 'overviewNoHistory',
+          ),
+          ephyrae: t('ephyraeCountLabel'),
           location: language === 'fr' ? 'Emplacement' : 'Location',
           missingReading: t('chartMissingReading'),
           locationChange: t('locationPeriodChange'),
           locationChangeNote: t('locationPeriodChangeNote'),
           movement: t('movementEvent'),
           movementAtBoundaryNote: t('movementAtPeriodBoundaryNote'),
-          polyps: t('polyps'),
+          polyps: t('polypCountLabel'),
           salinity: 'PSU',
           temperature: t('temperature'),
           dailyTemperature: t('dailyTemperatureAggregate'),
@@ -533,7 +708,8 @@ function OverviewMiniChart({
           historicalPeriod: t('historicalTemperaturePeriod'),
           sourceLocation: t('recordedOriginalLocation'),
           temperatureOutsideScale: t('temperatureOutsideScale'),
-          selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
+          selectedReading:
+            language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
         }}
       />
     </div>

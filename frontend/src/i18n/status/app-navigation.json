@@ -275,6 +275,17 @@
       "reviewer": "japanese-reviewer"
     }
   },
+  "ephyraeCountLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fee3bf92e238f13f1277e7eb6a0bfe12728eb482a0976b3c0f62a5fc38c6e465"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c9c0c93c4fc4e4aa045913a51b74b37d875785c0caf72f42dc068f0b326f0c38",
+      "reviewer": "japanese-reviewer"
+    }
+  },
   "ephyraeFull": {
     "en": {
       "status": "validated",
@@ -499,6 +510,17 @@
     "ja": {
       "status": "validated",
       "source_sha256": "a439fba430a33b87ab005d350187fb06e2d7e8ff35d3d029ad4f09cec942ada0",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "polypCountLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5aca946e913a38d6e589d693aee5a0ce210935a12bf8114a0c68d182918ea02b"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "6bcdd10663d4c8cec3bad831f6c4cd702fef6ab85abf1b0d2a7f5e3e89762cf4",
       "reviewer": "japanese-reviewer"
     }
   },
