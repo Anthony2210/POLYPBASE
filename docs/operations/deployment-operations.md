@@ -234,8 +234,20 @@ files owned by `polypbase_backup` whose names exactly match
 `nightly-<YYYYMMDDTHHMMSSZ>.dump` or `pre-<8 lowercase hex>-<YYYYMMDDTHHMMSSZ>.dump`.
 Older name formats, links, directories, and files of other owners are never
 touched. If the backup just written is not the newest of its category (a clock
-anomaly or a concurrent backup), it deletes nothing. A pruning failure prints
-`RETENTION_ERROR` but does not fail the backup or the deployment.
+anomaly or a concurrent backup), it deletes nothing.
+
+A pruning failure prints `RETENTION_ERROR` and keeps the backup just written.
+Broker exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Backup verified; retention done, or failed during a pre-deploy run. |
+| `1` | `BACKUP_ERROR`: no verified backup; nothing was deleted. |
+| `3` | Nightly run only: backup verified and kept, retention failed. |
+
+A pre-deploy retention failure never fails the backup or the deployment. A
+nightly one fails `polypbase-backup.service` with status 3, so `OnFailure=`
+alerting can report it; check the `RETENTION` lines in the journal.
 
 Preview the plan without deleting anything. Root runs it as the backup account;
 the broker refuses root itself. It needs no database access and writes no backup.
@@ -258,12 +270,13 @@ journalctl -u polypbase-backup.service --since -30d -o cat --no-pager | grep -E 
 grep -h '^RETENTION' /srv/polypbase/deployments/deploy-*.log
 ```
 
-The broker is installed by root, so this change reaches the VM only when root
-reinstalls it from a reviewed, root-controlled snapshot. Updating an already
-cut-over VM needs explicit production approval. Reuse the step 1 definitions and
-`stop_timer_and_wait_for_backup` from the
-[cutover](#one-time-root-cutover-for-backup-approval), save the current broker,
-install the new one, preview, then restart the timer:
+The broker is installed by root, so retention reaches the VM only when root
+installs it from a reviewed, root-controlled snapshot. On a VM that has not had
+the [cutover](#one-time-root-cutover-for-backup-approval), it ships through
+cutover step 2. For a later broker update after the cutover (explicit production
+approval required), reuse the step 1 definitions and
+`stop_timer_and_wait_for_backup`, save the current broker, install the new one,
+preview, then restart the timer:
 
 ```bash
 stop_timer_and_wait_for_backup || exit 1
@@ -344,8 +357,8 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    root-only rollback directory. Save only the broker and unit files, not
    the JSON or anything containing credentials. Install the new broker first:
    the old one still requires `approved_commit` and a SHA argument. This broker
-   applies [retention](#deployment-backup-retention) after each backup in step 4;
-   run its dry run after the install line and review the plan before going on.
+   applies [retention](#deployment-backup-retention) after every backup from
+   step 4 on. Review its dry-run plan, which deletes nothing, before going on.
 
    ```bash
    stop_timer_and_wait_for_backup || exit 1
@@ -354,6 +367,7 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    cp -p -- "$broker" "$fragment" "$dropins/10-isolated-broker.conf" \
      "$dropins/20-current-release.conf" "$saved/"
    install -o root -g root -m 0755 deploy/scripts/trusted_deployment_backup.py "$broker"
+   runuser -u polypbase_backup -- "$broker" --retention-dry-run
    ```
 
 3. Remove just `approved_commit` from the JSON with a root editor that leaves
@@ -383,7 +397,9 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    owned by `polypbase_backup`. The web account must not be able to read the
    archive or the config. Then check the deploy-time sudo call with a reviewed
    full SHA (a second backup, not a deployment). Start the timer again only
-   after both checks succeed.
+   after both checks succeed. If `systemctl start` fails and
+   `systemctl show "$unit" -p ExecMainStatus` reports `3`, the backup was kept
+   but retention failed: stop and review the `RETENTION` journal lines.
 
    ```bash
    started=$(date '+%Y-%m-%d %H:%M:%S')
