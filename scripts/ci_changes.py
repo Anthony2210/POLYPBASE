@@ -20,7 +20,9 @@ def classify(paths):
             selected.add("frontend")
         if path.startswith(b"docs/translation-review/application/"):
             selected.add("backend")
-        if path.startswith(b"scripts/"):
+        if path == b"scripts/pr_tools.ps1":
+            selected.add("deploy_scripts")
+        elif path.startswith(b"scripts/"):
             selected.update(("backend", "backend_postgres"))
         if path.startswith(b"deploy/"):
             selected.add("deploy_scripts")
@@ -31,7 +33,10 @@ def classify(paths):
 
 def git(*args):
     return subprocess.run(
-        ["git", "--no-pager", *args], check=True, capture_output=True, timeout=60,
+        ["git", "--no-pager", *args],
+        check=True,
+        capture_output=True,
+        timeout=60,
     ).stdout
 
 
@@ -55,8 +60,15 @@ def changed_paths(env):
     # Keep filenames as bytes and treat renames as deletion + addition so both
     # sides of a move can trigger their checks. No filenames enter the output.
     return git(
-        "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff",
-        "--no-textconv", f"{base}^{{commit}}", f"{head}^{{commit}}", "--",
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        f"{base}^{{commit}}",
+        f"{head}^{{commit}}",
+        "--",
     ).split(b"\0")
 
 

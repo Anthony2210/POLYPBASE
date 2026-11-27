@@ -30,6 +30,7 @@ straight to the canonical page rather than through a compatibility stub.
 | User-facing text, FR/EN/JA catalogs, and usage checks | [Terminology and i18n](reference/terminology-i18n.md) · [Application translation register](translation-review/application/README.md) |
 | Django models, constraints, and traceability | [Data model](reference/data-model.md) |
 | Set up a development environment | [Getting started](../README.md) |
+| Windows worktrees, draft PRs, merges, Dependabot, and cleanup | [Local pull request workflow](operations/local-pr-workflow.md) |
 | Tests, browser QA, and migrations in an isolated environment | [Development and QA](operations/development-qa.md) |
 | Release, backups, dedicated migrator, or VM-side iMinilide collection | [Deployment and operations](operations/deployment-operations.md) |
 | Demo and isolation requirements | [Isolated demo](operations/isolated-demo.md) |
