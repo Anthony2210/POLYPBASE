@@ -3,26 +3,26 @@ name = "polypbase"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "asgiref==3.11.1",
+    "asgiref==3.13.0",
     "django==5.2.17",
-    "djangorestframework==3.16.1",
+    "djangorestframework==3.18.3",
     "gunicorn==26.0.0",
-    "psycopg[binary]==3.3.2",
-    "python-dotenv==1.2.2",
+    "psycopg[binary]==3.3.9",
+    "python-dotenv==1.2.4",
     "qrcode>=8.2",
-    "sqlparse==0.6.0",
-    "tzdata==2026.2",
+    "sqlparse==0.6.1",
+    "tzdata==2026.6",
 ]
 
 [dependency-groups]
 analysis = [
-    "ipykernel>=7.2.0",
-    "jupyterlab>=4.5.7",
-    "matplotlib>=3.10.9",
-    "numpy>=2.4.6",
+    "ipykernel>=7.4.0",
+    "jupyterlab>=4.6.6",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.5",
     "openpyxl>=3.1.5",
-    "pandas>=3.0.3",
-    "scikit-learn>=1.8.0",
+    "pandas>=3.1.1",
+    "scikit-learn>=1.9.1",
     "seaborn>=0.13.2",
 ]
 quality = ["ruff==0.17.6"]
