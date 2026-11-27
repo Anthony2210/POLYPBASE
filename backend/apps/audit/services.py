@@ -664,15 +664,17 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         )
 
     if family == "boxes" and _is_box_movement(metadata):
+        # fmt: off
+        # COMPAT: frontend/scripts/test-audit-presentation.mjs matches the
+        # from_zone line verbatim; keep it on one line.
         return _compact_details(
             "box_movement",
-            from_zone=_safe_string(
-                metadata.get("from_thermal_zone_name"), allow_empty=True
-            ),
+            from_zone=_safe_string(metadata.get("from_thermal_zone_name"), allow_empty=True),
             to_zone=_safe_string(metadata.get("to_thermal_zone_name")),
             moved_at=_safe_string(metadata.get("moved_at")),
             note=_safe_string(metadata.get("note"), allow_empty=True),
         )
+        # fmt: on
 
     if family == "boxes" and isinstance(metadata.get("transition"), str):
         after_candidate = metadata.get("after")
