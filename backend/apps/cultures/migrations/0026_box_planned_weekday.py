@@ -5,16 +5,53 @@ rebuilding cultures_box breaks the history triggers that reference it (see
 0022). On SQLite the named CHECK is therefore attached to the new column in
 place, and rollback drops that column in place. PostgreSQL uses the ordinary
 operations.
+
+Rollback is refused while any Box has a planned weekday: dropping the column
+would discard planning data. config.rollback_preflight runs the same guard
+before any migration of a plan is unapplied.
 """
 
 import django.core.validators
 from django.db import NotSupportedError, migrations, models
+from django.db.migrations.exceptions import IrreversibleError
 
 CONSTRAINT = models.CheckConstraint(
     condition=models.Q(planned_weekday__isnull=True)
     | models.Q(planned_weekday__gte=1, planned_weekday__lte=7),
     name="box_planned_weekday_iso_range",
 )
+
+
+def refuse_planned_weekday_loss(apps, schema_editor):
+    """Allow rollback only when no Box has a planned weekday."""
+    connection = schema_editor.connection
+    Box = apps.get_model("cultures", "Box")
+    if connection.vendor == "postgresql":
+        if not connection.in_atomic_block:
+            raise IrreversibleError(
+                "Planned weekday rollback requires an atomic migration."
+            )
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW transaction_isolation")
+            if cursor.fetchone()[0] != "read committed":
+                raise IrreversibleError(
+                    "Planned weekday rollback requires READ COMMITTED isolation."
+                )
+            # Exclude writers before counting; NOWAIT refuses a busy table
+            # instead of waiting. The lock is held through the column drop.
+            table = connection.ops.quote_name(Box._meta.db_table)
+            cursor.execute(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE NOWAIT")
+    count = (
+        Box.objects.using(connection.alias)
+        .filter(planned_weekday__isnull=False)
+        .count()
+    )
+    if count:
+        raise IrreversibleError(
+            f"Rollback would discard the planned weekday of {count} box(es). "
+            "Every value is kept in the audit log (event "
+            "box_planned_weekday_updated). Clear them or retain migration 0026."
+        )
 
 
 class AddPlannedWeekdayField(migrations.AddField):
@@ -86,4 +123,6 @@ class Migration(migrations.Migration):
             ),
         ),
         AddPlannedWeekdayConstraint(model_name="box", constraint=CONSTRAINT),
+        # Last operation, so its reverse runs before the constraint and column drop.
+        migrations.RunPython(migrations.RunPython.noop, refuse_planned_weekday_loss),
     ]

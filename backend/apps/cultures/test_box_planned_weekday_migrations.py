@@ -1,6 +1,7 @@
-"""Migration 0026 adds an empty planned weekday and reverses without touching other data."""
+"""Migration 0026 adds an empty planned weekday and reverses only once every value is null."""
 
 from django.db import IntegrityError, connection, transaction
+from django.db.migrations.exceptions import IrreversibleError
 from django.test import TransactionTestCase
 
 from config.migration_test_utils import MigrationExecutor, historical_targets
@@ -86,6 +87,17 @@ class BoxPlannedWeekdayMigrationTests(TransactionTestCase):
                 Box.objects.filter(pk=box.pk).update(planned_weekday=value)
         Box.objects.filter(pk=box.pk).update(planned_weekday=7)
 
+        # Direct executor use skips the preflight; the migration's own guard
+        # still refuses before dropping anything.
+        with self.assertRaisesRegex(
+            IrreversibleError, r"planned weekday of 1 box\(es\).*audit log"
+        ):
+            self.migrate(BEFORE)
+        self.assertIn("planned_weekday", self.box_columns())
+        self.assertIn(AFTER, MigrationExecutor(connection).loader.applied_migrations)
+        self.assertEqual(Box.objects.get(pk=box.pk).planned_weekday, 7)
+
+        Box.objects.filter(pk=box.pk).update(planned_weekday=None)
         apps = self.migrate(BEFORE)
         self.assertNotIn("planned_weekday", self.box_columns())
         self.assertEqual(self.triggers(), triggers)

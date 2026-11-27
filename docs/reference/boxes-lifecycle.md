@@ -144,6 +144,7 @@ Historical results and limits: [`../qa/box-dna-validation/README.md`](../archive
 - Writing: `PATCH /api/boxes/<box_id>/planned-weekday/` with `{"planned_weekday": 1..7 | null}`. Only an active Admin of the box's institution may set or clear it, with the same checks as the other admin box actions. A Technician or a read-only user gets `403`; a box of another institution or a merged box gets `404`. Other values, strings, and booleans get `400`. The rule does not depend on the box status: active, inactive, and pending boxes can be edited.
 - Audit: each real change writes an `AuditLog` (`event: box_planned_weekday_updated`) whose `modifications.planned_weekday` stores the before and after values. It appears in the box history like other box field changes. Saving the same value writes nothing. The Django admin shows the field read-only.
 - Transplants: see [Transplants and lineages](#transplants-and-lineages).
+- Rollback: reversing migration `cultures.0026_box_planned_weekday` is refused while any box has a planned weekday. The error gives the number of boxes and points to the audit log, which keeps every value. Like `0022` and `0023`, it is a protected migration in `config/rollback_preflight.py`: a rollback plan that also unapplies other migrations is refused even when every value is empty, so `0026` must be rolled back on its own first.
 
 ## Entry points
 

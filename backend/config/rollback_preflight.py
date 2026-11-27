@@ -38,6 +38,7 @@ from django.db.migrations.exceptions import IrreversibleError
 REVERSE_GUARDS = {
     ("cultures", "0022_box_global_identity"): "refuse_identity_loss",
     ("cultures", "0023_box_local_id_alias"): "refuse_lossy_rollback",
+    ("cultures", "0026_box_planned_weekday"): "refuse_planned_weekday_loss",
     ("measurements", "0019_box_creation_initial_origin"): "refuse_populated_rollback",
     ("taxonomy", "0013_institutionstraincreationrequest"): "refuse_receipt_loss",
     ("taxonomy", "0014_speciescodechangerequest"): "refuse_receipt_loss",

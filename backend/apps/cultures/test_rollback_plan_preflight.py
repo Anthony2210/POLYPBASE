@@ -38,20 +38,9 @@ CULTURES_0022 = ("cultures", "0022_box_global_identity")
 CULTURES_0023 = ("cultures", "0023_box_local_id_alias")
 CULTURES_0024_HARDENING = ("cultures", "0024_local_id_guard_search_path")
 TAXONOMY_0012 = ("taxonomy", "0012_institution_species_foundation")
+CULTURES_0025 = ("cultures", "0025_merge_local_id_hardening_and_donations")
 CULTURES_0026 = ("cultures", "0026_box_planned_weekday")
 Reason = BoxGlobalIdentity.AllocationReason
-
-
-def without_planned_weekday(snapshot):
-    """Expected state after also undoing 0026, which only drops its own column."""
-    columns = snapshot["columns"]["cultures_box"]
-    return {
-        **snapshot,
-        "columns": {
-            **snapshot["columns"],
-            "cultures_box": [name for name in columns if name != "planned_weekday"],
-        },
-    }
 
 
 def sqlstate(error):
@@ -322,9 +311,62 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
         )
         self.assert_refused_without_change(CULTURES_0022, "Multi-migration rollback")
 
+    def test_planned_weekday_rollback_is_refused_while_any_box_has_one(self):
+        planned, other = self.box(1), self.box(2)
+        self.box(3)
+        Box.objects.filter(pk=planned.pk).update(planned_weekday=1)
+        Box.objects.filter(pk=other.pk).update(planned_weekday=7)
+        self.assertEqual(
+            [
+                name
+                for _, name in rollback_preflight.guarded_migrations(
+                    MigrationExecutor(connection).migration_plan([CULTURES_0025])
+                )
+            ],
+            ["refuse_planned_weekday_loss"],
+        )
+        self.assert_refused_without_change(
+            CULTURES_0025,
+            r"planned weekday of 2 box\(es\)\. Every value is kept in the audit log",
+        )
+        self.assertIn(
+            CULTURES_0026, MigrationExecutor(connection).loader.applied_migrations
+        )
+        self.assertEqual(
+            dict(
+                Box.objects.filter(planned_weekday__isnull=False).values_list(
+                    "pk", "planned_weekday"
+                )
+            ),
+            {planned.pk: 1, other.pk: 7},
+        )
+
+    def test_planned_weekday_rollback_reverses_when_every_value_is_null(self):
+        self.box()
+        before = self.snapshot()
+        self.migrate(CULTURES_0025)
+        after = self.snapshot()
+        self.assertNotIn(
+            CULTURES_0026, MigrationExecutor(connection).loader.applied_migrations
+        )
+        self.assertNotIn("planned_weekday", after["columns"]["cultures_box"])
+        self.assertEqual(
+            after.pop("migrations"),
+            [row for row in before.pop("migrations") if row[:2] != CULTURES_0026],
+        )
+        before["columns"]["cultures_box"].remove("planned_weekday")
+        # Only the column goes: boxes, triggers and every other table are unchanged.
+        self.assertEqual(after, before)
+        if connection.vendor == "postgresql":
+            self.assertFalse(self.holds_registry_key())
+
     def test_merge_only_rollback_is_still_allowed_with_global_ids(self):
         box, identity = self.assigned_global_id()
         target = CULTURES_0024_HARDENING
+        # 0026 is protected: a plan crossing it is refused even when empty, so
+        # it is rolled back on its own first.
+        self.assert_refused_without_change(target, "Multi-migration rollback")
+        self.migrate(CULTURES_0025)
         plan = MigrationExecutor(connection).migration_plan([target])
         self.assertEqual(
             [
@@ -332,20 +374,23 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
                 for migration, backwards in plan
             ],
             [
-                (*CULTURES_0026, True),
                 ("cultures", "0025_merge_local_id_hardening_and_donations", True),
             ],
         )
         before = self.snapshot()
         self.migrate(target)
         after = self.snapshot()
-        removed = {(migration.app_label, migration.name) for migration, _ in plan}
         self.assertEqual(
             after.pop("migrations"),
-            [row for row in before.pop("migrations") if row[:2] not in removed],
+            [
+                row
+                for row in before.pop("migrations")
+                if row[:2]
+                != ("cultures", "0025_merge_local_id_hardening_and_donations")
+            ],
         )
-        self.assertEqual(after, without_planned_weekday(before))
-        # The current model would select the planned weekday column 0026 just removed.
+        self.assertEqual(after, before)
+        # The current model would select the planned weekday column 0026 removed.
         self.assertEqual(
             Box.objects.filter(pk=box.pk)
             .values_list("global_identity_id", flat=True)
@@ -357,6 +402,8 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
 
     def test_lossless_partial_rollback_is_still_allowed_with_global_ids(self):
         box, identity = self.assigned_global_id()
+        # 0026 is protected and rolled back on its own first (see merge-only test).
+        self.migrate(CULTURES_0025)
         executor = MigrationExecutor(connection)
         plan = executor.migration_plan([CULTURES_0023])
         self.assertEqual(
@@ -365,7 +412,6 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
                 for migration, backwards in plan
             ],
             [
-                (*CULTURES_0026, True),
                 ("cultures", "0025_merge_local_id_hardening_and_donations", True),
                 ("cultures", "0024_local_id_guard_search_path", True),
                 ("cultures", "0024_merge_donation_and_local_identity", True),
@@ -380,7 +426,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
             after.pop("migrations"),
             [row for row in before.pop("migrations") if row[:2] not in removed],
         )
-        self.assertEqual(after, without_planned_weekday(before))
+        self.assertEqual(after, before)
         plan = MigrationExecutor(connection).migration_plan([CULTURES_0022])
         self.assertEqual(
             [
