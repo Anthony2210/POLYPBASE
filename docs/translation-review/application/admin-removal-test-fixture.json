@@ -4,7 +4,7 @@
   "catalog_sha256": {
     "fr": "b68bb100bf8de4a9719668949e793dd2a86061d01fb3a003a8eee8c806624d7b",
     "en": "7595b92a3e36f6d81a7d720f1f8261c39e713a53daa755007246eb9458199b9a",
-    "ja": "bfd9281cc6cb8f31fdabdca895fba688f00f15439639ff097edee870dc1fedb9"
+    "ja": "fbf104463753a848ca7d2442d7689f5ac1be554ee14f0e7cc370fdf0c9ba6652"
   },
   "retired_line_indices": {
     "adminAddOrganization": [1174, 1176, 458],
