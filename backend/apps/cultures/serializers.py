@@ -29,18 +29,26 @@ from apps.cultures.models import (
     ThermalZone,
 )
 from apps.measurements.models import BiologicalMeasurement, Probe, SalinityMeasurement
+
 # Keep the existing public import path without limiting other serializer exports.
 from apps.measurements.serializers import (
     BiologicalMeasurementCreateSerializer as BiologicalMeasurementCreateSerializer,
 )
 from apps.measurements.probe_readings import zone_probe_monitoring
 from apps.measurements.thermal_control import zone_thermal_control
-from apps.measurements.services import get_active_measurement_role, get_measurement_editability
+from apps.measurements.services import (
+    get_active_measurement_role,
+    get_measurement_editability,
+)
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 from apps.taxonomy.scoping import eligible_strains
-from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
+from .polyp_state import (
+    current_state_prefetches,
+    current_polyp_total,
+    resolve_current_polyp_state,
+)
 from .temperature_history import (
     MAX_TEMPERATURE_RANGE_DAYS,
     box_temperature_queryset,
@@ -83,6 +91,16 @@ class StrainSummarySerializer(serializers.ModelSerializer):
         fields = ["id", "code", "number", "origin_code", "species"]
 
 
+class NamedStrainSummarySerializer(StrainSummarySerializer):
+    name = serializers.SerializerMethodField(allow_null=True)
+
+    class Meta(StrainSummarySerializer.Meta):
+        fields = StrainSummarySerializer.Meta.fields + ["name"]
+
+    def get_name(self, obj):
+        return self.context["box_strain_names"].get(obj.pk)
+
+
 class ThermalZoneSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = ThermalZone
@@ -100,7 +118,14 @@ class BoxLocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BoxLocation
-        fields = ["id", "thermal_zone", "starts_at", "ends_at", "end_date_unknown", "notes"]
+        fields = [
+            "id",
+            "thermal_zone",
+            "starts_at",
+            "ends_at",
+            "end_date_unknown",
+            "notes",
+        ]
 
 
 class BoxMovementSerializer(serializers.ModelSerializer):
@@ -232,12 +257,18 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
                 return box_list_locations[key]
         cache = self.context.setdefault("environment_locations_by_box", {})
         if obj.environment_source_box_id not in cache:
-            locations = BoxLocation.objects.filter(
-                box_id=obj.environment_source_box_id,
-                box__organization_id=obj.box.organization_id,
-                thermal_zone__organization_id=obj.box.organization_id,
-            ).select_related("thermal_zone").order_by("starts_at", "pk")
-            cache[obj.environment_source_box_id] = BoxLocationSerializer(locations, many=True).data
+            locations = (
+                BoxLocation.objects.filter(
+                    box_id=obj.environment_source_box_id,
+                    box__organization_id=obj.box.organization_id,
+                    thermal_zone__organization_id=obj.box.organization_id,
+                )
+                .select_related("thermal_zone")
+                .order_by("starts_at", "pk")
+            )
+            cache[obj.environment_source_box_id] = BoxLocationSerializer(
+                locations, many=True
+            ).data
         return cache[obj.environment_source_box_id]
 
     def get_can_edit(self, obj):
@@ -324,11 +355,15 @@ class BoxListSerializer(serializers.ModelSerializer):
             # Relation prefetches can contain only the latest row, not history.
             # One cached aggregate keeps bare/detail objects correct and bounded.
             if not hasattr(obj, "_measurement_date_bounds"):
-                obj._measurement_date_bounds = BiologicalMeasurement.objects.canonical().filter(
-                    box_id=obj.pk,
-                ).aggregate(
-                    first_measurement_on=Min("measured_on"),
-                    last_measurement_on=Max("measured_on"),
+                obj._measurement_date_bounds = (
+                    BiologicalMeasurement.objects.canonical()
+                    .filter(
+                        box_id=obj.pk,
+                    )
+                    .aggregate(
+                        first_measurement_on=Min("measured_on"),
+                        last_measurement_on=Max("measured_on"),
+                    )
                 )
             value = obj._measurement_date_bounds[name]
         return value.isoformat() if value is not None else None
@@ -366,9 +401,15 @@ class BoxListSerializer(serializers.ModelSerializer):
         if measurements is None:
             measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
-            measurement = next((m for m in measurements if m.duplicate_of_id is None), None)
+            measurement = next(
+                (m for m in measurements if m.duplicate_of_id is None), None
+            )
         else:
-            measurement = obj.biological_measurements.canonical().order_by("-week_start", "-created_at", "-pk").first()
+            measurement = (
+                obj.biological_measurements.canonical()
+                .order_by("-week_start", "-created_at", "-pk")
+                .first()
+            )
         return (
             self._latest_measurement_serializer.to_representation(measurement)
             if measurement
@@ -386,12 +427,16 @@ class BoxListSerializer(serializers.ModelSerializer):
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
             for measurement in measurements:  # ordered most-recent first
-                if measurement.duplicate_of_id is None and measurement.salinity_psu is not None:
+                if (
+                    measurement.duplicate_of_id is None
+                    and measurement.salinity_psu is not None
+                ):
                     return _render_salinity(measurement.salinity_psu)
             return None
 
         latest = (
-            obj.biological_measurements.canonical().filter(salinity_psu__isnull=False)
+            obj.biological_measurements.canonical()
+            .filter(salinity_psu__isnull=False)
             .order_by("-week_start", "-created_at", "-pk")
             .first()
         )
@@ -439,22 +484,33 @@ class BoxInventorySerializer(serializers.ModelSerializer):
         if hasattr(obj, "first_measurement_on_annotation"):
             first_measurement_on = obj.first_measurement_on_annotation
         else:
-            first_measurement_on = obj.biological_measurements.canonical().order_by(
-                "measured_on",
-                "created_at",
-            ).values_list("measured_on", flat=True).first()
+            first_measurement_on = (
+                obj.biological_measurements.canonical()
+                .order_by(
+                    "measured_on",
+                    "created_at",
+                )
+                .values_list("measured_on", flat=True)
+                .first()
+            )
         return (first_measurement_on or obj.created_on).isoformat()
 
     def get_latest_measurement(self, obj):
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
-            measurement = next((m for m in measurements if m.duplicate_of_id is None), None)
+            measurement = next(
+                (m for m in measurements if m.duplicate_of_id is None), None
+            )
         else:
-            measurement = obj.biological_measurements.canonical().order_by(
-                "-week_start",
-                "-created_at",
-                "-pk",
-            ).first()
+            measurement = (
+                obj.biological_measurements.canonical()
+                .order_by(
+                    "-week_start",
+                    "-created_at",
+                    "-pk",
+                )
+                .first()
+            )
         return (
             BiologicalMeasurementSerializer(measurement, context=self.context).data
             if measurement
@@ -466,10 +522,14 @@ class BoxInventorySerializer(serializers.ModelSerializer):
         if locations is not None:
             location = next(iter(locations), None)
         else:
-            location = obj.locations.select_related("thermal_zone").order_by(
-                "-starts_at",
-                "-id",
-            ).first()
+            location = (
+                obj.locations.select_related("thermal_zone")
+                .order_by(
+                    "-starts_at",
+                    "-id",
+                )
+                .first()
+            )
         return BoxLocationSerializer(location).data if location else None
 
 
@@ -479,14 +539,20 @@ class BoxTemperatureHistoryQuerySerializer(serializers.Serializer):
 
     def validate(self, attrs):
         for field in ("start", "end"):
-            if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", self.initial_data[field]):
+            if not re.fullmatch(
+                r"[0-9]{4}-[0-9]{2}-[0-9]{2}", self.initial_data[field]
+            ):
                 raise serializers.ValidationError({field: _("Use YYYY-MM-DD format.")})
         if attrs["end"] < attrs["start"]:
-            raise serializers.ValidationError({"end": _("End must be on or after start.")})
+            raise serializers.ValidationError(
+                {"end": _("End must be on or after start.")}
+            )
         if (attrs["end"] - attrs["start"]).days >= MAX_TEMPERATURE_RANGE_DAYS:
-            raise serializers.ValidationError({
-                "end": _("The date range must not exceed 366 days, inclusive."),
-            })
+            raise serializers.ValidationError(
+                {
+                    "end": _("The date range must not exceed 366 days, inclusive."),
+                }
+            )
         return attrs
 
 
@@ -525,16 +591,24 @@ class BoxDetailSerializer(BoxListSerializer):
     can_edit_dna_validation = serializers.SerializerMethodField()
 
     def get_dna_validation(self, obj):
-        validation = obj.dna_validations.filter(revoked_at__isnull=True).select_related("created_by").first()
+        validation = (
+            obj.dna_validations.filter(revoked_at__isnull=True)
+            .select_related("created_by")
+            .first()
+        )
         return BoxDnaValidationSerializer(validation).data if validation else None
 
     def get_can_edit_dna_validation(self, obj):
         from .dna_validation import can_edit_dna_validation
 
         request = self.context.get("request")
-        return bool(request and can_edit_dna_validation(
-            user=request.user, organization=obj.organization,
-        ))
+        return bool(
+            request
+            and can_edit_dna_validation(
+                user=request.user,
+                organization=obj.organization,
+            )
+        )
 
     tags = IdentificationTagSerializer(many=True, read_only=True)
     temperature_history = serializers.SerializerMethodField()
@@ -553,29 +627,49 @@ class BoxDetailSerializer(BoxListSerializer):
     def get_biological_measurements(self, obj):
         readings = _prefetched_list(obj, "biological_measurements")
         if readings is None:
-            readings = obj.biological_measurements.canonical().select_related("user", "original_observer", "imported_by")
+            readings = obj.biological_measurements.canonical().select_related(
+                "user", "original_observer", "imported_by"
+            )
         return BiologicalMeasurementSerializer(
-            [m for m in readings if m.duplicate_of_id is None], many=True, context=self.context,
+            [m for m in readings if m.duplicate_of_id is None],
+            many=True,
+            context=self.context,
         ).data
 
     def get_duplicate_measurements(self, obj):
         # Query the model directly: the related manager may hold a prefetch
         # already restricted to canonical rows, which would hide the evidence.
-        readings = BiologicalMeasurement.objects.filter(
-            box_id=obj.pk, duplicate_of__isnull=False,
-        ).select_related("user", "original_observer", "imported_by").order_by("week_start", "pk")
-        return BiologicalMeasurementSerializer(readings, many=True, context=self.context).data
+        readings = (
+            BiologicalMeasurement.objects.filter(
+                box_id=obj.pk,
+                duplicate_of__isnull=False,
+            )
+            .select_related("user", "original_observer", "imported_by")
+            .order_by("week_start", "pk")
+        )
+        return BiologicalMeasurementSerializer(
+            readings, many=True, context=self.context
+        ).data
 
     def get_identity_history(self, obj):
-        sources = obj.merged_sources.filter(organization_id=obj.organization_id).prefetch_related("locations__thermal_zone")
-        return [{
-            "id": source.pk, "global_code": source.previous_global_code,
-            "merged_into": obj.pk,
-            "locations": BoxLocationSerializer(source.locations.all(), many=True).data,
-        } for source in sources]
+        sources = obj.merged_sources.filter(
+            organization_id=obj.organization_id
+        ).prefetch_related("locations__thermal_zone")
+        return [
+            {
+                "id": source.pk,
+                "global_code": source.previous_global_code,
+                "merged_into": obj.pk,
+                "locations": BoxLocationSerializer(
+                    source.locations.all(), many=True
+                ).data,
+            }
+            for source in sources
+        ]
 
     def get_biological_timeline(self, obj):
         from .biological_timeline import biological_timeline
+
         return biological_timeline(obj, context=self.context)
 
     class Meta(BoxListSerializer.Meta):
@@ -669,8 +763,18 @@ class BoxDetailSerializer(BoxListSerializer):
         }
 
 
+class ScopedBoxListSerializer(BoxListSerializer):
+    strain = NamedStrainSummarySerializer(read_only=True)
+
+
+class ScopedBoxDetailSerializer(BoxDetailSerializer):
+    strain = NamedStrainSummarySerializer(read_only=True)
+
+
 class BoxDeactivateSerializer(serializers.Serializer):
-    reason = serializers.CharField(max_length=250, allow_blank=False, trim_whitespace=True)
+    reason = serializers.CharField(
+        max_length=250, allow_blank=False, trim_whitespace=True
+    )
 
 
 class BoxActivateSerializer(serializers.Serializer):
@@ -700,7 +804,9 @@ class BoxQualifySerializer(serializers.Serializer):
         default="",
         trim_whitespace=True,
     )
-    reason_missing_from_history = serializers.BooleanField(required=False, default=False)
+    reason_missing_from_history = serializers.BooleanField(
+        required=False, default=False
+    )
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
         source="thermal_zone",
@@ -766,7 +872,9 @@ class BoxBatchQualifySerializer(serializers.Serializer):
         default="",
         trim_whitespace=True,
     )
-    reason_missing_from_history = serializers.BooleanField(required=False, default=False)
+    reason_missing_from_history = serializers.BooleanField(
+        required=False, default=False
+    )
 
     def validate_box_ids(self, box_ids):
         if len(box_ids) != len(set(box_ids)):
@@ -875,7 +983,9 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
     )
     copy_origin = serializers.BooleanField(default=True)
     copy_volume_liters = serializers.BooleanField(default=True, required=False)
-    allocated_polyps = serializers.IntegerField(min_value=0, max_value=2147483647, required=False, allow_null=True, default=None)
+    allocated_polyps = serializers.IntegerField(
+        min_value=0, max_value=2147483647, required=False, allow_null=True, default=None
+    )
     notes = serializers.CharField(required=False, allow_blank=True)
 
     def to_internal_value(self, data):
@@ -883,9 +993,19 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
             return super().to_internal_value(data)
         forbidden = {"global_code", "box_number", "initial_polyp_count"} & set(data)
         if forbidden:
-            raise serializers.ValidationError({key: _("This field is not accepted for quantitative subculture.") for key in forbidden})
-        if data.get("allocated_polyps") is not None and type(data["allocated_polyps"]) is not int:
-            raise serializers.ValidationError({"allocated_polyps": _("A nonnegative integer is required.")})
+            raise serializers.ValidationError(
+                {
+                    key: _("This field is not accepted for quantitative subculture.")
+                    for key in forbidden
+                }
+            )
+        if (
+            data.get("allocated_polyps") is not None
+            and type(data["allocated_polyps"]) is not int
+        ):
+            raise serializers.ValidationError(
+                {"allocated_polyps": _("A nonnegative integer is required.")}
+            )
         return super().to_internal_value(data)
 
     def validate_thermal_zone_id(self, thermal_zone):
@@ -903,13 +1023,19 @@ class SubcultureCodePreviewQuerySerializer(serializers.Serializer):
 
 class SubcultureCreateSerializer(serializers.Serializer):
     expected_current_state_revision = serializers.CharField(max_length=100)
-    reason = serializers.CharField(max_length=180, required=False, allow_blank=True, default="")
+    reason = serializers.CharField(
+        max_length=180, required=False, allow_blank=True, default=""
+    )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     children = SubcultureChildCreateSerializer(many=True, min_length=1, max_length=20)
 
     def validate(self, attrs):
         parent_box = self.context["parent_box"]
-        if not eligible_strains(parent_box.organization).filter(pk=parent_box.strain_id).exists():
+        if (
+            not eligible_strains(parent_box.organization)
+            .filter(pk=parent_box.strain_id)
+            .exists()
+        ):
             raise serializers.ValidationError(
                 "The parent box strain is not eligible for its organization."
             )
@@ -919,7 +1045,9 @@ class SubcultureCreateSerializer(serializers.Serializer):
         if not isinstance(data, Mapping):
             return super().to_internal_value(data)
         if "event_date" in data or "occurred_at" in data:
-            raise serializers.ValidationError({"event_date": _("The server records the actual occurrence time.")})
+            raise serializers.ValidationError(
+                {"event_date": _("The server records the actual occurrence time.")}
+            )
         return super().to_internal_value(data)
 
 
@@ -951,9 +1079,17 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
     allocations = serializers.SerializerMethodField()
 
     def get_allocations(self, obj):
-        return list(obj.allocations.filter(child_box__organization_id=obj.parent_box.organization_id).values(
-            "id", "position", "child_box_id", "child_global_code", "allocated_polyps"
-        ))
+        return list(
+            obj.allocations.filter(
+                child_box__organization_id=obj.parent_box.organization_id
+            ).values(
+                "id",
+                "position",
+                "child_box_id",
+                "child_global_code",
+                "allocated_polyps",
+            )
+        )
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
@@ -964,10 +1100,16 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
     def get_children(self, obj):
         child_boxes = self.context.get("child_boxes")
         if child_boxes is None:
-            child_rows = obj.allocations.all() if obj.occurred_at is not None else obj.lineages.all()
+            child_rows = (
+                obj.allocations.all()
+                if obj.occurred_at is not None
+                else obj.lineages.all()
+            )
             child_boxes = [
                 lineage.child_box
-                for lineage in child_rows.filter(child_box__organization_id=obj.parent_box.organization_id).select_related(
+                for lineage in child_rows.filter(
+                    child_box__organization_id=obj.parent_box.organization_id
+                ).select_related(
                     "child_box",
                     "child_box__organization",
                     "child_box__strain",
@@ -988,7 +1130,15 @@ class SalinityMeasurementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SalinityMeasurement
-        fields = ["id", "measured_on", "salinity_psu", "notes", "created_at", "can_edit", "editable_until"]
+        fields = [
+            "id",
+            "measured_on",
+            "salinity_psu",
+            "notes",
+            "created_at",
+            "can_edit",
+            "editable_until",
+        ]
 
     def get_editable_until(self, obj):
         return salinity_editable_until(obj)
@@ -998,9 +1148,14 @@ class SalinityMeasurementSerializer(serializers.ModelSerializer):
         if request is None or timezone.now() >= salinity_editable_until(obj):
             return False
         if "salinity_active_organization" not in self.context:
-            self.context["salinity_active_organization"] = get_active_organization_from_request(request)
+            self.context["salinity_active_organization"] = (
+                get_active_organization_from_request(request)
+            )
         active_organization = self.context["salinity_active_organization"]
-        if active_organization is None or active_organization.pk != obj.thermal_zone.organization_id:
+        if (
+            active_organization is None
+            or active_organization.pk != obj.thermal_zone.organization_id
+        ):
             return False
         permissions = self.context.setdefault("salinity_write_permissions", {})
         if obj.thermal_zone.organization_id not in permissions:
@@ -1023,7 +1178,9 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
     def get_current_polyp_totals(self, obj):
         boxes = getattr(obj, "current_state_boxes", None)
         if boxes is None:
-            boxes = obj.boxes.filter(organization_id=obj.organization_id, status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches())
+            boxes = obj.boxes.filter(
+                organization_id=obj.organization_id, status=Box.Status.ACTIVE
+            ).prefetch_related(*current_state_prefetches())
         return current_polyp_total(boxes)
 
     class Meta:
@@ -1050,7 +1207,8 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         temperatures = _prefetched_list(obj, "daily_temperatures")
         temperature = (
             obj.daily_temperatures.order_by("-date", "-id").first()
-            if temperatures is None else next(iter(temperatures), None)
+            if temperatures is None
+            else next(iter(temperatures), None)
         )
         if not temperature:
             return None
@@ -1067,7 +1225,8 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         salinities = _prefetched_list(obj, "salinity_measurements")
         salinity = (
             obj.salinity_measurements.order_by("-measured_on", "-id").first()
-            if salinities is None else next(iter(salinities), None)
+            if salinities is None
+            else next(iter(salinities), None)
         )
         if not salinity:
             return None
@@ -1094,20 +1253,31 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         if probes is None:
             return zone_probe_monitoring(obj)
         collected = [
-            probe for probe in probes
-            if probe.is_active and probe.is_collected and probe.probe_type == Probe.ProbeType.IMINILIDE
+            probe
+            for probe in probes
+            if probe.is_active
+            and probe.is_collected
+            and probe.probe_type == Probe.ProbeType.IMINILIDE
             and probe.organization_id == obj.organization_id
         ]
         if not all(hasattr(probe, "latest_bucket_reading_at") for probe in collected):
             return zone_probe_monitoring(obj)
         # The summary only falls back to condensed readings when no raw reading exists.
         last_reading_at = max(
-            (probe.latest_reading_at for probe in collected if probe.latest_reading_at is not None),
+            (
+                probe.latest_reading_at
+                for probe in collected
+                if probe.latest_reading_at is not None
+            ),
             default=None,
         )
         if last_reading_at is None:
             last_reading_at = max(
-                (probe.latest_bucket_reading_at for probe in collected if probe.latest_bucket_reading_at is not None),
+                (
+                    probe.latest_bucket_reading_at
+                    for probe in collected
+                    if probe.latest_bucket_reading_at is not None
+                ),
                 default=None,
             )
         if last_reading_at is not None:
@@ -1143,7 +1313,9 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
 
         request = self.context.get("request")
         active_organization = (
-            get_active_organization_from_request(request) if request is not None else None
+            get_active_organization_from_request(request)
+            if request is not None
+            else None
         )
         organization_field.queryset = (
             Organization.objects.filter(pk=active_organization.pk, is_active=True)
@@ -1176,13 +1348,17 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         # Mirror the model's unique (organization, name) constraint with a clean
         # error instead of a database IntegrityError.
-        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        organization = attrs.get(
+            "organization", getattr(self.instance, "organization", None)
+        )
         name = attrs.get("name", getattr(self.instance, "name", None))
         queryset = ThermalZone.objects.filter(organization=organization, name=name)
         if self.instance is not None:
             queryset = queryset.exclude(pk=self.instance.pk)
         if queryset.exists():
-            raise serializers.ValidationError({"name": THERMAL_ZONE_DUPLICATE_NAME_MESSAGE})
+            raise serializers.ValidationError(
+                {"name": THERMAL_ZONE_DUPLICATE_NAME_MESSAGE}
+            )
         return attrs
 
 
@@ -1230,12 +1406,17 @@ class ManualSalinityUpdateSerializer(serializers.Serializer):
             return attrs
         if "measured_on" in initial_data:
             raise serializers.ValidationError(
-                {"measured_on": "La date d'une mesure de salinité ne peut pas être modifiée."}
+                {
+                    "measured_on": "La date d'une mesure de salinité ne peut pas être modifiée."
+                }
             )
         unexpected_fields = set(initial_data) - {"salinity_psu", "notes"}
         if unexpected_fields:
             raise serializers.ValidationError(
-                {field: "Ce champ ne peut pas être modifié." for field in unexpected_fields}
+                {
+                    field: "Ce champ ne peut pas être modifié."
+                    for field in unexpected_fields
+                }
             )
         return attrs
 
@@ -1254,7 +1435,9 @@ class ProbeCreateSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         request = self.context.get("request")
         active_organization = (
-            get_active_organization_from_request(request) if request is not None else None
+            get_active_organization_from_request(request)
+            if request is not None
+            else None
         )
         self.fields["thermal_zone"].queryset = (
             ThermalZone.objects.filter(
@@ -1321,7 +1504,9 @@ class BoxTransferCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs["to_organization"] == attrs["box"].organization:
             raise serializers.ValidationError(
-                {"to_organization": "La structure cible doit différer de la structure actuelle."}
+                {
+                    "to_organization": "La structure cible doit différer de la structure actuelle."
+                }
             )
         return attrs
 
@@ -1387,7 +1572,6 @@ def _prefetched_list(obj, related_name):
     return cache.get(related_name)
 
 
-
 def _serialize_lineage_relation(lineage, related_box):
     event = lineage.subculture_event
     return {
@@ -1400,9 +1584,7 @@ def _serialize_lineage_relation(lineage, related_box):
             "status": related_box.status,
             "species_name": related_box.strain.species.scientific_name,
             "thermal_zone_name": (
-                related_box.thermal_zone.name
-                if related_box.thermal_zone
-                else None
+                related_box.thermal_zone.name if related_box.thermal_zone else None
             ),
         },
         "event": (

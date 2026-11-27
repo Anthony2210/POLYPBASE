@@ -56,6 +56,12 @@
   font-size: 0.62rem;
 }
 
+.qr-label__strain {
+  font-style: normal;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
 .qr-label--trigger {
   --qr-label-image-size: 58px;
   --qr-label-padding: var(--space-2);
@@ -65,7 +71,9 @@
   border-radius: var(--radius-md);
 }
 
-.qr-label--image-only { gap: 0; }
+.qr-label--image-only {
+  gap: 0;
+}
 
 /* Physical label: 41 x 28 mm landscape, with a 25 x 25 mm QR at the left
    extremity. The text block is rotated counter-clockwise so it reads upward in
@@ -137,6 +145,13 @@
   line-clamp: 3;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.qr-label:not(.qr-label--label)
+  .qr-label__metadata
+  small:has(.qr-label__strain) {
+  overflow: visible;
+  white-space: normal;
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {

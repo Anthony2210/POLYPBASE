@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { BoxDetail, BoxItem } from '../types';
 import {
   buildQrLabelItem,
+  buildQrLabelSvg,
   downloadQrLabel,
   getQrLabelPreparationMessage,
   printQrLabels,
@@ -52,7 +53,9 @@ export default function QrLabelModal({
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const preparingRef = useRef(false);
-  const [pendingAction, setPendingAction] = useState<PreparationAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<PreparationAction | null>(
+    null,
+  );
   const [failure, setFailure] = useState<{
     action: PreparationAction;
     result: Extract<QrLabelPreparationResult, { status: 'failed' }>;
@@ -71,7 +74,8 @@ export default function QrLabelModal({
 
   useLayoutEffect(() => {
     if (isPreparing) dialogRef.current?.focus();
-    else if (document.activeElement === dialogRef.current) closeRef.current?.focus();
+    else if (document.activeElement === dialogRef.current)
+      closeRef.current?.focus();
   }, [isPreparing]);
 
   useEffect(() => {
@@ -84,17 +88,25 @@ export default function QrLabelModal({
       if (event.key !== 'Tab') return;
       const dialog = dialogRef.current;
       if (!dialog) return;
-      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      );
       const first = controls[0];
       const last = controls[controls.length - 1];
       const active = document.activeElement;
       if (!first || !last) {
         event.preventDefault();
         dialog.focus();
-      } else if (event.shiftKey && (active === first || active === dialog || !dialog.contains(active))) {
+      } else if (
+        event.shiftKey &&
+        (active === first || active === dialog || !dialog.contains(active))
+      ) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && (active === last || active === dialog || !dialog.contains(active))) {
+      } else if (
+        !event.shiftKey &&
+        (active === last || active === dialog || !dialog.contains(active))
+      ) {
         event.preventDefault();
         first.focus();
       }
@@ -108,7 +120,10 @@ export default function QrLabelModal({
     preparingRef.current = true;
     setPendingAction(action);
     setFailure(null);
-    const result = action === 'download' ? await downloadQrLabel(label) : await printQrLabels([label]);
+    const result =
+      action === 'download'
+        ? await downloadQrLabel(label)
+        : await printQrLabels([label]);
     setFailure(result.status === 'failed' ? { action, result } : null);
     preparingRef.current = false;
     setPendingAction(null);
@@ -119,91 +134,163 @@ export default function QrLabelModal({
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop qr-print-backdrop box-dialog-backdrop" role="presentation" onClick={() => { if (!preparingRef.current) onClose(); }}>
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        className="qr-label-modal box-dialog box-dialog--qr"
-        role="dialog"
-        aria-modal="true"
-        aria-busy={isPreparing}
-        aria-labelledby={titleId}
-        onClick={(event) => event.stopPropagation()}
+      <div
+        className="modal-backdrop qr-print-backdrop box-dialog-backdrop"
+        role="presentation"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget && !preparingRef.current)
+            onClose();
+        }}
       >
-        <header className="modal-heading qr-label-modal-heading box-dialog-heading">
-          <div>
-            <h2 id={titleId}>{labels.title}</h2>
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          className="qr-label-modal box-dialog box-dialog--qr"
+          role="dialog"
+          aria-modal="true"
+          aria-busy={isPreparing}
+          aria-labelledby={titleId}
+        >
+          <header className="modal-heading qr-label-modal-heading box-dialog-heading">
+            <div>
+              <h2 id={titleId}>{labels.title}</h2>
+            </div>
+            <button
+              ref={closeRef}
+              className="icon-button box-dialog-close"
+              type="button"
+              aria-label={labels.close}
+              title={labels.close}
+              disabled={isPreparing}
+              onClick={onClose}
+            >
+              <PolypbaseIcon name="close" size={19} aria-hidden="true" />
+            </button>
+          </header>
+
+          <div className="box-dialog-body">
+            <p className="utility-dialog-identity">
+              <strong>{box.global_code}</strong>
+              <small>
+                {label.speciesName}
+                {label.strainName ? (
+                  <>
+                    {' '}
+                    <span className="qr-label__strain">{label.strainName}</span>
+                  </>
+                ) : null}
+              </small>
+            </p>
+            <div className="utility-qr-scan">
+              <QrLabel
+                altLabel={labels.qrCode}
+                item={label}
+                showMetadata={false}
+                variant="preview"
+              />
+            </div>
+
+            {/* Keep the legacy browser-print path separate from the screen QR. */}
+            <div className="utility-qr-physical" aria-hidden="true">
+              <QrLabel
+                altLabel={labels.qrCode}
+                className="qr-label-print-sheet"
+                buildPrintSvg={
+                  label.strainName
+                    ? (qrSvg) =>
+                        buildQrLabelSvg(
+                          label,
+                          `data:image/svg+xml,${encodeURIComponent(qrSvg)}`,
+                        )
+                    : undefined
+                }
+                item={label}
+                printFailureLabel={labels.qrLabelPreparationFailed}
+                variant="label"
+              />
+            </div>
+
+            <section className="qr-label-selection-panel">
+              <div>
+                <strong>{selectedLabels.length}</strong>
+                <span>{labels.selectionCount}</span>
+              </div>
+              <div className="qr-label-selection-actions">
+                <button
+                  type="button"
+                  className={
+                    isSelected
+                      ? 'secondary-button is-secondary is-selected'
+                      : 'secondary-button is-secondary'
+                  }
+                  disabled={isSelected || isPreparing}
+                  onClick={() => onAddToSelection(label)}
+                >
+                  {isSelected ? labels.alreadySelected : labels.addToSelection}
+                </button>
+                <button
+                  className="secondary-button is-secondary"
+                  type="button"
+                  disabled={!selectedLabels.length || isPreparing}
+                  onClick={onViewSelection}
+                >
+                  {labels.viewSelection}
+                </button>
+              </div>
+            </section>
+
+            <div className="qr-label-modal-status" role="status">
+              {isPreparing ? labels.qrLabelPreparing : ''}
+            </div>
+            {failure ? (
+              <div className="utility-qr-error">
+                <p className="inline-error" role="alert">
+                  {getQrLabelPreparationMessage(failure.result.reason, labels)}
+                  {failure.result.boxCode ? (
+                    <>
+                      {' '}
+                      <strong>{failure.result.boxCode}</strong>
+                    </>
+                  ) : null}
+                </p>
+                {failure.result.reason !== 'text-overflow' ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={isPreparing}
+                    onClick={() => void handlePreparation(failure.action)}
+                  >
+                    {labels.qrLabelRetry}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-          <button ref={closeRef} className="icon-button box-dialog-close" type="button" aria-label={labels.close} title={labels.close} disabled={isPreparing} onClick={onClose}>
-            <PolypbaseIcon name="close" size={19} aria-hidden="true" />
-          </button>
-        </header>
 
-        <div className="box-dialog-body">
-        <p className="utility-dialog-identity">
-          <strong>{box.global_code}</strong>
-          <small>{box.species.scientific_name}</small>
-        </p>
-        <div className="utility-qr-scan">
-          <QrLabel
-            altLabel={labels.qrCode}
-            item={label}
-            showMetadata={false}
-            variant="preview"
-          />
-        </div>
-
-        {/* Keep the legacy browser-print path separate from the screen QR. */}
-        <div className="utility-qr-physical" aria-hidden="true">
-          <QrLabel altLabel={labels.qrCode} className="qr-label-print-sheet" item={label} variant="label" />
-        </div>
-
-        <section className="qr-label-selection-panel">
-          <div>
-            <strong>{selectedLabels.length}</strong>
-            <span>{labels.selectionCount}</span>
-          </div>
-          <div className="qr-label-selection-actions">
+          <footer className="qr-label-modal-actions box-dialog-actions">
             <button
               type="button"
-              className={isSelected ? 'secondary-button is-secondary is-selected' : 'secondary-button is-secondary'}
-              disabled={isSelected || isPreparing}
-              onClick={() => onAddToSelection(label)}
+              className="secondary-button is-secondary"
+              disabled={isPreparing}
+              onClick={() => void handlePreparation('download')}
             >
-              {isSelected ? labels.alreadySelected : labels.addToSelection}
+              <span className="button-icon-label">
+                <PolypbaseIcon name="download" size={17} aria-hidden="true" />
+                {labels.download}
+              </span>
             </button>
-            <button className="secondary-button is-secondary" type="button" disabled={!selectedLabels.length || isPreparing} onClick={onViewSelection}>
-              {labels.viewSelection}
+            <button
+              type="button"
+              className="secondary-button is-secondary"
+              disabled={isPreparing}
+              onClick={() => void handlePreparation('print')}
+            >
+              <span className="button-icon-label">
+                <PolypbaseIcon name="print" size={17} aria-hidden="true" />
+                {labels.print}
+              </span>
             </button>
-          </div>
-        </section>
-
-        <div className="qr-label-modal-status" role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
-        {failure ? (
-          <div className="utility-qr-error">
-            <p className="inline-error" role="alert">{getQrLabelPreparationMessage(failure.result.reason, labels)}</p>
-            <button className="secondary-button" type="button" disabled={isPreparing} onClick={() => void handlePreparation(failure.action)}>
-              {labels.qrLabelRetry}
-            </button>
-          </div>
-        ) : null}
-
-        </div>
-
-        <footer className="qr-label-modal-actions box-dialog-actions">
-          <button type="button" className="secondary-button is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('download')}>
-            <span className="button-icon-label">
-              <PolypbaseIcon name="download" size={17} aria-hidden="true" />
-              {labels.download}
-            </span>
-          </button>
-          <button type="button" className="secondary-button is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('print')}>
-            <span className="button-icon-label">
-              <PolypbaseIcon name="print" size={17} aria-hidden="true" />
-              {labels.print}
-            </span>
-          </button>
-        </footer>
+          </footer>
         </section>
       </div>
     </ModalPortal>

@@ -496,14 +496,10 @@ for (const language of ['fr', 'en']) {
 }
 
 // Lifecycle baseline changes only by the explicitly requested kicker span removal.
-// QR remains unchanged. These dialogs are otherwise frozen for this presentation pass.
-// Keep exact source preservation in addition to the behavioral QR/lifecycle tests.
+// The QR dialog evolves with label content; its behavior is tested above.
+// Preserve the independent lifecycle and move dialog baselines.
 // MoveBoxModal digest updated only for the shared Language type (fr/en/ja) and its date locale.
 for (const [component, digest] of [
-  [
-    'QrLabelModal',
-    'd5d94aeaedad258a3d4d8c5415ebada00d3210c60958fcbd62eae1a960ce7db9',
-  ],
   [
     'MoveBoxModal',
     'a12f4fd7a8fefd9d9cb78591a4dfe92cc6dfb9b95f0011b891c49d55ae6a003c',

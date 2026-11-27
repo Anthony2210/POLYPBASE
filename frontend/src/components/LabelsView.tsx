@@ -74,12 +74,17 @@ export default function LabelsView({
 }) {
   const [isPreparing, setIsPreparing] = useState(false);
   const preparingRef = useRef(false);
-  const [printFailure, setPrintFailure] = useState<Extract<QrLabelPreparationResult, { status: 'failed' }> | null>(null);
+  const [printFailure, setPrintFailure] = useState<Extract<
+    QrLabelPreparationResult,
+    { status: 'failed' }
+  > | null>(null);
   const [labelSearch, setLabelSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('all');
-  const [expandedSpecies, setExpandedSpecies] = useState<Set<number>>(() => new Set());
+  const [expandedSpecies, setExpandedSpecies] = useState<Set<number>>(
+    () => new Set(),
+  );
   const printSettings = DEFAULT_QR_LABEL_PRINT_SETTINGS;
-  const labelCutoffDate = useMemo(() => getRecentLabelCutoffDate(), []);
+
   const canManageQrLabels = profile ? userCanManageQrLabels(profile) : false;
   const labelOrganizationIds = useMemo(
     () => (profile ? getQrLabelOrganizationIds(profile) : new Set<number>()),
@@ -88,31 +93,45 @@ export default function LabelsView({
   const normalizedLabelSearch = labelSearch.trim().toLocaleLowerCase();
   const authorizedBoxes = useMemo(() => {
     if (!profile || !canManageQrLabels) return [];
-    return boxes.filter((box) => !labelOrganizationIds || labelOrganizationIds.has(box.organization.id));
+    return boxes.filter(
+      (box) =>
+        !labelOrganizationIds || labelOrganizationIds.has(box.organization.id),
+    );
   }, [boxes, canManageQrLabels, labelOrganizationIds, profile]);
-  const authorizedBoxIds = useMemo(() => new Set(authorizedBoxes.map((box) => box.id)), [authorizedBoxes]);
-  const boxById = useMemo(() => new Map(authorizedBoxes.map((box) => [box.id, box])), [authorizedBoxes]);
+  const authorizedBoxIds = useMemo(
+    () => new Set(authorizedBoxes.map((box) => box.id)),
+    [authorizedBoxes],
+  );
+  const boxById = useMemo(
+    () => new Map(authorizedBoxes.map((box) => [box.id, box])),
+    [authorizedBoxes],
+  );
   const eligibleLabelBoxes = useMemo(
-    () => authorizedBoxes.filter((box) => isPrintableLabelBox(box, labelCutoffDate)),
-    [authorizedBoxes, labelCutoffDate],
+    () => authorizedBoxes.filter((box) => box.status === 'active'),
+    [authorizedBoxes],
   );
   const zoneOptions = useMemo(
     () => getLabelZoneOptions(eligibleLabelBoxes, labels.noZone),
     [eligibleLabelBoxes, labels.noZone],
   );
   const selectedLabels = useMemo(
-    () => qrLabelSelection
-      .filter((label) => authorizedBoxIds.has(label.id))
-      .map((label) => {
-        const box = boxById.get(label.id);
-        return box ? buildQrLabelItem(box, label.qrImageUrl) : label;
-      })
-      .sort((first, second) => compareLabelItems(first, second, boxById)),
+    () =>
+      qrLabelSelection
+        .filter((label) => authorizedBoxIds.has(label.id))
+        .map((label) => {
+          const box = boxById.get(label.id);
+          return box ? buildQrLabelItem(box, label.qrImageUrl) : label;
+        })
+        .sort((first, second) => compareLabelItems(first, second, boxById)),
     [authorizedBoxIds, boxById, qrLabelSelection],
   );
-  const selectedLabelIds = useMemo(() => new Set(selectedLabels.map((label) => label.id)), [selectedLabels]);
+  const selectedLabelIds = useMemo(
+    () => new Set(selectedLabels.map((label) => label.id)),
+    [selectedLabels],
+  );
   const labelBoxes = useMemo(
-    () => filterLabelBoxes(eligibleLabelBoxes, zoneFilter, normalizedLabelSearch),
+    () =>
+      filterLabelBoxes(eligibleLabelBoxes, zoneFilter, normalizedLabelSearch),
     [eligibleLabelBoxes, normalizedLabelSearch, zoneFilter],
   );
   const labelGroups = useMemo(() => groupLabelBoxes(labelBoxes), [labelBoxes]);
@@ -122,8 +141,8 @@ export default function LabelsView({
     [labelBoxes, selectedLabelIds],
   );
 
-
-  if (isLoading) return <PageLoader variant="labels" label={labels.pageTitle} />;
+  if (isLoading)
+    return <PageLoader variant="labels" label={labels.pageTitle} />;
   if (!profile || !canManageQrLabels) return null;
 
   async function handlePrint() {
@@ -143,10 +162,11 @@ export default function LabelsView({
   }
 
   return (
-    <section className={`profile-page labels-page${selectedLabels.length ? ' has-selection' : ''}`}>
+    <section
+      className={`profile-page labels-page${selectedLabels.length ? ' has-selection' : ''}`}
+    >
       <section className="profile-block profile-label-section">
         <section className="label-step-card label-selection-card">
-
           <div className="profile-label-toolbar">
             <label className="admin-label-search profile-label-search">
               <span>{labels.qrLabelSearchTitle}</span>
@@ -159,10 +179,15 @@ export default function LabelsView({
             </label>
             <label className="label-filter-panel">
               <span>{labels.zoneLabel}</span>
-              <select value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)}>
+              <select
+                value={zoneFilter}
+                onChange={(event) => setZoneFilter(event.target.value)}
+              >
                 <option value="all">{labels.allZones}</option>
                 {zoneOptions.map((zone) => (
-                  <option value={zone.key} key={zone.key}>{zone.name}</option>
+                  <option value={zone.key} key={zone.key}>
+                    {zone.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -172,20 +197,34 @@ export default function LabelsView({
               type="button"
               aria-label={labels.qrLabelAddResults(labelBoxes.length)}
               disabled={!labelBoxesToAdd.length}
-              onClick={() => labelBoxesToAdd.forEach((box) => onAddQrLabel(buildQrLabelItem(box)))}
+              onClick={() => {
+                for (const box of labelBoxesToAdd)
+                  onAddQrLabel(buildQrLabelItem(box));
+              }}
             >
-              <span className="label-add-results-full">{labels.qrLabelAddResults(labelBoxes.length)}</span>
-              <span className="label-add-results-compact" aria-hidden="true">{labels.qrLabelAddResultsCompact(labelBoxes.length)}</span>
+              <span className="label-add-results-full">
+                {labels.qrLabelAddResults(labelBoxes.length)}
+              </span>
+              <span className="label-add-results-compact" aria-hidden="true">
+                {labels.qrLabelAddResultsCompact(labelBoxes.length)}
+              </span>
             </button>
           </div>
 
           {selectedLabels.length > 0 ? (
             <div className="label-selection-dock">
-              <div className="label-selection-bar" role="group" aria-label={labels.pageTitle}>
+              {/* biome-ignore lint/a11y/useSemanticElements: The dock groups actions, not form fields. */}
+              <div
+                className="label-selection-bar"
+                role="group"
+                aria-label={labels.pageTitle}
+              >
                 <div className="label-selection-summary" role="status">
                   <strong>
                     <b>{selectedLabels.length}</b>{' '}
-                    {selectedLabels.length === 1 ? labels.qrLabelSelectedSingular : labels.qrLabelSelectedPlural}
+                    {selectedLabels.length === 1
+                      ? labels.qrLabelSelectedSingular
+                      : labels.qrLabelSelectedPlural}
                   </strong>
                 </div>
                 <div className="label-selection-actions">
@@ -213,17 +252,35 @@ export default function LabelsView({
           <div role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
           {printFailure ? (
             <div>
-              <p className="inline-error" role="alert">{getQrLabelPreparationMessage(printFailure.reason, labels)}</p>
-              <button className="secondary-button" type="button" disabled={isPreparing || !selectedLabels.length} onClick={() => void handlePrint()}>
-                {labels.qrLabelRetry}
-              </button>
+              <p className="inline-error" role="alert">
+                {getQrLabelPreparationMessage(printFailure.reason, labels)}
+                {printFailure.boxCode ? (
+                  <>
+                    {' '}
+                    <strong>{printFailure.boxCode}</strong>
+                  </>
+                ) : null}
+              </p>
+              {printFailure.reason !== 'text-overflow' ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={isPreparing || !selectedLabels.length}
+                  onClick={() => void handlePrint()}
+                >
+                  {labels.qrLabelRetry}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
           <div className="profile-label-selector">
             {labelGroups.map((group) => {
-              const isExpanded = Boolean(normalizedLabelSearch) || expandedSpecies.has(group.key);
-              const { selectedCount, allSelected, unselectedBoxes } = getSpeciesSelectionState(group.boxes, selectedLabelIds);
+              const isExpanded =
+                Boolean(normalizedLabelSearch) ||
+                expandedSpecies.has(group.key);
+              const { selectedCount, allSelected, unselectedBoxes } =
+                getSpeciesSelectionState(group.boxes, selectedLabelIds);
               return (
                 <section className="label-species-group" key={group.key}>
                   <h3>
@@ -232,26 +289,49 @@ export default function LabelsView({
                       aria-expanded={isExpanded}
                       aria-controls={`label-species-${group.key}`}
                       disabled={Boolean(normalizedLabelSearch)}
-                      onClick={() => setExpandedSpecies((current) => {
-                        const next = new Set(current);
-                        if (next.has(group.key)) next.delete(group.key);
-                        else next.add(group.key);
-                        return next;
-                      })}
+                      onClick={() =>
+                        setExpandedSpecies((current) => {
+                          const next = new Set(current);
+                          if (next.has(group.key)) next.delete(group.key);
+                          else next.add(group.key);
+                          return next;
+                        })
+                      }
                     >
-                      <span className="label-species-chevron" aria-hidden="true">
-                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      <span
+                        className="label-species-chevron"
+                        aria-hidden="true"
+                      >
+                        {isExpanded ? (
+                          <ChevronDown size={18} />
+                        ) : (
+                          <ChevronRight size={18} />
+                        )}
                       </span>
                       <span className="label-species-heading-copy">
                         <strong>{group.name}</strong>
                       </span>
-                      <span className={`label-species-meta${selectedCount > 0 ? ' has-selection' : ''}`}>
-                        <span className="label-species-total">{labels.qrLabelSpeciesCount(group.boxes.length)}</span>
+                      <span
+                        className={`label-species-meta${selectedCount > 0 ? ' has-selection' : ''}`}
+                      >
+                        <span className="label-species-total">
+                          {labels.qrLabelSpeciesCount(group.boxes.length)}
+                        </span>
                         {selectedCount > 0 ? (
                           <small>
-                            <span className="label-species-selected-full">{labels.qrLabelSpeciesSelected(selectedCount)}</span>
-                            <span className="label-species-selected-compact" aria-label={labels.qrLabelSpeciesSelected(selectedCount)}>
-                              {labels.qrLabelSpeciesSelectedCompact(selectedCount)}
+                            <span className="label-species-selected-full">
+                              {labels.qrLabelSpeciesSelected(selectedCount)}
+                            </span>
+                            <span
+                              className="label-species-selected-compact"
+                              role="img"
+                              aria-label={labels.qrLabelSpeciesSelected(
+                                selectedCount,
+                              )}
+                            >
+                              {labels.qrLabelSpeciesSelectedCompact(
+                                selectedCount,
+                              )}
                             </span>
                           </small>
                         ) : null}
@@ -261,25 +341,55 @@ export default function LabelsView({
                       <input
                         type="checkbox"
                         checked={allSelected}
-                        aria-checked={selectedCount && !allSelected ? 'mixed' : allSelected}
-                        aria-label={allSelected
-                          ? labels.qrLabelDeselectSpecies(group.boxes.length, group.name)
-                          : labels.qrLabelSelectSpecies(group.boxes.length, group.name)}
-                        ref={(input) => { if (input) input.indeterminate = selectedCount > 0 && !allSelected; }}
+                        aria-checked={
+                          selectedCount && !allSelected ? 'mixed' : allSelected
+                        }
+                        aria-label={
+                          allSelected
+                            ? labels.qrLabelDeselectSpecies(
+                                group.boxes.length,
+                                group.name,
+                              )
+                            : labels.qrLabelSelectSpecies(
+                                group.boxes.length,
+                                group.name,
+                              )
+                        }
+                        ref={(input) => {
+                          if (input)
+                            input.indeterminate =
+                              selectedCount > 0 && !allSelected;
+                        }}
                         onChange={() => {
-                          if (allSelected) group.boxes.forEach((box) => onRemoveQrLabel(box.id));
-                          else unselectedBoxes.forEach((box) => onAddQrLabel(buildQrLabelItem(box)));
+                          if (allSelected) {
+                            for (const box of group.boxes)
+                              onRemoveQrLabel(box.id);
+                          } else {
+                            for (const box of unselectedBoxes)
+                              onAddQrLabel(buildQrLabelItem(box));
+                          }
                         }}
                       />
                     </label>
                   </h3>
-                  <div className="label-species-rows" id={`label-species-${group.key}`} hidden={!isExpanded}>
+                  <div
+                    className="label-species-rows"
+                    id={`label-species-${group.key}`}
+                    hidden={!isExpanded}
+                  >
                     {group.boxes.map((box) => (
+                      // biome-ignore lint/a11y/noStaticElementInteractions: Clicking the row forwards the pointer action to its checkbox.
+                      // biome-ignore lint/a11y/useKeyWithClickEvents: The checkbox provides the keyboard action without an extra tab stop.
                       <div
                         className={`label-box-row${selectedLabelIds.has(box.id) ? ' is-selected' : ''}`}
                         key={box.id}
                         onClick={(event) => {
-                          if ((event.target as HTMLElement).closest('a, input, button')) return;
+                          if (
+                            (event.target as HTMLElement).closest(
+                              'a, input, button',
+                            )
+                          )
+                            return;
                           toggleQrLabel(box);
                         }}
                       >
@@ -300,7 +410,9 @@ export default function LabelsView({
                             onOpenBox={onOpenBox}
                             t={t}
                           />
-                          <small>{box.thermal_zone?.name ?? labels.noZone}</small>
+                          <small>
+                            {box.thermal_zone?.name ?? labels.noZone}
+                          </small>
                         </span>
                       </div>
                     ))}
@@ -310,13 +422,14 @@ export default function LabelsView({
             })}
             {!labelBoxes.length ? (
               <p className="label-empty-state">
-                {eligibleLabelBoxes.length ? labels.qrLabelNoMatches : labels.qrLabelNoEligibleBoxes}
+                {eligibleLabelBoxes.length
+                  ? labels.qrLabelNoMatches
+                  : labels.qrLabelNoEligibleBoxes}
               </p>
             ) : null}
           </div>
         </section>
       </section>
-
     </section>
   );
 }
@@ -324,7 +437,8 @@ export default function LabelsView({
 function userCanManageQrLabels(profile: UserProfile) {
   if (profile.is_superuser) return true;
   return profile.memberships.some(
-    (membership) => membership.role === 'admin' || membership.role === 'lab_technician',
+    (membership) =>
+      membership.role === 'admin' || membership.role === 'lab_technician',
   );
 }
 
@@ -332,45 +446,66 @@ function getQrLabelOrganizationIds(profile: UserProfile) {
   if (profile.is_superuser) return null;
   return new Set(
     profile.memberships
-      .filter((membership) => membership.role === 'admin' || membership.role === 'lab_technician')
+      .filter(
+        (membership) =>
+          membership.role === 'admin' || membership.role === 'lab_technician',
+      )
       .map((membership) => membership.organization.id),
   );
 }
 
-function isPrintableLabelBox(box: BoxItem, cutoffDate: Date) {
-  if (box.status !== 'active') return false;
-  if (!box.latest_measurement?.measured_on) return false;
-  const measuredOn = new Date(`${box.latest_measurement.measured_on}T00:00:00`);
-  return Number.isFinite(measuredOn.getTime()) && measuredOn >= cutoffDate;
-}
-
-function compareLabelItems(first: QrLabelItem, second: QrLabelItem, boxById: Map<number, BoxItem>) {
+function compareLabelItems(
+  first: QrLabelItem,
+  second: QrLabelItem,
+  boxById: Map<number, BoxItem>,
+) {
   const firstBox = boxById.get(first.id);
   const secondBox = boxById.get(second.id);
   if (firstBox && secondBox) return compareLabelBoxes(firstBox, secondBox);
-  return compareLabelValue(first.speciesName, second.speciesName)
-    || compareLabelValue(first.globalCode, second.globalCode)
-    || first.id - second.id;
+  return (
+    compareLabelValue(first.speciesName, second.speciesName) ||
+    compareLabelValue(first.globalCode, second.globalCode) ||
+    first.id - second.id
+  );
 }
 
 function compareLabelBoxes(first: BoxItem, second: BoxItem) {
-  return compareLabelValue(first.species.scientific_name, second.species.scientific_name)
-    || first.species.id - second.species.id
-    || compareLabelValue(first.global_code, second.global_code)
-    || first.id - second.id;
+  return (
+    compareLabelValue(
+      first.species.scientific_name,
+      second.species.scientific_name,
+    ) ||
+    first.species.id - second.species.id ||
+    compareLabelValue(first.global_code, second.global_code) ||
+    first.id - second.id
+  );
 }
 
 function compareLabelValue(first: string, second: string) {
-  return first.localeCompare(second, 'fr', { numeric: true, sensitivity: 'base' });
+  return first.localeCompare(second, 'fr', {
+    numeric: true,
+    sensitivity: 'base',
+  });
 }
 
-function filterLabelBoxes(boxes: BoxItem[], zoneFilter: string, normalizedLabelSearch: string) {
+function filterLabelBoxes(
+  boxes: BoxItem[],
+  zoneFilter: string,
+  normalizedLabelSearch: string,
+) {
   return boxes.filter((box) => {
-    if (zoneFilter !== 'all' && getLabelZoneKey(box) !== zoneFilter) return false;
+    if (zoneFilter !== 'all' && getLabelZoneKey(box) !== zoneFilter)
+      return false;
     if (!normalizedLabelSearch) return true;
-    return [box.global_code, box.local_code, box.species.scientific_name, box.strain.code]
-      .filter(Boolean)
-      .some((value) => value!.toLocaleLowerCase().includes(normalizedLabelSearch));
+    return [
+      box.global_code,
+      box.local_code,
+      box.species.scientific_name,
+      box.strain.code,
+      box.strain.name,
+    ].some((value) =>
+      value?.toLocaleLowerCase().includes(normalizedLabelSearch),
+    );
   });
 }
 
@@ -387,14 +522,27 @@ function groupLabelBoxes(boxes: BoxItem[]): SpeciesGroup[] {
   const groups = new Map<number, SpeciesGroup>();
   boxes.forEach((box) => {
     const key = box.species.id;
-    const group = groups.get(key) ?? { key, name: box.species.scientific_name, boxes: [] };
+    const group = groups.get(key) ?? {
+      key,
+      name: box.species.scientific_name,
+      boxes: [],
+    };
     group.boxes.push(box);
     groups.set(key, group);
   });
   return Array.from(groups.values())
-    .map((group) => ({ ...group, boxes: group.boxes.sort((first, second) =>
-      compareLabelValue(first.global_code, second.global_code) || first.id - second.id) }))
-    .sort((first, second) => compareLabelValue(first.name, second.name) || first.key - second.key);
+    .map((group) => ({
+      ...group,
+      boxes: group.boxes.sort(
+        (first, second) =>
+          compareLabelValue(first.global_code, second.global_code) ||
+          first.id - second.id,
+      ),
+    }))
+    .sort(
+      (first, second) =>
+        compareLabelValue(first.name, second.name) || first.key - second.key,
+    );
 }
 
 function getLabelZoneOptions(boxes: BoxItem[], noZoneLabel: string) {
@@ -407,17 +555,11 @@ function getLabelZoneOptions(boxes: BoxItem[], noZoneLabel: string) {
       count: (zone?.count ?? 0) + 1,
     });
   });
-  return Array.from(zones, ([key, zone]) => ({ key, ...zone }))
-    .sort((first, second) => compareLabelValue(first.name, second.name));
+  return Array.from(zones, ([key, zone]) => ({ key, ...zone })).sort(
+    (first, second) => compareLabelValue(first.name, second.name),
+  );
 }
 
 function getLabelZoneKey(box: BoxItem) {
   return box.thermal_zone ? `zone-${box.thermal_zone.id}` : 'zone-none';
-}
-
-function getRecentLabelCutoffDate() {
-  const date = new Date();
-  date.setMonth(date.getMonth() - 15);
-  date.setHours(0, 0, 0, 0);
-  return date;
 }
