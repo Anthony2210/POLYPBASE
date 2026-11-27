@@ -99,7 +99,6 @@ from .serializers import (
     BoxDetailSerializer,
     BoxInitialLocationSerializer,
     BoxInventorySerializer,
-    BoxListSerializer,
     BoxLocationSerializer,
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
@@ -109,6 +108,8 @@ from .serializers import (
     ManualTemperatureCreateSerializer,
     ProbeCreateSerializer,
     SalinityMeasurementSerializer,
+    ScopedBoxDetailSerializer,
+    ScopedBoxListSerializer,
     SubcultureCodePreviewQuerySerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
@@ -127,6 +128,7 @@ from .temperature_history import (
     historical_temperature_history_point, temperature_history_point, temperature_support_periods,
 )
 from .box_codes import lock_local_id_registry, preview_box_codes
+from .box_identity import box_strain_display_names
 from .automatic_box_creation import (
     automatic_box_strain_options,
     cancel_automatic_box_intent,
@@ -821,7 +823,7 @@ class AutomaticBoxResolveAPIView(APIView):
 class BoxListAPIView(generics.ListAPIView):
     # Ordinary creation goes through AutomaticBoxCreateAPIView: users never
     # choose Box identifiers, so this collection endpoint is read-only.
-    serializer_class = BoxListSerializer
+    serializer_class = ScopedBoxListSerializer
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -829,6 +831,7 @@ class BoxListAPIView(generics.ListAPIView):
         boxes = page if page is not None else list(queryset)
         context = self.get_serializer_context()
         context["box_list_environment_locations"] = self._environment_locations(boxes)
+        context["box_strain_names"] = box_strain_display_names(boxes)
         data = self.get_serializer(boxes, many=True, context=context).data
         return self.get_paginated_response(data) if page is not None else Response(data)
 
@@ -858,6 +861,8 @@ class BoxListAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         organization_ids = get_active_organization_ids(self.request)
+        if not organization_ids:
+            return Box.objects.none()
         queryset = box_list_queryset_for_user(
             self.request.user,
             organization_ids=organization_ids,
@@ -1267,12 +1272,21 @@ class AdminBoxInitialLocationAPIView(APIView):
 
 
 class BoxDetailAPIView(generics.RetrieveAPIView):
-    serializer_class = BoxDetailSerializer
+    serializer_class = ScopedBoxDetailSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        box = self.get_object()
+        context = self.get_serializer_context()
+        context["box_strain_names"] = box_strain_display_names([box])
+        return Response(self.get_serializer(box, context=context).data)
 
     def get_queryset(self):
+        organization_ids = get_active_organization_ids(self.request)
+        if not organization_ids:
+            return Box.objects.none()
         return box_queryset_for_user(
             self.request.user,
-            organization_ids=get_active_organization_ids(self.request),
+            organization_ids=organization_ids,
             include_merged=True,
         )
 

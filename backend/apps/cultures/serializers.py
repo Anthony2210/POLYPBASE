@@ -83,6 +83,16 @@ class StrainSummarySerializer(serializers.ModelSerializer):
         fields = ["id", "code", "number", "origin_code", "species"]
 
 
+class NamedStrainSummarySerializer(StrainSummarySerializer):
+    name = serializers.SerializerMethodField(allow_null=True)
+
+    class Meta(StrainSummarySerializer.Meta):
+        fields = StrainSummarySerializer.Meta.fields + ["name"]
+
+    def get_name(self, obj):
+        return self.context["box_strain_names"].get(obj.pk)
+
+
 class ThermalZoneSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = ThermalZone
@@ -667,6 +677,14 @@ class BoxDetailSerializer(BoxListSerializer):
                 for lineage in child_lineages
             ],
         }
+
+
+class ScopedBoxListSerializer(BoxListSerializer):
+    strain = NamedStrainSummarySerializer(read_only=True)
+
+
+class ScopedBoxDetailSerializer(BoxDetailSerializer):
+    strain = NamedStrainSummarySerializer(read_only=True)
 
 
 class BoxDeactivateSerializer(serializers.Serializer):

@@ -18,9 +18,10 @@ not contradictions. Reference fields checked when present:
 
 import re
 
+from django.db.models import Prefetch, prefetch_related_objects
 from django.utils.translation import get_language
 
-from apps.taxonomy.models import LocalStrainIdentity, OrganizationSpeciesCode
+from apps.taxonomy.models import LocalStrainIdentity, OrganizationSpeciesCode, StrainTranslation
 
 # Same strict shape as the reviewed historical importer (STRICT_IDENTIFIER).
 CANONICAL_STRAIN_CODE = re.compile(r"^([A-Z]{3})-([A-Z]{3})-([0-9]+)$")
@@ -122,3 +123,19 @@ def strain_display_name(strain):
     translations = {item.language_code: item.name for item in strain.translations.all()}
     language = (get_language() or "").split("-")[0]
     return translations.get(language) or next((name for name in translations.values() if name), "")
+
+
+def box_strain_display_names(boxes):
+    """Batch-resolve names for boxes already scoped to the active institution."""
+    # A scoped box establishes local use of its unowned legacy strain. An
+    # inconsistent link to a foreign-owned strain does not authorize its name.
+    strains = {
+        box.strain_id: box.strain
+        for box in boxes
+        if box.strain.organization_id in (None, box.organization_id)
+    }
+    prefetch_related_objects(
+        list(strains.values()),
+        Prefetch("translations", queryset=StrainTranslation.objects.only("strain_id", "language_code", "name")),
+    )
+    return {pk: strain_display_name(strain) or None for pk, strain in strains.items()}
