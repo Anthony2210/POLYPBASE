@@ -1,0 +1,872 @@
+{
+  "adminWorkInProgress": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "39e48ae3cbc33beb2e0207315df508f251bec740dd5642fa71d97cefddcf66d6"
+    }
+  },
+  "boxInventoryActions": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ff8059dc6752afdd30d275932b1d5031a2ec854b387a8c57ecc6689915293a43",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ff8059dc6752afdd30d275932b1d5031a2ec854b387a8c57ecc6689915293a43",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryActiveWithoutLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b19130df69c13f66d2189f9ddc57aa87454908016e7c995c818da6a05e1c839d"
+    }
+  },
+  "boxInventoryAgeSuggestions": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "11e825c5e9e534d5947676384447e8c42068588ffa00a893dc949646f01fc972",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "bdca5c2626616880ddcedd47e1e9b5a025aa978ff176d1dd5e5a1c3e02c317e1",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryAgeThreshold": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "1eb8e790f1450e66435a9de190ae031bab4cacc309f9e9d26988b0b07b7fb424",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "08017753e0ad7d69bdf3416b862caf7a02192bf18d6fa7b4e1d81830726245ba",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryAllYears": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "6656ad0dc45f33385a95ff6865d615fd0c3db08062ca35f8294493704b399d96",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a0f09510650034a044386b5c601342a2430df6e4665a7d39792d4542681d4edb",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryAssignLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5fc689b1b7db09c47b8d22f636384a4972edd2e04f5dfd2e35e2805205294e1a",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ab73fcdc4d0cb12b10d024e744e5549755d0158c2c6bac565e6b569fd3d2b753",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchActiveTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b3b88a6df9921105e7afe80a8b657cada1c52ae69f6adb38f519d4bbabe0f68e",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ce798b225d4eb56a228c9cef95776226d99e87e63da6e10d7f08a901a81cd442",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchActiveWarning": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "eda6f1fbf2ddde7b4a43b5a39f67446e6d46270a4814a4cc4824d98a22435742",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9b2b533638a2db1129ccc2008e9c1aa0e8a55db98f52945c5ea3c8b3136b6fda",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchAffectedBoxes": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "539e7cefb29476700eabc7167bfb91ac1a5d927277657446bd760c51d81fbe40",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "505dd8afcb070395544c2f7a74592fd178d321d064ad67cdf54f461d92136c89",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchClearSelection": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5b6950be027e7d0e110744acc65d7ebecc631842b3a5d12cf8780742d8a173ef",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "cea4d2e010b8fd52bc28a66eca24ff0d616b2c7d982545757780c196c5cc04c7",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchCloseReport": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "35a4f0a8c43dc897ae3b2ea39212f07bb3fb6f9d8e2046ba96ecbd2a386f48a9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a7d7787b9fa9e345eb01910651ecc3f8ffa42104239727b7e0417dd7d751143a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchConfirm": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b704763e5e6464e6ba0f910bcfbd93c9a0680de5395ae951b5be49b4aa107e18",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c89c17f6efebc551dd9973bb9881710b82c2cf8920ea913ec02f668acc4f9119",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchFailed": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "93860919927df3e9776b994ee1b8151c9121d43f575c721891386f7c132d0321",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "5d28a90f4498a81461efbaf6f628a19d9778390bb5c81a393dd936181cc3d826",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchFailedBoxes": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "17fe51402c00f48a2347d977fe304f38052a4956f11cf3d7272a7247ecfa2832",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "66be104f7c21034b2b96a0dd5d4946b957ef750a500571742a6c7aaefbe4fb46",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchInactiveHistoryText": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "98ff6b2b00ba22672f5b4fdd6889a76f4c9c66738f1e4db66784d21f1e0d6388",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e148ab31a35432ee652842e465a911da4fc5343eb4d5fd1689c86b987beb5f68",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchInactiveHistoryTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5e1d85ecb2708a92dda0dbb6d7b877ada7aa2e84bc53a498840167e7f42603fb",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "f6894adbf5acb05b7f6b7cd4b1e412d81e94ec5d435aea1290be325e7d3cf47b",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchInactiveTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8190cf78fca39de8af74f445d35bad29584d9a0c93cef3e5fd3da0e079d4a9e5",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "5ca32b563be49d1e56ff5f12856156b1a1284b9a6d7fe7c16c67afce158e0f63",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchKicker": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "f36359485fae6a247197a7e706268e4e57b91a882ab184eb1d35c4f9dcce6cbe",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "d789df8731e2fe1b884a8da8a92eb2d463b3195c81d146957bfb97c2ea983bce",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchMakeActive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ddc5397f25b6645b1a3c75079f14b0809f961a97435776b45d04c6f57c793731",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "b1ebd8bd61e004c434fb3e2596e2bcac57116d06370afc72ddd55f188dd6e406",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchMakeInactive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5af6d8ea244ca076e0f4abf5c15891ea4b4aee46fcbeba1dfd1d8e034fd1ddd9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "867ee1d4332b7602ead1836a14564418c353cc57e6678d322be12a0720ad3046",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchResultTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ed4c7f78a12808cdaeda7c2b298dd3e1ba2c7f5b7abe1fa23b422293b36f8816",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "abd2191017811f7bbb2d12b813b26a85963dab81fb42718b9e93f03e1b37a7b6",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelectBox": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "74e8d57fad30f4ceaec8fa52ee52ccd6c06c9ee385352731237f17d685ec246d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8faeceedd12c6ce41b6c8d1a8f747deadf2ac61c72fc87f206c3b66a89793e69",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelected": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "dcf6294560d41aa4ca8d9c26a8d6b360d79f1fd43f0ef7bb6cc0bce3f00293d4",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "3813b6c336bdaf7ef92d90e2b66be14a96a884d5fb5d8dfe92e6607fa9b09da5",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelectedOne": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "717a351bf99ff0fc9e3010a867d35ce5ec682d4ac942f689bb2d578e08668859",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "737da98cad603308226c90617f28f9d32e174e52dedf11528cd8158211ddc43c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelectedTotal": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "87716714b9c2363d0022e812d2976b3cb128979251a9b94a1115f6ebb34a2296",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "6ca093e0a3b3b2214b3d02c374fe97e0ee739ecea5734a9abf3ac4d37471e9a7",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelectionColumn": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "051e522a6c091d9af34ece82328737f05ff744032e0093c65d90c15283ae3a6e",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ca4067071fcf618543805e3d94af63144b21f4fae9eade2408f1c24f7e5214e9",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSelectionTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "f8c3401b6917da23e99aea43a424a5cc174bee59c0e5bd553d3e54eed1f689d6",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ee42450613ef0ce1cfca1b504c25af720dfac2fc4edec31ea68a0c930a2aa99f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSucceeded": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "968b925e0420e3b7971bf0cec3341e513a4432433de67c917e6c13b3b7f8ac5e",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "5dceaeceb6d8a49d3665594710ace68dfbc1800e2d663d7febb302b4dbee3d27",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchSuccessfulBoxes": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "6d0dcd46f31b68fe5a16ac700676aabb748c9bfc9ca3d8595cb15d645669153c",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "127bc275fb8359cf1e5ce388eca7ee15c6f7494eeedce810ea9ca14e899d79f8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchWithLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "a312372f09f6b92d3e086281147f87baa07b45bae8ab6dd7804ae6464e5fb2c5",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "2a2c3d3910ebf9266da2a72a335b2fae056eadd51ebd8d3c8b9bd9a9c8b58127",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBatchWithoutLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b705e7c6b335449f1eda1f6cabd4ffb1a0761524f3fb9eae694ed09ec89d353d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e9d7508185e924149ea8580162f9e4b941ade26adbe09f5bb51a218f423234ef",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBox": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "7d588fa71e92a93d3812558a9de81792f500b301acf243a20f2d9706f20b03f4",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "512fd3c6042cd1d9150d46fa59b5911a1f97b8275d73eb0a841daa31e93bd349",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryBoxes": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "045c90136097c01c080586d2870b62d348aafb6504f7bcd1f034315bb9666127",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ff1f51bdc88ddff105542b5e621a9f793c40f314e8b46caa84fcf2c9cd39eb7e",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryCreatedOn": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "7eab4b5173791f3d72ebd1e0acab870242e467d447c30a1ceeb37c9d4445241f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c3f6d36e5b095c3de41bde076556d0289082992c1c75d48405854e314043dae9",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryCreationYear": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "320ef65082a41c970cad7359456284a0a2f0259884ed0cac95b2614bb888ba83",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "80a36cafaa924f23441b08cef725217b5e9a9168702bc8032c5f2aa3fc83928e",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryDates": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "78963905f399ce6fe0e1b9ca063e591c314b3f5c944677a8bca89e3d3425c4b7",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "78963905f399ce6fe0e1b9ca063e591c314b3f5c944677a8bca89e3d3425c4b7",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryDeactivationSuggested": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "a8946156acaf6929ae5ef93bb9c190f2192ba710a2292471eaafa300b5ab9ddc",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e87190a2ac7a18ecb4a5aea64314c36f08448fff155fde62e69305df5181b471",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryEmptyText": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "e17851a0614ac885ef381b9a7413eb236657100b6f92a2d32ae183b26691043f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ed4c3010c39c9c993821bb0e2813d0ddd6efb8d397bfc25cb8a1d2f3799cee84",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryEmptyTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "551ba5d3f6a202d6528998edb6f5c8c0afd47434d661f80125e124bdcafc6b6f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "27b53bd9034b0ced3507a4e3e75a685623db2ac281307fe25ca5d82c20489096",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryEnterSelectionMode": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "1afb002c6e1cbaf902b0bd4c5ba478028e656d143a5113403244b331ff372d3b",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "fc70d13c937bc1e1f04c5446d951837bac66aec4f793f22d4dae1fa6ad7ba3f8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryExitSelectionMode": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "3243c863e64f235e4eec4897b0714041ef84f4217f74ff827a0a1d6ee704ad70",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "da8dc05ed73f0f89ec72125e39cc31af686079ebf7a337d53e4435d308c95f27",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryLastKnownLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "446de2fee69ee03cfe0562d73f1d2ca50125c065cd95d9f765c11b4bc93f004e",
+      "reviewer": "english-reviewer"
+    }
+  },
+  "boxInventoryLastMeasurement": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "82ec80b1b70c234d0526fb237230ce095ea01bf81e52fb26c7c7f93bcab2ea92",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9f2d2d930e1a96c3349c5f49a40358a5c71d631a923c9d1aa02647f386168a3b",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryLatestCounts": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "82ec80b1b70c234d0526fb237230ce095ea01bf81e52fb26c7c7f93bcab2ea92",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9f2d2d930e1a96c3349c5f49a40358a5c71d631a923c9d1aa02647f386168a3b",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "bd92a6db9ba87fc87f38eede26f9f31bf1b48bd287731966c696137844ef39f0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "15b61974b2707a7b3d4201385e0f01f4ff5eb1f17c5639d98788ee5add2025cd",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryLocationAll": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "6f60d67b92796c4f831cf63ae049b829f3d379d004808e5d5f00ad7b26db408b",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "0e23b0cfebfc36e1c25ca587145eef9f7532ca27c63bd2a4e293a94ea3fe642d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryMonth": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5ef523ac47dae4aa68226a11587751ec68e90c7c12fbfce1131334472e8f59f0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a5c7d1719e284f2c9485405d44f62d152cde9e6ede83e1a79a2442b65f6a8735",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryMonths": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5ef523ac47dae4aa68226a11587751ec68e90c7c12fbfce1131334472e8f59f0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "16837433443196b57199277283d81f9432152d4d389026deae3266b96bbe980d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryNoData": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b2d66760188c352adc08fb5a307b7474ddb801520b73990fcd844a33cbb1db28",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "3b41ba9c7cb8c5d6530c12eec5000c4e2ad0c48b2d4b9149a3ef6d2a23802819",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryNoHistoricalLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "0ec01fe8ec5defe0656e2aa069104cc5caa9e57cbbd8c57156deb44a26d2ce90",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "95506f4878a8642be3701504be68cce81261bc70999f0d62999d8a713578cb2a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryNoMeasurement": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "0f32371167f49e5f8a2543517b995d83c7e1efc8e6397d25e8b7268414541a69",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e19d47968633fce64b04ee901aa783f91426a41f702bb6d3e0f6460df69afff8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryNoMeasurementFilter": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "1117ca17a01b13ac704d37ad44d155711125076e5bb8cc316ad0f50163f34e05",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e19d47968633fce64b04ee901aa783f91426a41f702bb6d3e0f6460df69afff8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryOf": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "c89b6c3d164a650911703c604c2add0e1d8c0d9ffa448bafbce4bc6fff75903f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "28391d3bc64ec15cbb090426b04aa6b7649c3cc85f11230bb0105e02d15e3624",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryQualificationAid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f52bb56bb90316f16bb587c4b9731c329239a35765926a486fa7b2d2bf0ddaf0"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "fadf73085d9b46f5b742e8586eaba3676d251a5ec082cc450bffe40d51073c42",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryReferenceDate": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8b343bc246a6ee9246be8beaca4bdf3871b5ef5f5c4ed1fddc7b6c2abde31f85",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "61d5865923b6373aa68b2c88678682cc3ac480ac5fddacdf1f6e3f7c080ea402",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryReviewMarker": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "03a088312dad261f9ef92a40f432f13718cc40d40bdc6ea56900b7f22b847cf9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "573fb56ba78bc43cda85ac5358ce227aced03e2335a62fd4ae2c9d2ba624c2e7",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySearch": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "733d1c742675f53792b10c780b3584b2197101e56f892ca382c35133ca6dce55",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "49c266baaaa70981ea188fa714d5c40cf13830d786a861c9943ae0d26a7f3fe9",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySearchPlaceholder": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "298f5d748426fb05c035e050e604639dd847283802ee53357c0610737994c2d9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8f11f910d54420905f5de1ebbb82ad6fe3ac1319f845770415df51f880fee19c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySelectionClearedByFilters": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8955bac5c43135b0c42eabf3472ab4216c1d8412fa9172cbf1b43a3d1f3fa72b",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "73c58ae3d217f42cb3fa7e0db34b7c52170b2f35e44a00879611da973d06da40",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySetInactive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "00bf7c9a0a691df504462c165a0a2e669fceb2c570e94d924c20f28a6b691246",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "867ee1d4332b7602ead1836a14564418c353cc57e6678d322be12a0720ad3046",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryStatus": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "dee377cfd8cddfb8db49d63a6f80174955c594a7cb995d4a70c2f6f305286786",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "920e413c7d411b61ef3e8c63b1cb6ad058d5f95f8b481dbafe60248387d8c355",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryStatusActive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b121ee0ad853c000fef2f8a93977e27e961d2f50f5ce4349800318901b992fc4",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "92340695899bd2d86223e4a007620e0d6502fc0e08809773634c7e0743764a9c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryStatusAll": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "42623b97b4815a8a5520e24ab0f2cfaf8639cef7bc9213d782ac9c56b8dd28c5",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a52ace420f2175d08b1577a1bea5445e36801229c074ef9ed6c55a73401fd9c2",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryStatusInactive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "95e2c785dc1768be49a89a6031a8fa0c5fe4a155e18d87d891ddfbb6bf91657d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ac7c949f1211b7814bdd28a698e6c04e05e1a83f9f86e7ad43d2086d00e98afd",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryStatusPending": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "03a088312dad261f9ef92a40f432f13718cc40d40bdc6ea56900b7f22b847cf9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "331551b0de4157c9abc7b72b61b96a2a928fd6db3cdf029c1fc44b08ad633aa6",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySuggestionAge": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "82ec80b1b70c234d0526fb237230ce095ea01bf81e52fb26c7c7f93bcab2ea92",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9f2d2d930e1a96c3349c5f49a40358a5c71d631a923c9d1aa02647f386168a3b",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySuggestionAgeValue": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "d73dddb0f3aa96eead0a8819100d01998027b24384539f1c0fe2b7203b2cf903",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "7df198b923acf89aca64810515465a9f960124bbc2a356d6a2ea9f1963c8a3a3",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySuggestionLatestZero": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "503c4b81b8d4ccd99352fee77da00c061592a4ff1f5305dda37d45388c9fd684",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "544b6e14c85611259cb6fe7efc1a5aed4cd5cbe5dd67f6e34e15bcffbb9faf9f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySuggestionThreshold": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "898ce054d62c32046405d397dc9f51aae7c03b44abcd6c177ea2ee38df8026df",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "151634b0cf9411b0693cf41c8aaf46bd4baf96e1bf0f290031f56e8b34c0a3f7",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySuggestionWhy": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "84898356a782e3631e292ee3efef8056145f147437a6bc7a92c2d39395796e3f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "d56b92ffe42dd8e94f085f23b9f457b3aa776b299fc63d24928062df09bcdce2",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventorySummary": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1283e52e82c9e25caacf6d7d85ee44801469e7d2499171ceb5d42aa5de67bfa8"
+    }
+  },
+  "boxInventorySuspectedInactive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d42641a0b7f4d560b9a8d75cb564e990492cf9e7d8a584c2e7fdd4b0146b9c9d"
+    }
+  },
+  "boxInventoryTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8b15299cfadacc2f7d3d8c784d2beb4292e910d528d0a0c962eab495bf8ca782",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "14a55a17d5178cbdb8b20323c56baec35e4e1005fcf841a23eab8061a1d097dd",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "boxInventoryWithoutLocation": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b705e7c6b335449f1eda1f6cabd4ffb1a0761524f3fb9eae694ed09ec89d353d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "2c0781d826c1f329f0da5b08c7ec028f22a9224b06ed7baaf76b136e8acd12a7",
+      "reviewer": "japanese-reviewer"
+    }
+  }
+}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
@@ -34,15 +35,8 @@ function loadModule(path, imports = {}) {
   return exports;
 }
 const dateFormat = loadModule('../src/utils/dateFormat.ts');
-const catalogs = {
-  fr: loadModule('../src/i18n/fr.ts').fr,
-  en: loadModule('../src/i18n/en.ts').en,
-};
-const i18n = loadModule('../src/i18n/index.ts', {
-  './fr': { fr: catalogs.fr },
-  './en': { en: catalogs.en },
-  './ja': loadModule('../src/i18n/ja.ts'),
-});
+const i18n = loadI18n();
+const catalogs = i18n.translations;
 const biologicalTimeline = loadModule('../src/utils/biologicalTimeline.ts');
 function text(node) {
   if (node == null || typeof node === 'boolean') return '';

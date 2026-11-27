@@ -1,0 +1,385 @@
+{
+  "children": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "539e43e51fbfe3f195a03b8b03d277477612e8d7f259b4fdc28908e6e692ef24",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "3583a358a585b13b6d6228f12d2baf3ef937fcf50bed4a521b70f95a520bc933",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "confirmSubcultureAction": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8c56300e168a65469e9c420bcfd7a170b05e74a7a5ff17f74100f70987f0071b"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "47867950ae1885f031fb3daf0641c9aa26d63eeda160c3437d5306e2e1f18c59",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "confirmSubcultureMessage": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "4271b91a201c08c5ef9859d40fa3f0218eae70e63c7b30022f1f0743770c5a14",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a63b284a69839f728b18f4fb1283f02ad46120d7b9d7788303ec6d188685e863",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "confirmSubcultureTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5480a955bc805661f31b6a0a1b55c80cb024812d8298941e6d24b76a9224671d"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e924ec92142399d3a171190424f31a7dffef13d4b0b0a99732401993e44eec6a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "parents": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "c8b2999ed42d0d90895c4ebeea482a6fa8b3834d7faae60b843d0812be33cbb0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c8b2999ed42d0d90895c4ebeea482a6fa8b3834d7faae60b843d0812be33cbb0",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureAction": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "36f4b8f516a48c076ad32d3b6f2f1388dd6a6169700cc578a9474783e26ee853",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "cf2fa325ab95cf737e613385b62af831cc7f8fac579711cf65337d51d87be331",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureAddChild": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ab50307b0f807058795bd50eccbbe5d2d88eda0205003a03aa2566be0eb9847a",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "a4ebd0524e223194b11b40847cebf5c0ad771c43fdab641012f694c43f1ccb0a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureAllocated": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8032fc8829cf9452b246a696b706990daf6f178b5bf853345d20e1a16703786b",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "52d26f44d33fafa377864bcd64e2749cb16310f74c8a9f34dee8fac5fa489dd4",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureAllocatedPolyps": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "95e44eacbaa45d642ec382d403500d4a8855405c10b8dc2c4d137ec9df9a0694",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ec2c15b21a4314131454fff92cec4d55ebff781074b1b7dcbef1c523d1840f49",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureAvailable": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "f4e4f699637be88f2791dfbf9cdd596b9b29fa2692f3db5d3d5634076a684e5a",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "e674447337e83c1346f6122ed69f35bf5526e2a11842b2f2b788f3fb67d714ca",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureChild": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "7d588fa71e92a93d3812558a9de81792f500b301acf243a20f2d9706f20b03f4",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "512fd3c6042cd1d9150d46fa59b5911a1f97b8275d73eb0a841daa31e93bd349",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureChildLimit": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "00cca5ae3bc04791c86dc9463a101c09853c34cc84907dc3756aa1272276caa2",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "196f852f1991189379cffd16d37d013e47fe486ce7c90d782554e31b43ce8dc5",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureCodePreviewHint": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f30002fcd736bb3dde0e46abe3dbb6f4bf999e22f643ab5c72c0330224c868ad"
+    },
+    "ja": {
+      "status": "ai",
+      "source_sha256": "abc95b04c0b7b9848c2e72634ce355fa988aa5c79810d0655063d8f3c31a91bd"
+    }
+  },
+  "subcultureCompleted": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "619e90b2fee425511d88d3d9c84fa17774fe85c2e686b402bbf607506082f4ce"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "4f2418dd3ca0eda196f45cc93c3e73dcdd25950fa5ec4067ac2d021c1a3fe773",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureCreating": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "460546519e568d26e494855a5b7d8780053e8544ff3ca5ce204e9842a1689303",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "def70944c9bb9c3b77129e6fc48cfcd043031a86ae747060a3e97985d254c4f2",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureDeactivateParentMessage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c53cc993b5e2bf28fbc14331c8931a59341b220b72057ff7048ce9c5730a84e7"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "2bded8cd9729d8faa34b305057deb2b203918604acca7578fcdcccfa769a9326",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureDeactivateParentTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "4ced0ba03f6288cf8136b87159bc7baec0a9b3b8860df6f92185da4e7ebe8b6d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "826c313118f07642264b0cc3725aec2e78112ac15420a2632541480bc9342ec8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureEvent": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5090bd240b47bc83d09c4e9df734fa159927c5b8545021ca59e0a7af28897a6d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "7d4b4184cd36418f72f4f3ad97354bb43ed522c93dcbb3a2e1ab0844309cc3ac",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureForbidden": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "bb845dfdf75bca61f20605cd47fe0641f7fa843fb658777d9d8f1adf9bcd3ad9",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "b2124c480a3f700eaff7471af34924f7b395c85c28d8dc2a671ea4e4e9d5b46a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureInvalidCount": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "5cf2a2aa5fdc9ab817d42dfe2bc83f542e4c151b737bee76c97651af94e40850",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "7e1e1c7acd759355d9f5e32c490b0f33cc8423ff33e537ab9bc2d8edc70cd4e5",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureKeepParentActive": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "0f9f232454d022dfcd2a422248fa738da32e9e873934e8cc3c44be6d13989810",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "82fbeefac5dd12758c0721098c810c81cba87b5f9bd80c6b564c199968192682",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureNoZones": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2c1ca50c03f542b35212b65c41f40dfee2f73588c9aa305007fcfc09ed85f6ee"
+    }
+  },
+  "subcultureNote": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d09b4f59df98652530373ba7ef6c3739c17765c7d0c7aeda039b405451508ec6"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "13c13c756e3d20840850f4899d3fcd23a808327c6e9c05df892411817cb7b5b8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureNotePlaceholder": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "45db2c2d03d08654be03625fd4ba8e350172e64604124a791c3fed03723784b2",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "1b71b41d0cac8908bc84e7be6030b75f83834340b515aed0df6839ea3eaaae0e",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureOverAllocated": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "7895c0d8330e96181a90abae5f60fa60fa802b6f3b70572e57665ee04d3b7499",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8b48f45272c1895d0c48b57ae01c667b1917f878fdb7f7af54481a3619da023d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subculturePolypsToAllocate": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "e67ff60b8cd398e8912ce3c06d7e247b65e94903258ca6aa51d920dca13b9baa",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "925615de0bb2bedca39fc053c63acb114b17e46fefa931fa051b6ebd5b2a1394",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureRemaining": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "dac6da075f3c5670191e1ebb276d91aacfa224bf86c4ed711c967abb2d4848e3",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "f3e4352a5df650e5a198f98bba91af0e6d2102fe2a3d9825db4df85aebfbe39f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureRemoveChild": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ec3e63615a68d0ccab0243f27d78ab34e9b42e0388e12c4961142c2db68f834a",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8ca1c9715d91301922349b4decb3dd9c072af6b06dc6b8886e594c54f463061d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureReviewState": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "6f895c2b546e01fa06efbd0db822e1ba4fbfc0fe1cb6d03361d5093107317488",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9d19cbc2a1bb55abc06951ebf9410a0edd5ce34b2dbcd8c5df9ae8248d05c3ce",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureStateChanged": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "52895ad8b5d80cd1fe58ef13fce5df892a79429a62590e17c210349880d13ceb",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "4a503e7b3ca033f073c0847489f89735731c015f16b74f68168003f63f6d7c52",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "36f4b8f516a48c076ad32d3b6f2f1388dd6a6169700cc578a9474783e26ee853",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "cf2fa325ab95cf737e613385b62af831cc7f8fac579711cf65337d51d87be331",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureUnknown": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "3b986a55bf84917c35dcb6fae3826e3c14fe03ca9f6b400515439122d4a8810f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "b764cdc0eab7137467211272fa539f1260d1bf2e71bcf6ff3bdc960f5c16aa14",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "subcultureUnknownCount": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "0af7af01776b1d3a8e88e254d0799dc9da6f5aef50e8ebfd0b27bacef10ac056",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "228214c47af14b5dc6dfbb48bba7c90db207f92a8d56ab00ef35a1398a8a3f34",
+      "reviewer": "japanese-reviewer"
+    }
+  }
+}

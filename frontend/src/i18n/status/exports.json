@@ -1,0 +1,26 @@
+{
+  "exports": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "2f4dcf59ff0cc41c77e519ca3d451220b2943856177bb20a634f2499f61610fe",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "2f4dcf59ff0cc41c77e519ca3d451220b2943856177bb20a634f2499f61610fe",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "exportsTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "bb5509911a4e52c5d18994f67c26969af5ae3beb830da275ae732ccaad39dd93",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c16e0b819445643bda35c4c131ed98a91893e328e9559b24e5c26fb616f7101b",
+      "reviewer": "japanese-reviewer"
+    }
+  }
+}

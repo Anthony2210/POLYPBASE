@@ -1,16 +1,31 @@
-import { en } from './en';
-import { fr, type TranslationKey } from './fr';
-import { ja } from './ja';
+import { sections } from './sections';
 
+type KeysOfUnion<T> = T extends unknown ? keyof T : never;
+type TranslationKey = KeysOfUnion<(typeof sections)[number]>;
 type Catalog = Readonly<Record<TranslationKey, string>>;
+type LanguageEntry = { fr: string; en: string; ja?: string };
 
-// Displayed catalogs. FR and EN are complete. The Japanese catalog is partial:
-// keys without historical human-approved or independently AI-reviewed Japanese use English.
-export const translations: { readonly fr: Catalog; readonly en: Catalog; readonly ja: Catalog } = {
-  fr,
-  en,
-  ja: { ...en, ...ja },
-};
+function buildCatalogs() {
+  const fr: Partial<Record<TranslationKey, string>> = {};
+  const en: Partial<Record<TranslationKey, string>> = {};
+  const ja: Partial<Record<TranslationKey, string>> = {};
+  for (const section of sections) {
+    for (const [key, entry] of Object.entries<LanguageEntry>(section)) {
+      const translationKey = key as TranslationKey;
+      fr[translationKey] = entry.fr;
+      en[translationKey] = entry.en;
+      ja[translationKey] = entry.ja ?? entry.en;
+    }
+  }
+  // The section checks verify that every literal key is present exactly once.
+  return { fr, en, ja } as {
+    readonly fr: Catalog;
+    readonly en: Catalog;
+    readonly ja: Catalog;
+  };
+}
+
+export const translations = buildCatalogs();
 
 export type Language = keyof typeof translations;
 export type { TranslationKey };
@@ -39,12 +54,16 @@ export function selectLocalCopy<T extends Record<string, string>>(
 
 export function resolveLanguage(language: string | null | undefined): Language {
   const shortCode = language?.trim().toLocaleLowerCase().split('-')[0];
-  return shortCode && Object.prototype.hasOwnProperty.call(translations, shortCode) ? shortCode as Language : DEFAULT_LANGUAGE;
+  return shortCode && Object.keys(translations).includes(shortCode)
+    ? (shortCode as Language)
+    : DEFAULT_LANGUAGE;
 }
 
 export function getStoredInterfaceLanguage(): Language | null {
   try {
-    const storedLanguage = window.localStorage.getItem(INTERFACE_LANGUAGE_STORAGE_KEY);
+    const storedLanguage = window.localStorage.getItem(
+      INTERFACE_LANGUAGE_STORAGE_KEY,
+    );
     return storedLanguage ? resolveLanguage(storedLanguage) : null;
   } catch {
     return null;
@@ -55,7 +74,10 @@ export function setStoredInterfaceLanguage(language: string): Language {
   const resolvedLanguage = resolveLanguage(language);
 
   try {
-    window.localStorage.setItem(INTERFACE_LANGUAGE_STORAGE_KEY, resolvedLanguage);
+    window.localStorage.setItem(
+      INTERFACE_LANGUAGE_STORAGE_KEY,
+      resolvedLanguage,
+    );
   } catch {
     // The server preference remains authoritative when storage is unavailable.
   }
@@ -64,5 +86,6 @@ export function setStoredInterfaceLanguage(language: string): Language {
 }
 
 export function createTranslator(language: Language): Translator {
-  return (key) => translations[language][key] ?? translations[DEFAULT_LANGUAGE][key] ?? key;
+  return (key) =>
+    translations[language][key] ?? translations[DEFAULT_LANGUAGE][key] ?? key;
 }

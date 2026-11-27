@@ -1,0 +1,128 @@
+{
+  "dnaAdd": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5a2c9a35697abc1c6133a4c1813e3c395c78a483333d665b9e1120ea62c4a547"
+    }
+  },
+  "dnaAddedByLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c774c5f76969f7b346bc213b4685e568e2848961975690aaef617644becad93e"
+    }
+  },
+  "dnaAuditAdded": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "73a59f44facc0b0e4a3e45c7c4959cf43e5107e13211b3d3cbc00a4892704409"
+    }
+  },
+  "dnaAuditRevoked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8cee04b00d43bd140e2f4ef3e095bf5e61319403027b1c8257a785c4b25e25ba"
+    }
+  },
+  "dnaAuditUpdated": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "de401dfb41a644b61704e23799b16629174fd5cd35b95789256540bcf19e3cee"
+    }
+  },
+  "dnaConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8545b406758625c0a443a7ec3267e1d2c27b8a4e08d3c09535bf3717b346b067"
+    }
+  },
+  "dnaDateLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "99c40ab405926cb5ad1def9cff4d7ce624f8f8abfff4e85f655347fcb949d08e"
+    }
+  },
+  "dnaEdit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "308cc0c809a9c5f741ac4b7321a1a4812a3abd3664f2905b5c4ee0c2d13fdbc4"
+    }
+  },
+  "dnaEvidenceLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0b2cd2085bb084c802eaacea08f98ae339b5db0aab7a6e88ae8c6c6237aae501"
+    }
+  },
+  "dnaEvidenceUrl": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b3d71c9553c8cc7f37c41587fcc4306f7496f01972010537992312c223543503"
+    }
+  },
+  "dnaForbidden": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a9530fb4c4c8d57bf27d9cb4a44f2ba753ba08d6f0e71a9db3ef57e4633f73ad"
+    }
+  },
+  "dnaInvalidUrl": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "21d1423eb7407160f9016e2dced762ed6bb902a36ab60baecad0d241a0e94cb1"
+    }
+  },
+  "dnaMissing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "89fe30cba76d026f26bd0139cb004fca0a7af928945631148a6ad5b1086f7cdd"
+    }
+  },
+  "dnaReload": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "02bfc654392df81cb16f47e5afa998919b5a33f842d5d91508cbdc3e3b6c22e5"
+    }
+  },
+  "dnaReloadError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4dc4257c4ae2c2d5c41804c9184553e3890c862780d90576d489c54697d3c138"
+    }
+  },
+  "dnaRevoke": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "237c112f1b895f2134518663e5043e79c9a0bb90da9843082907b94c3bcf13b7"
+    }
+  },
+  "dnaRevokeMessage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "beefe470d3653af39550485bc492cbffb492f43ac14d71dcfdf170efe297076c"
+    }
+  },
+  "dnaSave": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "71dc74873e23107dfda512ec806b4cf4b98270b4937e2bcc4202b8a79359d6b5"
+    }
+  },
+  "dnaSaveError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "579a550b90915e11b0d2517880be50846857d1fa4f554e33ad0bcff7bcc5c37d"
+    }
+  },
+  "dnaTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0c8426e21bacf07ab68ce9339060c24a462a0b3975eff263139cc8ea1cedefa9"
+    }
+  },
+  "dnaValidated": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d50470c23616ac617d36c87e0d95de5e50a4cb35b93f07f92e5fdaa3cf3bd66e"
+    }
+  }
+}

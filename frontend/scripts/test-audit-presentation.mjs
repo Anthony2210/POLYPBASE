@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 import { createElement } from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
@@ -147,8 +148,7 @@ function readSource(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
 
-const fr = loadModule('../src/i18n/fr.ts').fr;
-const en = loadModule('../src/i18n/en.ts').en;
+const { fr, en } = loadI18n().translations;
 
 function translator(catalog) {
   return (key) => catalog[key] ?? key;
@@ -2940,8 +2940,6 @@ test('administration header stacks the date filter below the family filters', ()
   const administrationCss = readSource(
     '../src/styles/pages/administration.css',
   );
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
   const headingStart = sectionSource.indexOf(
     '<header className="box-inventory-heading">',
   );
@@ -3017,7 +3015,11 @@ test('administration header stacks the date filter below the family filters', ()
   );
   assert.match(sectionSource, /onSelect=\{\(\) => selectFamily\(''\)\}/);
   assert.match(sectionSource, /setDateFilter\(event\.target\.value\)/);
-  for (const source of [sectionSource, administrationCss, frSource, enSource]) {
+  for (const source of [
+    sectionSource,
+    administrationCss,
+    ...[fr, en].map((catalog) => Object.keys(catalog).join('\n')),
+  ]) {
     assert.equal(source.includes('adminAuditText'), false);
     assert.equal(source.includes('adminAuditClearFilters'), false);
     assert.equal(source.includes('admin-audit-clear'), false);
@@ -3089,8 +3091,6 @@ test('history headings omit filler text and action counts while using the applic
   const adminCss = readSource('../src/styles/pages/administration.css');
   const profileCss = readSource('../src/styles/pages/profile.css');
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
 
   assert.doesNotMatch(adminSource, /adminAuditCount|admin-audit-result-count/);
   assert.doesNotMatch(
@@ -3109,9 +3109,9 @@ test('history headings omit filler text and action counts while using the applic
     timelineCss,
     /\.audit-day-heading \{[^}]*font-family: var\(--font-body\);/s,
   );
-  for (const source of [frSource, enSource]) {
+  for (const catalog of [fr, en]) {
     assert.doesNotMatch(
-      source,
+      Object.keys(catalog).join('\n'),
       /adminAuditCount|profileActionsText|profileActionsCount/,
     );
   }
@@ -3676,8 +3676,6 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
     '../src/components/AuditLinkedActionsPopover.tsx',
   );
   const presentationSource = readSource('../src/utils/auditPresentation.ts');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
   const adminCss = readSource('../src/styles/pages/administration.css');
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
   const middleDot = String.fromCodePoint(0xb7);
@@ -3688,8 +3686,7 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
     timelineSource,
     linkedSource,
     presentationSource,
-    frSource,
-    enSource,
+    ...[fr, en].map((catalog) => Object.entries(catalog).flat().join('\n')),
   ]) {
     assert.equal(source.includes(middleDot), false);
     assert.equal(source.includes('auditDetailTechnical'), false);

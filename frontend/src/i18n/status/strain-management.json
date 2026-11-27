@@ -1,0 +1,458 @@
+{
+  "speciesStrainAcquisitionVia": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4cb7a18b8cb21ab6c6d3ec5e45e5b76064d3668faffb389ab7c666134f9e3429"
+    }
+  },
+  "speciesStrainActiveBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2bf38f1ed03eb6c31d26e322c370bc409aed0488ba063309c0b0c52ce409296e"
+    }
+  },
+  "speciesStrainAddBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ab50307b0f807058795bd50eccbbe5d2d88eda0205003a03aa2566be0eb9847a"
+    }
+  },
+  "speciesStrainBoxColumn": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7d588fa71e92a93d3812558a9de81792f500b301acf243a20f2d9706f20b03f4"
+    }
+  },
+  "speciesStrainBoxesLoading": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "aa69a4131609a51e563b548fec3c62051605af830d8d70c9f87c25e42ca76928"
+    }
+  },
+  "speciesStrainCodePrefix": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "366fff129c5532f9fb1dab4cf5b03e1a24aa6f9b1d3bc9085a436da7d3d6068c"
+    }
+  },
+  "speciesStrainConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7f07f2ea3cb9f9dc6af9762dab46176e8f8ce3ce0becd319481684bfc9db0c4c"
+    }
+  },
+  "speciesStrainCreateError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a5f2dcb46bb3be418b8e74f358891f908d80176ca31934658957742a049d0b07"
+    }
+  },
+  "speciesStrainCreateSubmit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a3806651d2cb6d6340f5cf73ccb3c6883a049b44a141be0b908ab56755663dc7"
+    }
+  },
+  "speciesStrainCreated": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1ea76ec088a0b7e15d86d1b0ae8db8450df0858290145486dc043ebef8297093"
+    }
+  },
+  "speciesStrainLatitude": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "23364c2998043cc3e7fea1f0db344f7f50e31ab7fb505bbc7b74da94a0a0c8a1"
+    }
+  },
+  "speciesStrainLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c5ffba89e61bed4426140e192edb2ca8987e6229b84042578beeee5eb21e7f37"
+    }
+  },
+  "speciesStrainLocationChoose": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bd156d86b9305384897518b8df886a82467d87d22636812bd730d2bcb1d479c5"
+    }
+  },
+  "speciesStrainLocationCode": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9a6390f43d5801d1d2bbffe1781e8cf62382513323198642a4b8f10d2bd9846f"
+    }
+  },
+  "speciesStrainLocationCodeInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cd15f4481d538726902be7b20afd3e7fa4497f7ff2fa20568be8d0e4440df105"
+    }
+  },
+  "speciesStrainLocationCodeTaken": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e6d4ab93b3670357c3d5ca9c7caa960d914ba6240e227d586cac4867b069c208"
+    }
+  },
+  "speciesStrainLocationCodeUnusable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ed8b5cd610ed1df629df85ba25ef94243a5c57809471cdc7a7eb24dccb994c2d"
+    }
+  },
+  "speciesStrainLocationExisting": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6c91fdd31b3fecd9f36480597479def69f1ecb6fb1f8a50530809cbc35d6f265"
+    }
+  },
+  "speciesStrainLocationHint": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a86878f034cf3cd77d68ab4ad928bb34d2d568624670424d10839c44ffa7b422"
+    }
+  },
+  "speciesStrainLocationName": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1bcb206afbd0470df5944d8e82af280774c6cf5ae33a28c298fd4497a4cd33c5"
+    }
+  },
+  "speciesStrainLocationNameRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c9512921b95f6b4502ba055bb5adc5d32c19cac1244e3a912bafc5ff42d584a1"
+    }
+  },
+  "speciesStrainLocationNameTaken": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "468a3579c126aa61594db5ed92a1411e7e711d8134f63168f713f1defc9536bd"
+    }
+  },
+  "speciesStrainLocationNameTooLong": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "afb7ccebc58276a851173acd23484a643247a9739671cd531f79963ff2b38b52"
+    }
+  },
+  "speciesStrainLocationNew": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "33134e3584c8848f15ab51c0205fb75c4fe85a86a4cb5dcda78cf687afa6713e"
+    }
+  },
+  "speciesStrainLocationNotFound": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1ab7ac10a87124607f8470e64230f7870e12724d915bb5c6f57673fde3551791"
+    }
+  },
+  "speciesStrainLocationsError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ce1d67d7aa5881d1f6839c382b6724315738340db36549eb8fecea7b35891b50"
+    }
+  },
+  "speciesStrainLongitude": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8a37b1d827e07ec3367a5be2e836c808936d8c5c3c1089a7389429b1e305ff44"
+    }
+  },
+  "speciesStrainNew": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b812d45a560d9246dcf33e23481c96ed1ae3c5b6c2371611a30e2684cb989bfa"
+    }
+  },
+  "speciesStrainNoBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b85922a2e5e2bb9ac5b5cbe6adbef0ccc586e65a8a252ef4fdb2cce96d4c9017"
+    }
+  },
+  "speciesStrainNoLocations": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1d25afc6608131965347d504a4f33c22695e956ecdc3584105ac8fc886f590e8"
+    }
+  },
+  "speciesStrainNoMeasurement": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0f32371167f49e5f8a2543517b995d83c7e1efc8e6397d25e8b7268414541a69"
+    }
+  },
+  "speciesStrainNoProvenance": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "89e86283c85feaf76aee5b3c8bd32946f7fe466eb9196349f7183eb834bb94d3"
+    }
+  },
+  "speciesStrainNumberAutomatic": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b637f7bc81f9e6c45e5c7005eb9f05cc3da3367e56140eeb7e9b0f103a991a5b"
+    }
+  },
+  "speciesStrainNumberUnavailable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6b8c0ae356c3d6babeb07f5f7a88076634a1f5aab01249ae9ce965d3d1bc9133"
+    }
+  },
+  "speciesStrainOriginDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3d842ad3eee9a61890d72513101340de2540fd690dfc67e50cb8bfdf974f0595"
+    }
+  },
+  "speciesStrainOriginDonation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "24b6bef25e6e1efd34fdef52e772b39bfd818a77b5eea88f1badfe790361b7e5"
+    }
+  },
+  "speciesStrainOriginExchange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a347c8575d1df231aea5001230448494f0239b3cc931e1293e4c9cf62653d8ff"
+    }
+  },
+  "speciesStrainOriginFieldCollection": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5e458f7750de0ffa3bcc8678c6dc7f14a2cadb22f240503569c3978ef25653d0"
+    }
+  },
+  "speciesStrainOriginInstitution": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a83f72fd4056ba4372d4a270a518dc86f4b816c77921df2b2a02f374a2c3d56a"
+    }
+  },
+  "speciesStrainOriginReproduction": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "dc567aee47181c33ad5870b342940db16c66d0218f529c2075c84f1dda29c571"
+    }
+  },
+  "speciesStrainOriginType": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "77d184ef82ef38685d6dc71b450de651a62b5bdbcce0cc67e48eeff5cb0d2a92"
+    }
+  },
+  "speciesStrainOriginUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7ad1323ac03e7d6eb6d251b0ff2b764b77b5b9572427ceaa24fff7a13c20ec86"
+    }
+  },
+  "speciesStrainRecordedProvenance": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "62c8c6088fa491bf0d64f525046a53b6beb0a52c9f9cd1d315c0a7bcd6a9d5be"
+    }
+  },
+  "speciesStrainRequestConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6b6159950fb05e2fb35ee348663818f5601d00752b3cfe7999b671d20348632e"
+    }
+  },
+  "speciesStrainSpeciesCodeMissing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9c4c7aa48984f656c25447e9f713336a41a4387bc7546842f48373d5717e093f"
+    }
+  },
+  "speciesStrainSpeciesCodeUnusable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d6cd47d189e7b33d08d2811804ee320449b284ddaeea06d50a19dcce3019aa35"
+    }
+  },
+  "speciesStrainTechnique": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bf4043a9b3dff077edfe02f1f6addb18d8e03e9a73c4c04bd4579deeef375b77"
+    }
+  },
+  "speciesStrainUseLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d17e64734d92d6f65a39043a48b27952756267a83e40ffba84a48a9e4b3b54fd"
+    }
+  },
+  "strainAcquisitionDonation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "12061aee6ecbbdaf69f5d9296a57bad0cb2ba752a8b0957ab3e7488723ca2673"
+    }
+  },
+  "strainAcquisitionFertilizationCaptive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cc89a217eb2333a3cdc3d9c74794ca0779f3a179477c6c5018282862be406627"
+    }
+  },
+  "strainAcquisitionFertilizationWild": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4de74ced879562fdf7047d7dec45b7ef8227cfa7b3631bf3d5a4468d0bb1a490"
+    }
+  },
+  "strainAcquisitionFieldCollection": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c352c4f4fbd5d2e59247ad056f5ed21a28a99ab70ac45c27a05d39d7dbbbb562"
+    }
+  },
+  "strainAcquisitionNone": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cb6c1fb76c7c34e8dc3068cc2cec3ebab71412110937751810fd04645c50c8a0"
+    }
+  },
+  "strainAcquisitionType": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "327ed747d2bfd7dea9eb7cb996396953d30a9eeaeb9caa62cfe4671627cc6db3"
+    }
+  },
+  "strainCountryAlreadyCoded": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1a13125e74393cf91be0846bc2520ee44a0fa3ebd134a83984bf6d3149befa1c"
+    }
+  },
+  "strainCountryChoose": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c25fa2dc6332bcaed2089337370856759a56d0a9f460dacfb93af05b59634f56"
+    }
+  },
+  "strainCountryCodeInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e09c64bfbe0d8c2a6693f38ed76f385c2c106744b7e186d238255861d6ba6cbb"
+    }
+  },
+  "strainCountryCodeLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6c2fbbdbc52b33d96881160053469d4e1a2f2378886c842e5233dffbfd67ce92"
+    }
+  },
+  "strainCountryCodeRecorded": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "16dd09e404bf00beb5e84ecb2749852b4224a1969f365ef72fb054ca8e9c69ce"
+    }
+  },
+  "strainCountryCodeTaken": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d38ad97fab8c79ee5006ba69f7cc4fc5dd8fc1c952329791994ec716a49dface"
+    }
+  },
+  "strainCountryLinkCancel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f37a600bf8f26324a05ee56f040d0a0f0412a2a35d753eed7b158334f414fe36"
+    }
+  },
+  "strainCountryLinkOffer": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4a7d5d70d7b109c6be62d177711c899d7e3c5d7d904dab534af95513d22ae7d2"
+    }
+  },
+  "strainCountryLinked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "27606ca87df3798f293cac6b7d3dc394fcc11434411d201eb824b75381a6a2cd"
+    }
+  },
+  "strainCountryLocationConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "22f1727844f2bfdab048ab6ce36d115665a447c8a911ce2454710131e6dfec82"
+    }
+  },
+  "strainCountryNameTaken": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c225bc948b5c2da00e9866e4e0f12ef1aec61b17f15c51c62c2f438815f57e10"
+    }
+  },
+  "strainCountryRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "30ade60300409b2113e0aeda013dde5ad47b346cb197f9812f5d624ef0888135"
+    }
+  },
+  "strainDonorInstitution": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5245ac7157995664fbd0dccf676bf858cb746527fdb4f186bd6e5cad3b8ff2e2"
+    }
+  },
+  "strainGps": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e2f4d1dd553715ace90a669844f69f7d103e799c38b0ef998c573e90d3316246"
+    }
+  },
+  "strainGpsInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1b66b70ecadaeff711c9491e6da77b4582db7a87c81d5ff29d45680cd1cdd17e"
+    }
+  },
+  "strainGpsLatitude": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "238a676da45a2f9c02f338b42799e07d172632a17d8673f93dbfb7e2571a999b"
+    }
+  },
+  "strainGpsLongitude": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6d80458fd17d33fcc40825346bbdf2a8deb4b53a825839c21bc0e2c2c9f401b8"
+    }
+  },
+  "strainGpsOutOfRange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b5c02858020f69095f128a2c914a91c63559a93e4ae9f8bfa0aa42de8451966c"
+    }
+  },
+  "strainGpsPair": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ee08071171ec5975f52e52baa92801346956a530bed648cd65a54bae7c5da3d9"
+    }
+  },
+  "strainName": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f975c413f19761dceac0a287abc1fa020debd153177b94058077d22ddcf7ba5c"
+    }
+  },
+  "strainOfferBoxMessage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c3661f510432749346c62a24255e7def19b895a1757cd6017fd40a300bedd594"
+    }
+  },
+  "strainOfferBoxTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5f5e27e2a50dae9642284f8c0fa65c79990a9168b6b0dc91baa54a7394c35a5a"
+    }
+  }
+}

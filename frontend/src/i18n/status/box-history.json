@@ -1,0 +1,332 @@
+{
+  "historyAcceptedReconstruction": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2333ebebac667cbc0cdf26cc0ab9f75cd4886e295e2d174a523dad2ca4071177"
+    }
+  },
+  "historyActorUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5c7ddf5f7bbab89c7e92b267d7939ae3e822c4ce72ef350d2f8f9ebf3c931bb5"
+    }
+  },
+  "historyAssessment": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5a6ab3153ff550dfc977efefa2c50bc1b7cbe4fe15d64b675d83760815707ea3"
+    }
+  },
+  "historyBetweenRecords": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6e0b20a923316aba26ca6910a9d77dadf0c7dd42008a5a4bacdd23dc1e5be68d"
+    }
+  },
+  "historyBetweenRecordsAcrossYears": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "307deb8815e1911a924433d5088c1afe5c2e610cb83843b509aa48e7913ba304"
+    }
+  },
+  "historyBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "43645bfc3bda62f45de1f6cdd88d34f0bba7f1358dd34e40d85a9d740b8fdd78"
+    }
+  },
+  "historyCandidate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "08ae22e1491b660605dfe4312f6bd37a054aeceefab72ccc34b1b2e3d1a1c682"
+    }
+  },
+  "historyDeactivation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "41f23500f861312d1a8a148492d6eceec71cb3e8fe76d2e9ea771217469e6a92"
+    }
+  },
+  "historyEvidence": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ff545ea105c2d5087885cd418f04f53c626237a68482a78d2e51aed711101ef9"
+    }
+  },
+  "historyEvidenceUnresolved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5a9369822e2205fea5c884a3648000ecd1c7721098bfa6cc4bcfa34dd068a1da"
+    }
+  },
+  "historyFailed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4c2be98d409f667156bf6e38b8842abd14841d53dba1de0891a76d7375ffdb09"
+    }
+  },
+  "historyHistoricalMovement": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1058465ec8fd24e54de245bfbf61faf2c6b8739291c68e5ea87e723ae838a0b2"
+    }
+  },
+  "historyInitialMeasurement": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a0f410e6d977932dea58be18623404ed03c1ed64fa680e7a670aaefd76a1a8b4"
+    }
+  },
+  "historyInitialObservedBy": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3f04570874cf1c8d575cf9665efd586528b94be1e553ef6a75954bdb8dae7fbc"
+    }
+  },
+  "historyIsoWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "db020c0c31afa265ed86c892b9ca7b7484294f504c974fe8390941e89a13796e"
+    }
+  },
+  "historyLoading": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e561ea356fe90cc38b8ab4a50e26c8a98f08ba47e31b5f042edee540ecc6d550"
+    }
+  },
+  "historyLocationEntry": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d4d8a0b69ab7b92044dbdfca2adb036ba7370202b95fd9e12fa895eb2c198b7a"
+    }
+  },
+  "historyLocationEvidence": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5189542ef4d40a0380021207ec3d3a1c8ceb00513045d9913268c2699d25b213"
+    }
+  },
+  "historyLocationExit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "66ad07b638a724792f86cdb045893d3cd24cd4561310ffcbb9d0ea221d836258"
+    }
+  },
+  "historyNoDestination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d55e8fa4ec3c286d95f9f79b328a6a0c305970b9c1318f6555a6c7ae73d6a33c"
+    }
+  },
+  "historyPartial": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8cb4cd2b7b8eb2386737377aa38728f4378000bfe44890894d40d384c3e1c87d"
+    }
+  },
+  "historyPotentialAfterRecord": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e3065e42c2679bf377ba467c1184355fb6c4aceb0dc065110b9e5f59f453c873"
+    }
+  },
+  "historyPotentialMovement": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "faace42f152601156223632ead3a5bdd6204f0699f03e5465ab8be536b3dcb05"
+    }
+  },
+  "historyPotentialUnordered": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9b593b0b77bbe9f69ae66ccfd623b3287eb98ba5cf5cd0937c21ced626888c25"
+    }
+  },
+  "historyPrecision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bfb550bac71ed7ac93ca00979d9a8746c2d88ae3afa8b9487f6ac199200fb3ab"
+    }
+  },
+  "historyProposedWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "70a1f1d047fbc6005a2c7c4171f30ee4723f67bbe952d838c65c6c362bc6e758"
+    }
+  },
+  "historyReactivation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "091e62f151b02bb1b169d11e74e223264ca0c9c4e7a4dc7b2f843ae7eafadb1b"
+    }
+  },
+  "historyReasonCoexist": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "82dfe42ea274dbfd747dce5f4bce83aef14ca5afb575a7f1ef3d54ed732815f8"
+    }
+  },
+  "historyReasonContinuity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "46a22cfd49efcf696180145768807d8aaca74b9841f52461ceaf2f36edfe3e88"
+    }
+  },
+  "historyReasonDestination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1bee3172458aaf5bf8657232fab4da5dfcfc55b0401b806820027c3b32626346"
+    }
+  },
+  "historyReasonEnvironment": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f6861e50b545c66a8e481162083bb2b860ea1385b81890c13413a2bcad2c8701"
+    }
+  },
+  "historyReasonFuture": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ad3f955dbbd07dc3d1ae6941fd40d536f6087879afc8c7f36f51165d2f7ba94c"
+    }
+  },
+  "historyReasonHistorical": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1bf2f1e168f55ec8f302d9a15f138c5d69ea6073f6a2e3b4d2919ed0a537cabb"
+    }
+  },
+  "historyReasonInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1eb27fd4d003f8f198c9be5ade9b0d5c98dd58a916b0875e8e7970d0369c6881"
+    }
+  },
+  "historyReasonLifecycle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7296f742ee834b86c80afe678556c33ac0685018d40c3ddb82ee36eca790a936"
+    }
+  },
+  "historyReasonMissingLocations": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "45f235e90a7662ce7ce115f753d11ea95bbc7fcd192cdad3621a5518f2e2728d"
+    }
+  },
+  "historyReasonMovement": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9ebd0fe8c154c38b6212d6c2314fd242d2f48a0fe8b542c79c229c0383729eca"
+    }
+  },
+  "historyReasonMultiple": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8c29ad4c781485cfab40f2f1bdbc58392bc273b82801de232f7e2ba156ff9af4"
+    }
+  },
+  "historyReasonOrigin": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b9b2e31e67d66819ba4abfee233b407d0ac7121ec90e77adea2e6c9250034ea2"
+    }
+  },
+  "historyReasonPeriodLink": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5b9feb2a6023fa8223491fcd083c9c9a83c13341687987aed66e7a712a10e6bb"
+    }
+  },
+  "historyReasonReceiptAudit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "275c0b977d82e78ecc2f6d86f0e5fb6a5594fda0fd74c3bea6021a51db59e7e4"
+    }
+  },
+  "historyReasonReceiptChanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "29be6e249af015e6e63f35f23e3f968895b7598c052626fdb200114971205265"
+    }
+  },
+  "historyReasonRecordWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4ffffc30e98ac05d675d94f10360d4959be675b28a44698b716f1df1c5cf36f3"
+    }
+  },
+  "historyReasonRecords": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1331ae934caa2cb323e726158a3eceffcee15d6244b375b69d22237cc76b3fd6"
+    }
+  },
+  "historyReasonRepresentations": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2392b347fb427b210abae566395c9db2da292421bad93d675869c375c63db865"
+    }
+  },
+  "historyReasonSource": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c352d97f3272c857954f57bcdd32c8cff4788720b2f91ff6a2afbbf601de8d55"
+    }
+  },
+  "historyReasonUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "dd1dfa76ebb3779dac9db3e55c4af1c5e24446543ab60c0771e25cf30036540f"
+    }
+  },
+  "historyReasonWholeWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3b67bb22b64150fc663b3c5707a33d7710b96ab73513affbe0586a6c43bc6a4f"
+    }
+  },
+  "historyReconstruction": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "075f5b4823883eba50a5a3bba431e6b0df2cda840f64252b34d6666770dae4ee"
+    }
+  },
+  "historyReconstructionUnresolved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b5e4cdcd2b0cc5ce5f07942238fc55584b7546193f26491fb4da62475afefaf1"
+    }
+  },
+  "historyRecordedViaPolypbase": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b2c3540397ae498b7b57dbf98ccbf3ee19c5b431cd7be8126f8c7cfdbb68e537"
+    }
+  },
+  "historyReviewRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "42743a6bc080dc22279a46d124727512efefc48b36f115555a525b7dc00b4f4f"
+    }
+  },
+  "historyStartingLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "dfa5c943745677ed7f23c837a94665d2db102fd15b108cfe384da9963373e29c"
+    }
+  },
+  "historyUnresolved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b089da4140d4784de0b7d5eb0789039954643a7cc528da1a42d6b003b45da891"
+    }
+  },
+  "historyWeekOnly": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "52700f854821f52b71ea99f518e95cd1e9c02953b8d786a11a3ff83e3be997f8"
+    }
+  }
+}

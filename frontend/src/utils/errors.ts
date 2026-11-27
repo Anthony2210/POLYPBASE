@@ -1,5 +1,5 @@
 import { ApiError } from '../api/client';
-import type { TranslationKey } from '../i18n/fr';
+import type { TranslationKey } from '../i18n';
 
 export function getErrorMessage(
   error: unknown,

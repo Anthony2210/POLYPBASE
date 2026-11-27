@@ -1,0 +1,301 @@
+export const adminInventory = {
+  adminWorkInProgress: { fr: 'En travaux', en: 'In progress' },
+  boxInventoryActions: { fr: 'Actions', en: 'Actions', ja: '操作' },
+  boxInventoryActiveWithoutLocation: {
+    fr: 'Actives sans emplacement',
+    en: 'Active with no location',
+  },
+  boxInventoryAgeSuggestions: {
+    fr: 'Afficher les suggestions d’inactivation',
+    en: 'Show deactivation suggestions',
+    ja: '無効化の提案を表示',
+  },
+  boxInventoryAgeThreshold: {
+    fr: 'Ancienneté minimale',
+    en: 'Minimum age',
+    ja: '最小経過期間',
+  },
+  boxInventoryAllYears: {
+    fr: 'Toutes les années',
+    en: 'All years',
+    ja: '全期間',
+  },
+  boxInventoryAssignLocation: {
+    fr: 'Attribuer un emplacement',
+    en: 'Assign a location',
+    ja: '設置場所を割り当て',
+  },
+  boxInventoryBatchActiveTitle: {
+    fr: 'Qualifier les boîtes actives',
+    en: 'Qualify boxes as active',
+    ja: '容器を有効に設定',
+  },
+  boxInventoryBatchActiveWarning: {
+    fr: 'Les boîtes sans emplacement deviendront actives sans attribution automatique. Elles resteront visibles dans « Actives sans emplacement ».',
+    en: 'Boxes with no location will become active without an automatic assignment. They will remain available under “Active with no location”.',
+    ja: '設置場所がない容器も、場所を自動設定せずに有効化されます。有効化後も「設置場所のない有効な容器」に表示されます。',
+  },
+  boxInventoryBatchAffectedBoxes: {
+    fr: 'Boîtes concernées',
+    en: 'Affected boxes',
+    ja: '対象の容器',
+  },
+  boxInventoryBatchClearSelection: {
+    fr: 'Effacer la sélection',
+    en: 'Clear selection',
+    ja: '選択を解除',
+  },
+  boxInventoryBatchCloseReport: {
+    fr: 'Fermer le rapport',
+    en: 'Close report',
+    ja: 'レポートを閉じる',
+  },
+  boxInventoryBatchConfirm: {
+    fr: 'Confirmer la qualification',
+    en: 'Confirm qualification',
+    ja: '状態の設定を確定',
+  },
+  boxInventoryBatchFailed: { fr: 'échecs', en: 'failed', ja: '失敗' },
+  boxInventoryBatchFailedBoxes: {
+    fr: 'Boîtes non modifiées',
+    en: 'Unchanged boxes',
+    ja: '変更なしの容器',
+  },
+  boxInventoryBatchInactiveHistoryText: {
+    fr: 'Ces boîtes seront marquées inactives en indiquant explicitement que leur motif d’arrêt était absent des données historiques. Aucun motif ni aucune date ne seront inventés.',
+    en: 'These boxes will become inactive with an explicit indication that their stop reason was absent from the historical data. No reason or date will be invented.',
+    ja: 'これらの容器を無効にし、過去の記録に停止理由がないことを明記します。理由や日付を推測して補うことはありません。',
+  },
+  boxInventoryBatchInactiveHistoryTitle: {
+    fr: 'Motif historique non renseigné',
+    en: 'Historical reason not recorded',
+    ja: '過去の記録に停止理由なし',
+  },
+  boxInventoryBatchInactiveTitle: {
+    fr: 'Qualifier les boîtes inactives',
+    en: 'Qualify boxes as inactive',
+    ja: '容器を無効に設定',
+  },
+  boxInventoryBatchKicker: {
+    fr: 'Qualification groupée',
+    en: 'Bulk qualification',
+    ja: '状態を一括設定',
+  },
+  boxInventoryBatchMakeActive: {
+    fr: 'Qualifier actives',
+    en: 'Qualify as active',
+    ja: '有効に設定',
+  },
+  boxInventoryBatchMakeInactive: {
+    fr: 'Qualifier inactives',
+    en: 'Qualify as inactive',
+    ja: '無効に設定',
+  },
+  boxInventoryBatchResultTitle: {
+    fr: 'Résultat de la qualification',
+    en: 'Qualification result',
+    ja: '状態設定の結果',
+  },
+  boxInventoryBatchSelectBox: {
+    fr: 'Sélectionner la boîte',
+    en: 'Select box',
+    ja: '容器を選択',
+  },
+  boxInventoryBatchSelected: {
+    fr: 'boîtes sélectionnées',
+    en: 'boxes selected',
+    ja: '容器を選択中',
+  },
+  boxInventoryBatchSelectedOne: {
+    fr: 'boîte sélectionnée',
+    en: 'box selected',
+    ja: '容器を選択中',
+  },
+  boxInventoryBatchSelectedTotal: {
+    fr: 'Boîtes sélectionnées',
+    en: 'Selected boxes',
+    ja: '選択した容器',
+  },
+  boxInventoryBatchSelectionColumn: {
+    fr: 'Sélection',
+    en: 'Selection',
+    ja: '選択',
+  },
+  boxInventoryBatchSelectionTitle: {
+    fr: 'Sélection pour action groupée',
+    en: 'Select for bulk action',
+    ja: '一括操作の対象を選択',
+  },
+  boxInventoryBatchSucceeded: { fr: 'réussites', en: 'succeeded', ja: '成功' },
+  boxInventoryBatchSuccessfulBoxes: {
+    fr: 'Boîtes mises à jour',
+    en: 'Updated boxes',
+    ja: '更新された容器',
+  },
+  boxInventoryBatchWithLocation: {
+    fr: 'Avec emplacement',
+    en: 'With a location',
+    ja: '設置場所あり',
+  },
+  boxInventoryBatchWithoutLocation: {
+    fr: 'Sans emplacement',
+    en: 'Without a location',
+    ja: '設置場所なし',
+  },
+  boxInventoryBox: { fr: 'Boîte', en: 'Box', ja: '容器' },
+  boxInventoryBoxes: { fr: 'boîtes', en: 'boxes', ja: '容器' },
+  boxInventoryCreatedOn: { fr: 'Créée le', en: 'Created on', ja: '作成日' },
+  boxInventoryCreationYear: {
+    fr: 'Année de création',
+    en: 'Year created',
+    ja: '作成年',
+  },
+  boxInventoryDates: { fr: 'Dates', en: 'Dates', ja: '日付' },
+  boxInventoryDeactivationSuggested: {
+    fr: 'Inactivation suggérée',
+    en: 'Deactivation suggested',
+    ja: '無効化を推奨',
+  },
+  boxInventoryEmptyText: {
+    fr: 'Modifiez le statut, l’emplacement ou la recherche.',
+    en: 'Change the status, location, or search.',
+    ja: 'ステータス、設置場所、または検索条件を変更してください。',
+  },
+  boxInventoryEmptyTitle: {
+    fr: 'Aucune boîte ne correspond à ces filtres',
+    en: 'No box matches these filters',
+    ja: 'これらのフィルターに該当する容器はありません。',
+  },
+  boxInventoryEnterSelectionMode: {
+    fr: 'Sélectionner des boîtes',
+    en: 'Select boxes',
+    ja: '容器を選択',
+  },
+  boxInventoryExitSelectionMode: {
+    fr: 'Terminer la sélection',
+    en: 'Finish selection',
+    ja: '選択モードを終了',
+  },
+  boxInventoryLastKnownLocation: {
+    fr: 'Dernier emplacement connu',
+    en: 'Last known location',
+  },
+  boxInventoryLastMeasurement: {
+    fr: 'Dernier relevé',
+    en: 'Latest record',
+    ja: '最新の測定記録',
+  },
+  boxInventoryLatestCounts: {
+    fr: 'Dernier relevé',
+    en: 'Latest record',
+    ja: '最新の測定記録',
+  },
+  boxInventoryLocation: { fr: 'Emplacement', en: 'Location', ja: '設置場所' },
+  boxInventoryLocationAll: {
+    fr: 'Tous les emplacements',
+    en: 'All locations',
+    ja: 'すべての設置場所',
+  },
+  boxInventoryMonth: { fr: 'mois', en: 'month', ja: 'ヶ月' },
+  boxInventoryMonths: { fr: 'mois', en: 'months', ja: 'ヶ月' },
+  boxInventoryNoData: { fr: 'Aucune donnée', en: 'No data', ja: 'データなし' },
+  boxInventoryNoHistoricalLocation: {
+    fr: 'Aucun historique d’emplacement',
+    en: 'No location history',
+    ja: '設置場所の履歴なし',
+  },
+  boxInventoryNoMeasurement: {
+    fr: 'Aucun relevé',
+    en: 'No records',
+    ja: '測定記録なし',
+  },
+  boxInventoryNoMeasurementFilter: {
+    fr: 'Sans relevé',
+    en: 'No records',
+    ja: '測定記録なし',
+  },
+  boxInventoryOf: { fr: 'sur', en: 'of', ja: '／' },
+  boxInventoryQualificationAid: {
+    fr: 'Aide à la qualification',
+    en: 'Qualification support',
+    ja: '状態設定のヒント',
+  },
+  boxInventoryReferenceDate: {
+    fr: 'Date de référence',
+    en: 'Reference date',
+    ja: '基準日',
+  },
+  boxInventoryReviewMarker: {
+    fr: 'À vérifier',
+    en: 'To review',
+    ja: '確認対象',
+  },
+  boxInventorySearch: { fr: 'Rechercher', en: 'Search', ja: '検索' },
+  boxInventorySearchPlaceholder: {
+    fr: 'Code ou espèce',
+    en: 'Code or species',
+    ja: 'コードまたは種',
+  },
+  boxInventorySelectionClearedByFilters: {
+    fr: 'La sélection a été effacée car les filtres ont changé.',
+    en: 'The selection was cleared because the filters changed.',
+    ja: 'フィルターが変更されたため、選択を解除しました。',
+  },
+  boxInventorySetInactive: {
+    fr: 'Qualifier inactive',
+    en: 'Qualify as inactive',
+    ja: '無効に設定',
+  },
+  boxInventoryStatus: { fr: 'Statut', en: 'Status', ja: 'ステータス' },
+  boxInventoryStatusActive: { fr: 'Actives', en: 'Active', ja: '有効' },
+  boxInventoryStatusAll: { fr: 'Toutes', en: 'All', ja: 'すべて' },
+  boxInventoryStatusInactive: { fr: 'Inactives', en: 'Inactive', ja: '無効' },
+  boxInventoryStatusPending: {
+    fr: 'À vérifier',
+    en: 'Pending',
+    ja: '確認待ち',
+  },
+  boxInventorySuggestionAge: {
+    fr: 'Dernier relevé',
+    en: 'Latest record',
+    ja: '最新の測定記録',
+  },
+  boxInventorySuggestionAgeValue: {
+    fr: 'il y a {count} {unit}',
+    en: '{count} {unit} ago',
+    ja: '{count}{unit}前',
+  },
+  boxInventorySuggestionLatestZero: {
+    fr: 'Dernière mesure : 0 polype / 0 éphyrule',
+    en: 'Latest measurement: 0 polyps / 0 ephyrae',
+    ja: '最新の測定：ポリプ0 / エフィラ0',
+  },
+  boxInventorySuggestionThreshold: {
+    fr: 'Seuil choisi',
+    en: 'Selected threshold',
+    ja: '選択したしきい値',
+  },
+  boxInventorySuggestionWhy: {
+    fr: 'Pourquoi cette suggestion ?',
+    en: 'Why this suggestion?',
+    ja: 'この提案の理由',
+  },
+  boxInventorySummary: {
+    fr: 'Inventaire de l’aquarium',
+    en: 'Institution inventory',
+  },
+  boxInventorySuspectedInactive: {
+    fr: 'Suspectées inactives',
+    en: 'Suspected inactive',
+  },
+  boxInventoryTitle: {
+    fr: 'Inventaire des boîtes',
+    en: 'Box inventory',
+    ja: '容器一覧',
+  },
+  boxInventoryWithoutLocation: {
+    fr: 'Sans emplacement',
+    en: 'No location',
+    ja: '場所未設定',
+  },
+};

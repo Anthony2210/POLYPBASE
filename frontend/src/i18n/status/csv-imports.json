@@ -1,0 +1,794 @@
+{
+  "csvAbsent": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ae0211c55df99246eb5c1c3bb538fbe8b6c3fd3bc664f3e8244cb3549b63d384"
+    }
+  },
+  "csvAccepted": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4ddd38eab90297779403cea26211086c9842b9ebb779cd12e6eb4271bde6c1ed"
+    }
+  },
+  "csvAcceptedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "160f121de153a1cc234a1fcdddb459d38e67f8f9d2c5e8f8c455c80c0b0143ca"
+    }
+  },
+  "csvApply": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "054a12981049738e3d8a3fc0fe4a0a71cab3de96a296f1254c6038110fe48a60"
+    }
+  },
+  "csvApplyUnavailable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ce5bf1e1fa9f2d4909152f7b551a91b7ebec747117968eb1202d5a7a4d55803e"
+    }
+  },
+  "csvApplying": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b392fe453257273685de112e905a30b9261bc7f97e7d6ab700d60a19553e4421"
+    }
+  },
+  "csvBlank": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b3dfe7b1e9a40a5f5e470b8fb4012af8a43ec8b54c05f69373920cf2643aba42"
+    }
+  },
+  "csvClose": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ad2f3c8749925ec456ec46105a34369aff67143ef08e73b72f9d4aafd73c77df"
+    }
+  },
+  "csvColumn": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "543718c57fac927da74153783859664b4be036bda5240fcd0ecb56c1484f48d2"
+    }
+  },
+  "csvComma": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "14df66172a3039caa88bd52ca556ade92e30d66ba1c444307a62e21a4dce4265"
+    }
+  },
+  "csvConfirmImport": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ec22793eee4a102ef894d1476d5e66a72d3b9309d9327a2b1d77203b2f0d3e11"
+    }
+  },
+  "csvConfirmMapping": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "92d227a9e4992a6a5d2a23f303202b405c6a2c9b39d9711bef961882cfd35bd1"
+    }
+  },
+  "csvCreated": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "53dc66505822972f02bfa9d34871130833b5363e0e4b59ac2822369e463b2d85"
+    }
+  },
+  "csvDelimiter": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b91f212c0649f6a70d8117596a6837e1e6a5787fad2369f5d77133b5e1bf88c3"
+    }
+  },
+  "csvDiagnosticBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e7a7009f967fef249fd23f57e376485ac0ad9553504299233742fc5f4b6e481f"
+    }
+  },
+  "csvDiagnosticReady": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "95930bc88cffb598abb9d6fefda5806e395a487e4f6a8f4436b7aae2871f9a26"
+    }
+  },
+  "csvDownloadReceipt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7f6752a407e3c7be7520df4c766aadc73c369e21ec60e46e490162cb0e521888"
+    }
+  },
+  "csvDownloadSource": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c89a677c50b80763870bfc9ed6ca23b8d46cece1f4b7a75c8dddf0b2e4d6dc14"
+    }
+  },
+  "csvDownloading": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e441091e0daa4c25e1ff1e2319c09252965f0a7ad7318f16563c914fa7fd0c38"
+    }
+  },
+  "csvErrorApply": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "809461784007773725b45ca0975beee3890c9b52721662c18eaf81a39bcbc430"
+    }
+  },
+  "csvErrorConfiguration": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e2bb683ec33a65037f03baff21c8910b3e6bb5d842d5ede6c33ad0c7e676b362"
+    }
+  },
+  "csvErrorDownload": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8dc7a0b8fed2ccb1709f5cb92a89aeb61dd0eb6ca3eb89af0c233f1d4dc73fbd"
+    }
+  },
+  "csvErrorMapping": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6ad842900ef9ef8ce492b448d314141b0e802c2ede419c42a64596154188bb29"
+    }
+  },
+  "csvErrorPermission": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "38978ba6413fb336cd672dc0f631208757f4cfdf4aa1b399775fb1826a852990"
+    }
+  },
+  "csvErrorRequest": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f8de38ea6a67e5502f1768cd081e4d5dd985805d4c148d11315ce22f86506115"
+    }
+  },
+  "csvErrorSize": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "83ec3c46bcdf354528b5f1fbf0250e4f1b1803c74fc36095f251c80eb8279a07"
+    }
+  },
+  "csvErrorStale": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d2524df10a2a291385923c7c343becea5a384fd44243fc44b5fef8253b810a33"
+    }
+  },
+  "csvExactDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5029c10a004e20563ccbe2d9eddf3123cef550a6e956508160c2d5e2cf25af6a"
+    }
+  },
+  "csvFalse": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d075ed966fac698679eb95c4bbf86852c62af650c7d7e849b6550f6a346e8404"
+    }
+  },
+  "csvFieldAttention": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e1e60b78c02a397f62caa45f143e1c557f9324cab5facbbaa340c0337e2f34ca"
+    }
+  },
+  "csvFieldBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7207df4c2aa1249edeb1ada3559359af401c3672cf8250294c22206b3a172f6f"
+    }
+  },
+  "csvFieldDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "432382e6267698f446eb488fd4c659fb7da68c0ae36ad7c8be246a15f9d69381"
+    }
+  },
+  "csvFieldEphyrae": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fee3bf92e238f13f1277e7eb6a0bfe12728eb482a0976b3c0f62a5fc38c6e465"
+    }
+  },
+  "csvFieldNotes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8a7525b1492fb84833f5c4a69b30f4bfbb134f9b666b61a2c1872d63d234c085"
+    }
+  },
+  "csvFieldObserver": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3e49daf3f522372aeac313e61e444e3ae818b118d962045e048cb414b8cbf849"
+    }
+  },
+  "csvFieldPolyps": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5aca946e913a38d6e589d693aee5a0ce210935a12bf8114a0c68d182918ea02b"
+    }
+  },
+  "csvFieldSalinity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ec4d461de9cc5a2b32ddd691ba0fc5ecb0c20c099b42e2506ab6ef9ca82edbb8"
+    }
+  },
+  "csvFieldStatus": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ad108fec31be375f40419f06c0936b2944abc4b7bee9b4ac7e47546e5ce83dba"
+    }
+  },
+  "csvFieldStrobila": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c51f8d9406896baa366869e15b7c52a25b397d167099a2ae88f9b472f7db793f"
+    }
+  },
+  "csvFieldWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f0487166f0aaea1cb14675474efb61cfac717225d9273eb099e187bbf7f1d1ed"
+    }
+  },
+  "csvFieldYear": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "532f13744a67b2f290e9a02a8be63642183ce5f2257cb607007935fdd542dac5"
+    }
+  },
+  "csvFile": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ac1fcdc194bfbbf5dcf7c8a47b6f7e63a38037a141d28e2e6132409703b11d87"
+    }
+  },
+  "csvIgnore": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e28d96937adeabe24cc189095e79c5c2e03396c74517576a4c3769620b925be2"
+    }
+  },
+  "csvImportConfirmation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "23608203ace32484aba787320e0fdeaecda1366ab9fd400acdc814c11a28e577"
+    }
+  },
+  "csvInspect": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f04459748675d148f5bd8d5ffc3112e4d2e6c9f167bc500cc0060d9af7841547"
+    }
+  },
+  "csvInspecting": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "093fc0bcdd53ec863029829f06452fdccec9194facd2ebb27cfb372077480e40"
+    }
+  },
+  "csvIssueBoolean": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "13fb7d607dcf30c42315ff7bf54738cf8767bddcf85af33262953ffb56361b93"
+    }
+  },
+  "csvIssueChoice": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9963ca12adad8da5f4e111fc73e8c8a347f7ae285e50d3c3c2f48fd3aca16fbd"
+    }
+  },
+  "csvIssueChronology": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b4d4a3fe5e241ff8b79499a25d7d156a55df4da6e12a6f9e7ead243da08020ee"
+    }
+  },
+  "csvIssueColumns": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6cbb7b320454a8e0d1f3fb139dc99cf36581720663cd9f830130fa3f013e919f"
+    }
+  },
+  "csvIssueContradictory": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6d609f9014590a727fe6b9ecac6524cad49bf9488723e1090a485dd21c087883"
+    }
+  },
+  "csvIssueCountRange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "00d1a1b1ca023016450a70045cb3cd2612b603c5f9ed1d40d8ec200c292730e4"
+    }
+  },
+  "csvIssueDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c7263c23097a3742a5dd20e9f4b1a221d60425810dac9d60764a28cdc134bfd5"
+    }
+  },
+  "csvIssueDateConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "857fee5f3f31f69962fbe7c838e8d6d529a1075bf86a9edac7d2290058d0fdd8"
+    }
+  },
+  "csvIssueDateWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8508bd5a38822e31df697684fdb55fab942629b0c175c083f8fb635e660274ab"
+    }
+  },
+  "csvIssueDecimal": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c7ade5975a5c0fb66db7ca82377dfc86019878f7d1569a87ea4b2c87a428d0f3"
+    }
+  },
+  "csvIssueDecimalRange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "38e0aa1217b105a7bcf4e47c067edc9c1901ccbff5f2c42e4a91c6717afbd02a"
+    }
+  },
+  "csvIssueDuplicate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0a954d905e87cbaff64b3bb5f297ed9006e0fc4a4a314fdd647ceee1264a44ae"
+    }
+  },
+  "csvIssueFieldLimit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9121891a7754aeb78614001e20943c4b0ec1f4225330770810afd4bd5c2b7792"
+    }
+  },
+  "csvIssueFormula": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3f65c7f59b5c0bc7abf995e72fa531bfbafabc258cb8e18a71e106bc4a5bd072"
+    }
+  },
+  "csvIssueHeaderMissing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "826e7786bc72ef5e7d2c4bc2ce50d1f64ecf01147c3d849416f52ebbb59ab81c"
+    }
+  },
+  "csvIssueHeaders": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b05ddcba0c9db042d82e8dcce6ead9187c7d10efd7aaaf0c55e6bd50c4a8fed8"
+    }
+  },
+  "csvIssueInactive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "766e5151b83135e06a97a00b0219e25a64f6aaf33290bb490edc58f3b74e48b5"
+    }
+  },
+  "csvIssueIncomplete": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e5bc2cb1b2c2740b241d32bd5b1e49f36721c012c6e3d064970fd0c390607790"
+    }
+  },
+  "csvIssueInteger": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f97a0494deb9f2c5e0b9104b731e53ceeccc77774431f6496c29dfa5b10249b9"
+    }
+  },
+  "csvIssueMalformed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e3acfd7c3f77142bc60909374203e9abfb4ea6758c5b042c9c25d654ff1252c4"
+    }
+  },
+  "csvIssueMappingDuplicate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "127f850ce33d3f78185aed1859757075799a216732453df0c4e9da07b929f87e"
+    }
+  },
+  "csvIssueMappingIncomplete": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "774fb16df5f7363bf2f33b03f5e2e8513925ffa1a0eccf9f17280e98170cdd82"
+    }
+  },
+  "csvIssueMappingRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5a4f4835370fbaaba4866786d778e90d78a79cc882faaf0db502717cb9d77dbb"
+    }
+  },
+  "csvIssueMappingTime": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "61c6c26bdbae7c5fe0360d0cec21d0f4eb2207ba7972d7fd55552865ebbce1e1"
+    }
+  },
+  "csvIssueNul": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "810b17a5d07e5b2c9110be3f3bbf64db91ee160749581e967a22b6ae681a91e8"
+    }
+  },
+  "csvIssueObserver": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4512848495fb6f6977805c9ca3add947db93cc73e41d052060f7e9a53b202317"
+    }
+  },
+  "csvIssueRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "210a6108e152fda9d8b04dd298afb5b5097c572a324783e8d835be7d59829bfc"
+    }
+  },
+  "csvIssueRows": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2702ac2e87ae3217a3e6ce9f4b05caf3641c259c5e1759cc6ec513821ff02de1"
+    }
+  },
+  "csvIssueSourceString": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "714d0ef6fcb290547d9477a8efeba91a13fa3f459f22ddd1796bf72e553c6a14"
+    }
+  },
+  "csvIssueTime": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6af6cf2fb7e19c493ca4cbfe0dde6cb19176d8fe5da0fe818b35097568fb317a"
+    }
+  },
+  "csvIssueUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7e7b76c7345713586d3456b25334b88de327b93642145fbb4fe710aa58236c42"
+    }
+  },
+  "csvIssueUnknownBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6bb4a5a6d74a77d5d80264be570fc1a1a63d2eb285cdd704d5cb085759581a73"
+    }
+  },
+  "csvIssueUnknownField": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d1e415d4ed8d4b02827edd61f5e0237a40e294e50a470aa013b3756ef2bcb52d"
+    }
+  },
+  "csvIssueUtf8": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1e0f557fd0450c20a68204cc02b6c98a198c3f38d3a8b8b22382158f767c52e7"
+    }
+  },
+  "csvIssueValueConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "55d6974cc356fe0e99492ef95fdd314de5d460b165a6ae4a17c701caecd4e145"
+    }
+  },
+  "csvIssueVersion": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8b3386c99de456a31425890975dfaeb9155b0070e618505bdb0e0b4b373dfb1c"
+    }
+  },
+  "csvIssueWeek": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e33eaa79dd7d77728f44ad644fbd7710da329c7b86436da0ebc657ccaac059a5"
+    }
+  },
+  "csvIssueWeekPersistence": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d68b84db653931f00c5751bfcccfca4e36111db4f600515fe3a12abd0ea6e683"
+    }
+  },
+  "csvIssueWidth": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4471470899a96be3dcea8ea216f11648d55760512bd50965524896bbf52f17f5"
+    }
+  },
+  "csvLines": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "aa778058128fcbbdd239546367a8b5d7ca070dcb70c12e6f0945f1bf7270e13a"
+    }
+  },
+  "csvMapping": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e0bfac6e8d5da958bfd5a885758dd1d6854ed018aae72a00f443a04ab6f287cf"
+    }
+  },
+  "csvMappingHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "007e4f9d488b4f6b4b513dfc7d7ac04ae322c455dfc7aef88e952ca2722f5a71"
+    }
+  },
+  "csvNext": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "df2df3bc713a79064b75356c0d00c71fe5f98fbeb5939f60e7d2c69321f6d6db"
+    }
+  },
+  "csvNoRows": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ace6c2e0cdd79fa630d35018f3addf9499417690b8afe566311a297b68d00ac5"
+    }
+  },
+  "csvNull": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9b9a0fd7840317dc8b44d8969b7e294ca7fcf6bf3d4a09d13186ff30ff5bd0f6"
+    }
+  },
+  "csvOpen": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "732806992726f7b89af326ada002c06859cdd7699df510993b89f6adccd95b3f"
+    }
+  },
+  "csvOutcomeBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0311db8016c3c7efdccbc8b0148c18af5c6b4a131b1050885d54f20598b0f878"
+    }
+  },
+  "csvOutcomeConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "05b3bac4355cb4901c04fdead6cb1e50ae289de8954fe3036c31985aa160a814"
+    }
+  },
+  "csvOutcomeCreate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bc333732be8f3a8f345595e93c07249b10afd9c9807c27f6a9a15e39dfff2cf5"
+    }
+  },
+  "csvOutcomeIgnored": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9dd7cdcaef183b84f6fc3c2d57d5038c1854b4c497ef6843a1d3fb3f63583460"
+    }
+  },
+  "csvOutcomeInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ffe25812db83bd92332ab567a1d4297987fde3d99f10ebf69ce96914a52f2ac1"
+    }
+  },
+  "csvOutcomeMatches": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e51d0f362738003b14c5f970cc6765ff8a7363455c34bab90f83ba546f1e77d1"
+    }
+  },
+  "csvOutcomeUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c4e72c7f6173d9951fe62f732c9f510411adf783564d9210231694fcb896420f"
+    }
+  },
+  "csvOutcomeUnknownCode": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "85bb85fb780622d85a74093e6aa7ebbdc7fb834d92d69c843d05a360a8249074"
+    }
+  },
+  "csvPage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0a30a815d67d7dd2018fe18f4e995a26f3b753369cd4327e9b6034b50a2cd153"
+    }
+  },
+  "csvPagination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ecd975060af91cc5931f6a963e1c16cd80cc346ab477cdafa3dd6a201496e4db"
+    }
+  },
+  "csvPrecision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a2a94f957054976222a042283d1053024906b7a8fe97f601575521e2a0c62818"
+    }
+  },
+  "csvPreview": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "97d3ebb2ca8dae5dedec9306c1467590a4fba25fe5b8297ac800a42f2644b7c0"
+    }
+  },
+  "csvPreviewHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "22ee187f54adbd290ab68fd2eae1959e5c29a33aee767aab482afaf8f106390d"
+    }
+  },
+  "csvPreviewTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6b87d22e81a2afa200abf1e506c3d22c5bbaabc0fcd459ac9f0e810f53e2df71"
+    }
+  },
+  "csvPreviewing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cfddade492ecb316861605053f408a9ef47c70d27911351894347161602bb6bd"
+    }
+  },
+  "csvPrevious": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "30b0e9a45aba4d1630554cb3ec0f721dea2e9bd4b76e6321b48eb096ac1617fb"
+    }
+  },
+  "csvReceiptHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b7f22357cf2eba9a5c6a49719f04294055278a2637d55cc0176fd3cc433ff2b8"
+    }
+  },
+  "csvReceiptId": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ab7663e156b2ba468a236bbfb257975387a22e9156330de02b26f032b68e2153"
+    }
+  },
+  "csvReceiptTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "acd21cf1efb273b05a51c60d2c542ef3576b16e99d569c7dfb3022db28d854d1"
+    }
+  },
+  "csvRecord": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e90a5873e610c658fc15e08f53b72b4ca7c3dfec716bec55b146ec454bfe3b5a"
+    }
+  },
+  "csvReplayed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "120c67caecc3bdc8490fa4aa4b5db657ca76600e5055ab40adb712deb0cf58d9"
+    }
+  },
+  "csvRetentionHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8effe8da685556137630525c506e5366eaf16e306ae7eacd7acde9ecadfa9f5f"
+    }
+  },
+  "csvSemicolon": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e3ab09070ea07d9ccceebb4d62cb5dfcbc54ab502bf7e0a82a46d7e837e1b35d"
+    }
+  },
+  "csvSourceHash": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e9e83b5adfffff2fc71cefca7a5f8631276f8ca976a4a8047c35d06061ce4f51"
+    }
+  },
+  "csvSourceHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "132b0201e702c308f4012d531b45e31d6c9b54738dd6947f1a4b61f57433b967"
+    }
+  },
+  "csvSourceIncomplete": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "61dbe2da7ce236d44bf16c9536bb488d38deba6a4c9cb4a9735228d750f9db67"
+    }
+  },
+  "csvSummaryBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bd0535d5e879399738b2655101b34193f758d0293fd1940db2ac92288a03fada"
+    }
+  },
+  "csvSummaryConflicts": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "089752b7d952fc6c62f5b2e5e1ec86a4963381600fe3230fb2a684d0cbaf75c9"
+    }
+  },
+  "csvSummaryCreate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "82115b662a4a42e42c3a37889781be90453736cff5edf59e22d5980b246598fc"
+    }
+  },
+  "csvSummaryIgnored": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "514e4a83f29730f4b3b9a3565459cc485ea562bb0ec379c32f6f17873634ae02"
+    }
+  },
+  "csvSummaryInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "93c5c55d722d364317b1e605a2c81f59a5282d6973e1bd907df2add06180bc40"
+    }
+  },
+  "csvSummaryMatches": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8ebea03e41e7687d2e24a12e57da3bc33f58d390a52fcfa59a86dd0bc29c026e"
+    }
+  },
+  "csvSummaryTotal": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "aa778058128fcbbdd239546367a8b5d7ca070dcb70c12e6f0945f1bf7270e13a"
+    }
+  },
+  "csvSummaryUnknown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7a9ada8155f98c61a4fbd769a9af3338a2b0692e3a0e05748fac295b5c262c7f"
+    }
+  },
+  "csvTab": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "40d45586ca8d52b4d9c6d435857584acf9eec34cd726fad9b743d9498e0c49be"
+    }
+  },
+  "csvTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "497a83efaf4140619f14c88feae2cc124b2fdc7f39b209457bc2ad9484df3eae"
+    }
+  },
+  "csvTrue": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "134a33c1f7063c2eeae0d3192be9692370b664a542666c18426f7f407745ebe7"
+    }
+  },
+  "csvUnselected": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2068fadd93dca866f2c332e9a4e19b4bf7dddbb3e9f3e0808aef359de9bd7caf"
+    }
+  },
+  "csvValuesHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fce9fe719a9598d7adc7825912f0da0ae39e9e933ea2a9ebee0208797705aa2b"
+    }
+  },
+  "csvWeekOnly": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "48dec28f0a5bf1994d87b478748476da7eb3755dc389c1557b48b11b1ae8ce43"
+    }
+  }
+}

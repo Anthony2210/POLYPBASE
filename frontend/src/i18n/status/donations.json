@@ -1,0 +1,308 @@
+{
+  "donationAcceptanceUnavailable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "676eec830db027e967c5782deb4a306effd4985bc4e37727f23c997161da6a06"
+    }
+  },
+  "donationAllStates": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "749c1a9956f0c9fe7ffdf0d1f536d912acde6625365f46ea80013a632bd1e130"
+    }
+  },
+  "donationAllTypes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "72030d105299fe4851d8e19c04cf813d15e640eac37f9185314ea3ba317b0453"
+    }
+  },
+  "donationAlreadyPending": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2249b29383a9984499053f00fa1d40b40a991bbc54e40016e4592635b50fa1b7"
+    }
+  },
+  "donationBoxIneligible": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7a84428c632568062cf393b0d6c68a1a6bbfc103575ef4260b2a65919512f0b4"
+    }
+  },
+  "donationCancelled": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "58524ce81f34c87956ac5d315f2b2b345ed6cd45774d5b55993fafbb288813a2"
+    }
+  },
+  "donationCancelledAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a76f2a3abf67421b47654a589d9ef67ac6d6e141aecba323f9e1533cb3f2ba0b"
+    }
+  },
+  "donationCheckEligibility": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "48b6c516b220b18669fec0647cbd1ed3307ad4abb61a8c114ad4cb1f7434f894"
+    }
+  },
+  "donationChoicesError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1bc6d63e618612a261bc570c81f905cbfc80de798684e1179e6e24f9713a7a3e"
+    }
+  },
+  "donationChooseBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "eac3993c6a54d339c6f3d547192dc95c73336b6542fa30d2dd1f19332f82d824"
+    }
+  },
+  "donationChooseDestination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f121d04c16d2a2b5fea380397369e04ed6b2cbe0ce4aec42f9cf1c7a9b9b170e"
+    }
+  },
+  "donationConfirmHistory": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "10387af4c9e0199a191e13a0deaa931301bc829144df76939e9a8f18f61eb6af"
+    }
+  },
+  "donationCountryUnspecified": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "94bc1d4bebd6ae21aa5616c3b742c7c15184070f2db7b15618871ea73d4d5a09"
+    }
+  },
+  "donationDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "99c40ab405926cb5ad1def9cff4d7ce624f8f8abfff4e85f655347fcb949d08e"
+    }
+  },
+  "donationDestination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f99214a439d5bd534955dadb3e4f83121d099c5a3d6766849dd3b2660dde77f0"
+    }
+  },
+  "donationDestinationUnavailable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fb640a77e429af164d061203c99b752c14892207810f6388622c8813b2493c2c"
+    }
+  },
+  "donationDetails": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "40ff3d974680f454d3734ced8d2d3715452f8faf8466dd0357b7d07ab6299846"
+    }
+  },
+  "donationEmpty": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b0c3c6de3bc79a386163ea8d63b037810878b013080bb47e73e4760c68cf08fa"
+    }
+  },
+  "donationForbidden": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "393de72c6ecd1d5503a3055ea920533c8a1dcfa6453ac2d96b1881b33b317188"
+    }
+  },
+  "donationHistoryChanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fe1b022ffa8f34e8378f29736b64c869eb69b872fa073f61b3bedcffc2f527ef"
+    }
+  },
+  "donationIncoming": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0a5f613047d243950736dbd2468e2e2bc4288c536c826b96b44182acbc41544a"
+    }
+  },
+  "donationNoDestination": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5da632ec2cf534703e1740578abf392e780592df3165c0b991aa9a5eba56a5b3"
+    }
+  },
+  "donationNoMatch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "943dab29878989c08bd70bdb07dd9dddef28884642f8002460a634d13447afff"
+    }
+  },
+  "donationNotFound": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "aa375a66fd6c781662d86f6e7266a28c400bd6f72f6de666082283409e6d3759"
+    }
+  },
+  "donationOnlyExchange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "75196c1e7a8b57f193fd7fd3caf3e7f76b5833f12e5b0a471634879b3abcdafa"
+    }
+  },
+  "donationOpenHistory": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bdcda4a7aae0373e5b41bd0863d2098219b883dcbd851e968c39bb89b27775df"
+    }
+  },
+  "donationPending": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2f6c8477e92bc6ea236691e498763fb56100ca2db8377f83407b4b4e22da0f72"
+    }
+  },
+  "donationPreflightError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "316abe160a66e510f9159d00b98799936fcd6208af1136a3e1503e2ad19901f1"
+    }
+  },
+  "donationProposalSent": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7d3709495ec799a5af2935aa84fb61ba68671265a072ac9372855b3aafbf78d5"
+    }
+  },
+  "donationReadError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "50a311ade6bc5cbf5cc9e7778ab17cf4b8b13519e4a1676cb506d9db55c55854"
+    }
+  },
+  "donationReference": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bf38f4494f1949f2371bc482da2650950c8b47feda4bc23b41ab02988f0c33aa"
+    }
+  },
+  "donationRefresh": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d7d646faaecb54e87491dc29758fc371643595097cbeae39ecfc6c3d87857ff9"
+    }
+  },
+  "donationSearch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8de9c8fe74d8feafe494c68f468238f502e3a1704f5976e62c1c041c961a88ef"
+    }
+  },
+  "donationSend": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "79075209f2bb88659c27b70f45fa4f4df8ecdb6395abcfc2d54b2a5184116950"
+    }
+  },
+  "donationSendError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e7bc1b2b08bad26712c5b0b001857c2b1062aa5f2542b6c0f8e8f0b3c187e376"
+    }
+  },
+  "donationSendUncertain": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b9bf6b451278a3323a6aef5ca94d6c15c8e346e605e0fe8b6d6beb34c472fa73"
+    }
+  },
+  "donationSource": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5b7e01d17b0f76906e6ddcc44e77f4b9e183654bf8484bcc0f26ffb2a3fd79bf"
+    }
+  },
+  "donationState": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "de4dd03297a1a1b222759c5252acfb0527846249f99b1b46211492884f0b34ae"
+    }
+  },
+  "donationSubmitProposal": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "db3bdd02441a575e1e48c6c3bb8c1733be533f72b5b1fc51358e2a72f00f528a"
+    }
+  },
+  "donationType": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "baaddf70fb5d432b8bd948ef91d6f910124a6d138edae4d5f000c4610ddc8eae"
+    }
+  },
+  "donationTypeDon": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "24b6bef25e6e1efd34fdef52e772b39bfd818a77b5eea88f1badfe790361b7e5"
+    }
+  },
+  "exchangePreviewBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b91b879462972ce6e0738ccb7c3ce24d1b89321c2efacf151cda802467009a48"
+    }
+  },
+  "exchangePreviewBoxPlaceholder": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "19bfdf8feeadda76b14136ba959c176c06d3f81e37a55dea469c2092023324c5"
+    }
+  },
+  "exchangePreviewEmail": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1933d51644af898654123cb5c1b113e933e42aaa7cba84cb84d8ba4b7fe4305b"
+    }
+  },
+  "exchangePreviewFrozen": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4b953e0e4b8a0be120b2509ce03bba2ec56ff633a3bce6c47a51cd995dcc5291"
+    }
+  },
+  "exchangePreviewInstitution": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f99214a439d5bd534955dadb3e4f83121d099c5a3d6766849dd3b2660dde77f0"
+    }
+  },
+  "exchangePreviewInstitutionPlaceholder": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c6f842f018b76a1fd74b15aaa410e0bed8aed484699b2c660789f55ae2e29167"
+    }
+  },
+  "exchangePreviewLive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fb32deb66958d36cb591de18db2a4ad7ff01843c61eb2f86a791351757e0b039"
+    }
+  },
+  "exchangePreviewNotice": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c905306a42023e9c21ee128926b649c02d24ccab85d4e5879d75b2ecf550ff6f"
+    }
+  },
+  "exchangePreviewTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1902b7a33a7bd628eced790081945de92e9edba17473032845d297db6f50b0a1"
+    }
+  },
+  "exchangePreviewType": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "76d78af68a64dbb86ff77f971e124abf9aa4331d9f4f9932ce332d2cdc8a613c"
+    }
+  }
+}

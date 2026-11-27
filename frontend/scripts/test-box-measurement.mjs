@@ -2,15 +2,34 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 import ts from 'typescript';
 import { appHarness, functionNode } from './app-operation-test-harness.mjs';
 
-for (const [input, expected] of [['0', 0], [' 0 ', 0], ['1e3', 1000], ['12.0', 12], ['2147483647', 2147483647],
-  ['', null], [' ', null], ['1.5', null], ['-1', null], ['12abc', null], ['Infinity', null], ['NaN', null],
-  ['1e309', null], ['2147483648', null], ['9007199254740993', null], ['0x10', null],
-  ['1.0000000000000000001', null], ['1e-999', null], ['2147483647.0000000001', null],
-  ['1000e-3', 1], ['0e999999999999999999', 0]]) {
+for (const [input, expected] of [
+  ['0', 0],
+  [' 0 ', 0],
+  ['1e3', 1000],
+  ['12.0', 12],
+  ['2147483647', 2147483647],
+  ['', null],
+  [' ', null],
+  ['1.5', null],
+  ['-1', null],
+  ['12abc', null],
+  ['Infinity', null],
+  ['NaN', null],
+  ['1e309', null],
+  ['2147483648', null],
+  ['9007199254740993', null],
+  ['0x10', null],
+  ['1.0000000000000000001', null],
+  ['1e-999', null],
+  ['2147483647.0000000001', null],
+  ['1000e-3', 1],
+  ['0e999999999999999999', 0],
+]) {
   test(`count parsing consumes the complete backend-compatible value: ${JSON.stringify(input)}`, () => {
     assert.equal(appHarness().context.parsePositiveInteger(input), expected);
   });
@@ -20,13 +39,34 @@ test('invalid counts never reach the biological mutation, while zero and exponen
   const saved = [];
   const errors = [];
   Object.assign(h.context, {
-    box: { id: 7 }, isSaving: false, editingMeasurementId: null, measurements: [], measurementEditorMode: 'create',
-    isMeasurementDraftUnchanged: false, operationLifetimeRef: { current: true },
-    isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
-    form: { measuredOn: '2026-09-16', polypCount: '1.5', ephyraeCount: '0', salinity: '32.15', notes: '' },
-    setSaveError(value) { errors.push(value); }, t: key => key, setIsSaving() {}, setEditingMeasurementId() {},
-    setIsCorrectingFromHistory() {}, setIsMeasurementEditorOpen() {}, triggerHaptic() {},
-    onCreateMeasurement: async (_id, payload) => { saved.push(payload); },
+    box: { id: 7 },
+    isSaving: false,
+    editingMeasurementId: null,
+    measurements: [],
+    measurementEditorMode: 'create',
+    isMeasurementDraftUnchanged: false,
+    operationLifetimeRef: { current: true },
+    isOperationCurrent: () =>
+      h.context.organizationRequestGenerationRef.current === 0,
+    form: {
+      measuredOn: '2026-09-16',
+      polypCount: '1.5',
+      ephyraeCount: '0',
+      salinity: '32.15',
+      notes: '',
+    },
+    setSaveError(value) {
+      errors.push(value);
+    },
+    t: (key) => key,
+    setIsSaving() {},
+    setEditingMeasurementId() {},
+    setIsCorrectingFromHistory() {},
+    setIsMeasurementEditorOpen() {},
+    triggerHaptic() {},
+    onCreateMeasurement: async (_id, payload) => {
+      saved.push(payload);
+    },
   });
   assert.equal(await h.context.saveMeasurement(), false);
   assert.equal(saved.length, 0);
@@ -47,12 +87,21 @@ test('count buttons preserve invalid input and clamp within the database integer
 });
 test('biological salinity input permits the backend two-decimal precision independently of its coarse buttons', () => {
   const app = readSource('../src/components/BoxPage.tsx');
-  assert.match(app, /inputMode="decimal"\s+step="0\.01"\s+placeholder=\{String\(SALINITY_STEP\)\}/);
+  assert.match(
+    app,
+    /inputMode="decimal"\s+step="0\.01"\s+placeholder=\{String\(SALINITY_STEP\)\}/,
+  );
 });
 
-const source = readFileSync(new URL('../src/utils/boxMeasurement.ts', import.meta.url), 'utf8');
+const source = readFileSync(
+  new URL('../src/utils/boxMeasurement.ts', import.meta.url),
+  'utf8',
+);
 const { outputText } = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+  },
 });
 const exports = {};
 vm.runInNewContext(outputText, { exports });
@@ -78,12 +127,27 @@ function measurement(overrides = {}) {
 }
 
 test('imported unknown metadata stays null in reads without changing interactive form defaults', () => {
-  const imported = measurement({ polyp_count: 0, ephyrae_count: 0, culture_status: null, needs_attention: null, notes: null });
+  const imported = measurement({
+    polyp_count: 0,
+    ephyrae_count: 0,
+    culture_status: null,
+    needs_attention: null,
+    notes: null,
+  });
   const h = appHarness();
   h.evaluate(functionNode('getLatestComment').getText());
   const { context } = h;
-  assert.equal(context.getLatestComment([imported], { latest_measurement: imported }), undefined);
-  assert.equal(context.getLatestComment([imported, measurement({ notes: 'Recorded comment' })], { latest_measurement: imported }), 'Recorded comment');
+  assert.equal(
+    context.getLatestComment([imported], { latest_measurement: imported }),
+    undefined,
+  );
+  assert.equal(
+    context.getLatestComment(
+      [imported, measurement({ notes: 'Recorded comment' })],
+      { latest_measurement: imported },
+    ),
+    'Recorded comment',
+  );
   assert.equal(exports.getMeasurementFormValues(imported).notes, '');
   assert.equal(imported.notes, null);
   assert.equal(imported.culture_status, null);
@@ -101,8 +165,15 @@ test('ISO weeks run Monday through Sunday across year boundaries', () => {
 });
 
 test('finds the weekly measurement and treats zero-zero as recorded', () => {
-  const zero = measurement({ measured_on: '2026-09-14', polyp_count: 0, ephyrae_count: 0 });
-  assert.equal(exports.findMeasurementForWeek([zero], '2026-09-20').id, zero.id);
+  const zero = measurement({
+    measured_on: '2026-09-14',
+    polyp_count: 0,
+    ephyrae_count: 0,
+  });
+  assert.equal(
+    exports.findMeasurementForWeek([zero], '2026-09-20').id,
+    zero.id,
+  );
   assert.equal(exports.findMeasurementForWeek([zero], '2026-09-21'), null);
   assert.equal(
     JSON.stringify(exports.getMeasurementFormValues(zero)),
@@ -123,86 +194,151 @@ test('finds the weekly measurement and treats zero-zero as recorded', () => {
 // has no time parameter at all.
 test('server capability controls the create, edit and locked states', () => {
   // No measurement this week: the server explicitly allows creation.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: null, canCreateMeasurement: true,
-  }), 'create');
+  assert.equal(
+    exports.getMeasurementEditorMode({
+      measurement: null,
+      canCreateMeasurement: true,
+    }),
+    'create',
+  );
 
   // Existing measurement the server still allows to be corrected.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement(), canCreateMeasurement: false,
-  }), 'edit');
+  assert.equal(
+    exports.getMeasurementEditorMode({
+      measurement: measurement(),
+      canCreateMeasurement: false,
+    }),
+    'edit',
+  );
 
   // Existing measurement with the correction window closed by the server.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement({ can_edit: false, edit_restriction: 'edit_window_expired' }),
-    canCreateMeasurement: true,
-  }), 'locked');
+  assert.equal(
+    exports.getMeasurementEditorMode({
+      measurement: measurement({
+        can_edit: false,
+        edit_restriction: 'edit_window_expired',
+      }),
+      canCreateMeasurement: true,
+    }),
+    'locked',
+  );
 
   // The client never overrides an existing measurement's server capability.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement(), canCreateMeasurement: false,
-  }), 'edit');
+  assert.equal(
+    exports.getMeasurementEditorMode({
+      measurement: measurement(),
+      canCreateMeasurement: false,
+    }),
+    'edit',
+  );
 
   // No measurement and no server creation capability: nothing to enter.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: null, canCreateMeasurement: false,
-  }), 'read_only');
+  assert.equal(
+    exports.getMeasurementEditorMode({
+      measurement: null,
+      canCreateMeasurement: false,
+    }),
+    'read_only',
+  );
 });
 
 test('recognizes only stable weekly and deadline error contracts', () => {
-  assert.equal(exports.isMeasurementWeekConflict({
-    status: 409, data: { code: 'measurement_week_conflict' },
-  }), true);
-  assert.equal(exports.isMeasurementWeekConflict({
-    status: 400, data: { code: 'measurement_week_conflict' },
-  }), false);
-  assert.equal(exports.isMeasurementEditWindowExpired({
-    status: 403, data: { code: 'edit_window_expired' },
-  }), true);
-  assert.equal(exports.isMeasurementEditWindowExpired({ status: 403, data: {} }), false);
+  assert.equal(
+    exports.isMeasurementWeekConflict({
+      status: 409,
+      data: { code: 'measurement_week_conflict' },
+    }),
+    true,
+  );
+  assert.equal(
+    exports.isMeasurementWeekConflict({
+      status: 400,
+      data: { code: 'measurement_week_conflict' },
+    }),
+    false,
+  );
+  assert.equal(
+    exports.isMeasurementEditWindowExpired({
+      status: 403,
+      data: { code: 'edit_window_expired' },
+    }),
+    true,
+  );
+  assert.equal(
+    exports.isMeasurementEditWindowExpired({ status: 403, data: {} }),
+    false,
+  );
 });
 
 test('measurement workflow uses PATCH for weekly corrections and locks server-denied forms', () => {
   const appSource = readSource('../src/components/BoxPage.tsx');
-  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
+  const buttonSource = readSource(
+    '../src/components/MeasurementSaveButton.tsx',
+  );
 
   assert.match(
     appSource,
     /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s,
   );
   assert.match(appSource, /disabled=\{isMeasurementFormLocked\}/);
-  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/);
+  assert.match(
+    appSource,
+    /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/,
+  );
   assert.match(
     appSource,
     /const canShowMeasurementForm = measurementEditorMode === 'create'\s*\|\| \(isMeasurementEditorOpen && Boolean\(editingMeasurement\?\.can_edit\)\);/s,
   );
-  assert.match(appSource, /setMeasurementReferenceDate\(target\.measured_on\);/);
+  assert.match(
+    appSource,
+    /setMeasurementReferenceDate\(target\.measured_on\);/,
+  );
   assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
 });
 
 test('weekly measurement defaults to one compact server-authorized summary', () => {
   const appSource = readSource('../src/components/BoxPage.tsx');
 
-  assert.match(appSource, /const \[isMeasurementEditorOpen, setIsMeasurementEditorOpen\] = useState\(false\);/);
+  assert.match(
+    appSource,
+    /const \[isMeasurementEditorOpen, setIsMeasurementEditorOpen\] = useState\(false\);/,
+  );
   assert.match(
     appSource,
     /const showWeeklyMeasurementSummary = Boolean\(weeklyMeasurement\)\s*&& \(!isMeasurementEditorOpen \|\| !editingMeasurement\?\.can_edit\);/s,
   );
-  assert.match(appSource, /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/);
+  assert.match(
+    appSource,
+    /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/,
+  );
   assert.match(appSource, /weeklyMeasurement\.polyp_count/);
   assert.match(appSource, /weeklyMeasurement\.ephyrae_count/);
   assert.match(appSource, /formatMeasurementCount\(/);
 
-  const summaryStart = appSource.indexOf('<div className="last-reading-comment-header">');
-  const summarySource = appSource.slice(summaryStart, appSource.indexOf('\n        </section>', summaryStart));
+  const summaryStart = appSource.indexOf(
+    '<div className="last-reading-comment-header">',
+  );
+  const summarySource = appSource.slice(
+    summaryStart,
+    appSource.indexOf('\n        </section>', summaryStart),
+  );
   assert.notEqual(summaryStart, -1);
-  assert.match(summarySource, /showWeeklyMeasurementSummary && weeklyMeasurement\?\.can_edit \? \(/);
-  assert.match(summarySource, /className="icon-button measurement-summary-edit-button"/);
+  assert.match(
+    summarySource,
+    /showWeeklyMeasurementSummary && weeklyMeasurement\?\.can_edit \? \(/,
+  );
+  assert.match(
+    summarySource,
+    /className="icon-button measurement-summary-edit-button"/,
+  );
   assert.match(summarySource, /aria-label=\{t\('modifyWeeklyMeasurement'\)\}/);
   assert.match(summarySource, /title=\{t\('modifyWeeklyMeasurement'\)\}/);
   assert.match(summarySource, /<Pencil aria-hidden="true" size=\{18\} \/>/);
   assert.match(summarySource, /onClick=\{openWeeklyMeasurementEditor\}/);
-  assert.match(summarySource, /weeklyMeasurement\.edit_restriction === 'edit_window_expired'/);
+  assert.match(
+    summarySource,
+    /weeklyMeasurement\.edit_restriction === 'edit_window_expired'/,
+  );
   assert.doesNotMatch(summarySource, /className="measurement-edit-button"/);
   assert.doesNotMatch(summarySource, /Date\.now|profile|userHas/);
 });
@@ -214,26 +350,49 @@ test('opening, saving and cancelling an edit preserve the PATCH-only flow', () =
   const saveSource = functionNode('saveMeasurement').getText();
 
   assert.match(openSource, /if \(!weeklyMeasurement\?\.can_edit\) return;/);
-  assert.match(openSource, /setForm\(getMeasurementFormValues\(weeklyMeasurement\)\);/);
+  assert.match(
+    openSource,
+    /setForm\(getMeasurementFormValues\(weeklyMeasurement\)\);/,
+  );
   assert.match(openSource, /setEditingMeasurementId\(weeklyMeasurement\.id\);/);
   assert.match(openSource, /setIsMeasurementEditorOpen\(true\);/);
 
-  assert.match(saveSource, /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s);
-  assert.match(saveSource, /else \{\s*await onCreateMeasurement\(box\.id, payload\);/s);
+  assert.match(
+    saveSource,
+    /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s,
+  );
+  assert.match(
+    saveSource,
+    /else \{\s*await onCreateMeasurement\(box\.id, payload\);/s,
+  );
   assert.match(saveSource, /setIsMeasurementEditorOpen\(false\);/);
 
-  assert.match(cancelSource, /setForm\(getMeasurementFormValues\(editingMeasurement\)\);/);
+  assert.match(
+    cancelSource,
+    /setForm\(getMeasurementFormValues\(editingMeasurement\)\);/,
+  );
   assert.match(cancelSource, /setEditingMeasurementId\(null\);/);
   assert.match(cancelSource, /setIsMeasurementEditorOpen\(false\);/);
-  assert.doesNotMatch(cancelSource, /onCreateMeasurement|onUpdateMeasurement|api(?:Post|Patch)/);
-  assert.match(appSource, /editingMeasurementId != null \? \(\s*<button[\s\S]*onClick=\{cancelMeasurementEdit\}/);
+  assert.doesNotMatch(
+    cancelSource,
+    /onCreateMeasurement|onUpdateMeasurement|api(?:Post|Patch)/,
+  );
+  assert.match(
+    appSource,
+    /editingMeasurementId != null \? \(\s*<button[\s\S]*onClick=\{cancelMeasurementEdit\}/,
+  );
 });
 
 test('measurement UI state resets between boxes and follows refreshed capabilities', () => {
   const appSource = readSource('../src/components/BoxPage.tsx');
-  const resetStart = appSource.indexOf('setForm(getInitialMeasurementForm(defaultSalinity));');
+  const resetStart = appSource.indexOf(
+    'setForm(getInitialMeasurementForm(defaultSalinity));',
+  );
   const resetEnd = appSource.indexOf('}, [box?.id]);', resetStart);
-  const resetSource = appSource.slice(resetStart, resetEnd + '}, [box?.id]);'.length);
+  const resetSource = appSource.slice(
+    resetStart,
+    resetEnd + '}, [box?.id]);'.length,
+  );
 
   assert.notEqual(resetStart, -1);
   assert.match(resetSource, /setEditingMeasurementId\(null\);/);
@@ -245,14 +404,24 @@ test('measurement UI state resets between boxes and follows refreshed capabiliti
 
 test('Box uses shared localized back controls with a non-desktop normal-page escape', () => {
   const appSource = readSource('../src/components/BoxPage.tsx');
-  const backControls = appSource.match(/<DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/>/g) ?? [];
-  assert.equal(backControls.length, 2, 'one not-found escape and one normal-page control are defined');
-  assert.match(appSource, /\{!isDesktopApp \? <DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/> : null\}/);
+  const backControls =
+    appSource.match(
+      /<DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/>/g,
+    ) ?? [];
+  assert.equal(
+    backControls.length,
+    2,
+    'one not-found escape and one normal-page control are defined',
+  );
+  assert.match(
+    appSource,
+    /\{!isDesktopApp \? <DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/> : null\}/,
+  );
   const controlSource = readSource('../src/components/DetailBackButton.tsx');
   assert.match(controlSource, /aria-label=\{label\}/);
   assert.match(controlSource, /title=\{label\}/);
-  assert.match(readSource('../src/i18n/fr.ts'), /back: 'Retour'/);
-  assert.match(readSource('../src/i18n/en.ts'), /back: 'Back'/);
+  assert.equal(loadI18n().translations.fr.back, 'Retour');
+  assert.equal(loadI18n().translations.en.back, 'Back');
 });
 
 test('measurement summary and editor are mutually exclusive states of one anchored module', () => {
@@ -263,23 +432,44 @@ test('measurement summary and editor are mutually exclusive states of one anchor
     appSource,
     /const isMeasurementEditorExpanded = Boolean\(weeklyMeasurement\)\s*&& isMeasurementEditorOpen\s*&& Boolean\(editingMeasurement\?\.can_edit\);/s,
   );
-  assert.match(appSource, /weeklyMeasurement \? ' has-measurement-module' : ''/);
-  assert.match(appSource, /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/);
-  assert.match(appSource, /isMeasurementEditorExpanded \? ' measurement-module is-expanded' : ''/);
-  assert.doesNotMatch(appSource, /renderCompactMeasurementSummary|keepWeeklySummaryWhileEditing/);
-  assert.doesNotMatch(appSource, /className="measurement-summary-editing"|t\('measurementEditing'\)/);
+  assert.match(
+    appSource,
+    /weeklyMeasurement \? ' has-measurement-module' : ''/,
+  );
+  assert.match(
+    appSource,
+    /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/,
+  );
+  assert.match(
+    appSource,
+    /isMeasurementEditorExpanded \? ' measurement-module is-expanded' : ''/,
+  );
+  assert.doesNotMatch(
+    appSource,
+    /renderCompactMeasurementSummary|keepWeeklySummaryWhileEditing/,
+  );
+  assert.doesNotMatch(
+    appSource,
+    /className="measurement-summary-editing"|t\('measurementEditing'\)/,
+  );
   assert.match(appSource, /<div className="last-reading-comment-header">/);
   assert.doesNotMatch(appSource, /measurement-summary-action/);
   assert.match(
     css,
     /grid-template-columns: minmax\(150px, \.75fr\) repeat\(2, minmax\(110px, \.45fr\)\) minmax\(220px, 1\.8fr\);/,
   );
-  assert.match(css, /\.measurement-summary-edit-button \{[^}]*position: absolute;[^}]*width: 44px;[^}]*height: 44px;/s);
+  assert.match(
+    css,
+    /\.measurement-summary-edit-button \{[^}]*position: absolute;[^}]*width: 44px;[^}]*height: 44px;/s,
+  );
   assert.match(
     css,
     /\.box-page-grid\.has-measurement-module \{\s*grid-template: "last" auto "movement" auto "insights" auto \/ minmax\(0, 1fr\);\s*\}/s,
   );
-  assert.match(css, /\.measurement-module\.is-expanded \.fake-form \{\s*animation: measurement-editor-open 240ms ease-out;/s);
+  assert.match(
+    css,
+    /\.measurement-module\.is-expanded \.fake-form \{\s*animation: measurement-editor-open 240ms ease-out;/s,
+  );
 });
 
 test('summary transition is restrained and reduced motion remains global', () => {
@@ -307,20 +497,55 @@ test('draft comparison treats zero as a real value and ignores untouched fields'
 
   // 0 is a measurement, never a missing value.
   assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero }), true);
-  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, polyp_count: 4 }), false);
-  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, ephyrae_count: 2 }), false);
-  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, notes: 'observation' }), false);
-  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, salinity_psu: '35' }), false);
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(zero, { ...zero, polyp_count: 4 }),
+    false,
+  );
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(zero, { ...zero, ephyrae_count: 2 }),
+    false,
+  );
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(zero, {
+      ...zero,
+      notes: 'observation',
+    }),
+    false,
+  );
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(zero, {
+      ...zero,
+      salinity_psu: '35',
+    }),
+    false,
+  );
 
   const positive = { ...zero, polyp_count: 12, ephyrae_count: 3 };
-  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive }), true);
-  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive, polyp_count: 0 }), false);
-  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive, ephyrae_count: 0 }), false);
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(positive, { ...positive }),
+    true,
+  );
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(positive, {
+      ...positive,
+      polyp_count: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    exports.isMeasurementPayloadUnchanged(positive, {
+      ...positive,
+      ephyrae_count: 0,
+    }),
+    false,
+  );
 });
 
 test('an unchanged weekly measurement cannot be saved again', () => {
   const appSource = readSource('../src/components/BoxPage.tsx');
-  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
+  const buttonSource = readSource(
+    '../src/components/MeasurementSaveButton.tsx',
+  );
 
   assert.match(
     appSource,
@@ -330,9 +555,15 @@ test('an unchanged weekly measurement cannot be saved again', () => {
     appSource,
     /const isMeasurementDraftUnchanged = persistedMeasurementPayload != null && draftMeasurementPayload != null\s*&& isMeasurementPayloadUnchanged\(persistedMeasurementPayload, draftMeasurementPayload\);/s,
   );
-  assert.match(appSource, /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\) return false;/);
+  assert.match(
+    appSource,
+    /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\) return false;/,
+  );
   assert.match(appSource, /const payload = buildMeasurementPayload\(form\);/);
-  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/);
+  assert.match(
+    appSource,
+    /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/,
+  );
   assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
 });
 
@@ -340,13 +571,19 @@ test('generic post-action feedback is removed while meaningful errors remain', (
   const appSource = readSource('../src/components/BoxPage.tsx');
   const shellSource = readSource('../src/App.tsx');
   const adminSource = readSource('../src/components/AdminView.tsx');
-  const inventorySource = readSource('../src/components/BoxInventoryAdminSection.tsx');
-  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
+  const inventorySource = readSource(
+    '../src/components/BoxInventoryAdminSection.tsx',
+  );
+  const buttonSource = readSource(
+    '../src/components/MeasurementSaveButton.tsx',
+  );
+  const { fr, en } = loadI18n().translations;
 
   for (const source of [shellSource, appSource]) {
-    assert.doesNotMatch(source, /saveMessage|subcultureMessage|moveMessage|statusMessage|inline-success/);
+    assert.doesNotMatch(
+      source,
+      /saveMessage|subcultureMessage|moveMessage|statusMessage|inline-success/,
+    );
   }
   assert.doesNotMatch(buttonSource, /isSuccess|labels\.saved/);
   assert.doesNotMatch(adminSource, /inline-success|setMessage\(/);
@@ -362,18 +599,36 @@ test('generic post-action feedback is removed while meaningful errors remain', (
     'adminOrganizationDeleted',
     'adminTransferImportSuccess',
   ]) {
-    assert.doesNotMatch(frSource, new RegExp(`${key}:`));
-    assert.doesNotMatch(enSource, new RegExp(`${key}:`));
+    assert.equal(Object.hasOwn(fr, key), false);
+    assert.equal(Object.hasOwn(en, key), false);
   }
 
   // Failures stay visible and actionable.
-  assert.match(appSource, /setSaveError\(getMeasurementSaveError\(requestError, t\)\)/);
-  assert.match(appSource, /setSubcultureError\(getSubcultureSaveError\(requestError, t\)\)/);
-  assert.match(appSource, /setMoveError\(getMoveSaveError\(requestError, t\)\)/);
+  assert.match(
+    appSource,
+    /setSaveError\(getMeasurementSaveError\(requestError, t\)\)/,
+  );
+  assert.match(
+    appSource,
+    /setSubcultureError\(getSubcultureSaveError\(requestError, t\)\)/,
+  );
+  assert.match(
+    appSource,
+    /setMoveError\(getMoveSaveError\(requestError, t\)\)/,
+  );
   assert.match(appSource, /setStatusError\(getErrorMessage\(requestError\)\)/);
-  assert.match(adminSource, /setInvitationsError\(getAccountErrorMessage\(requestError, tRef\.current\)\)/);
-  assert.match(inventorySource, /setLifecycleError\(getErrorMessage\(requestError\)\)/);
-  assert.match(inventorySource, /setBatchError\(getErrorMessage\(requestError\)\)/);
+  assert.match(
+    adminSource,
+    /setInvitationsError\(getAccountErrorMessage\(requestError, tRef\.current\)\)/,
+  );
+  assert.match(
+    inventorySource,
+    /setLifecycleError\(getErrorMessage\(requestError\)\)/,
+  );
+  assert.match(
+    inventorySource,
+    /setBatchError\(getErrorMessage\(requestError\)\)/,
+  );
 });
 
 function readSource(relativePath) {
@@ -393,7 +648,10 @@ test('a pressed stepper is the only control marked active', () => {
   assert.match(buttonSource, /export default function StepperButton\(/);
 
   // The pressed state lives on the button instance and drives its own class.
-  assert.match(buttonSource, /const \[isPressed, setIsPressed\] = useState\(false\);/);
+  assert.match(
+    buttonSource,
+    /const \[isPressed, setIsPressed\] = useState\(false\);/,
+  );
   assert.match(
     buttonSource,
     /className=\{isPressed \? 'count-stepper-button is-pressed' : 'count-stepper-button'\}/,
@@ -401,16 +659,28 @@ test('a pressed stepper is the only control marked active', () => {
 
   // Release clears that same state, for that same button only.
   assert.match(buttonSource, /setIsPressed\(false\);/);
-  for (const handler of ['onPointerUp', 'onPointerLeave', 'onPointerCancel', 'onBlur']) {
-    const bound = buttonSource.match(new RegExp(`${handler}=\\{clearRepeat\\}`, 'g')) ?? [];
+  for (const handler of [
+    'onPointerUp',
+    'onPointerLeave',
+    'onPointerCancel',
+    'onBlur',
+  ]) {
+    const bound =
+      buttonSource.match(new RegExp(`${handler}=\\{clearRepeat\\}`, 'g')) ?? [];
     assert.equal(bound.length, 1, `${handler} must clear the pressed state`);
   }
 
   // No pressed state shared between controls or keyed by the operation alone.
   for (const source of [shellSource, appSource]) {
-    assert.doesNotMatch(source, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
+    assert.doesNotMatch(
+      source,
+      /pressedStepper|pressedDirection|pressedOperation|activeStepper/,
+    );
   }
-  assert.doesNotMatch(buttonSource, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
+  assert.doesNotMatch(
+    buttonSource,
+    /pressedStepper|pressedDirection|pressedOperation|activeStepper/,
+  );
 
   // The pressed look is scoped to the single button carrying the class...
   assert.match(
@@ -419,7 +689,10 @@ test('a pressed stepper is the only control marked active', () => {
   );
   // ...and hover only applies where a pointer really hovers, so a sticky touch
   // hover cannot leave a previously tapped stepper looking active.
-  assert.match(css, /@media \(hover: hover\) \{\s*:where\(\.count-stepper button\):hover/s);
+  assert.match(
+    css,
+    /@media \(hover: hover\) \{\s*:where\(\.count-stepper button\):hover/s,
+  );
   // Nothing keys the visual state on a shared, non-unique attribute.
   assert.doesNotMatch(css, /\[aria-label/);
   assert.doesNotMatch(css, /\.count-stepper button:active/);

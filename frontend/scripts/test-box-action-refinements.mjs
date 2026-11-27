@@ -6,65 +6,138 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CirclePause, CirclePlay, GitFork, Route } from 'lucide-react';
 import ts from 'typescript';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
-
-const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const source = read('../src/components/BoxPage.tsx');
-const ast = ts.createSourceFile('BoxPage.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const ast = ts.createSourceFile(
+  'BoxPage.tsx',
+  source,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
 let boxPage, header;
 function visit(node) {
-  if (ts.isFunctionDeclaration(node) && node.name?.text === 'BoxPage') boxPage = node;
-  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === 'header'
-    && node.getText(ast).includes('box-sheet-hero')) header = node;
+  if (ts.isFunctionDeclaration(node) && node.name?.text === 'BoxPage')
+    boxPage = node;
+  if (
+    ts.isJsxElement(node) &&
+    node.openingElement.tagName.getText(ast) === 'header' &&
+    node.getText(ast).includes('box-sheet-hero')
+  )
+    header = node;
   ts.forEachChild(node, visit);
 }
 visit(ast);
 assert.ok(boxPage);
 assert.ok(header);
 const body = boxPage.getText(ast);
-const actions = body.slice(body.indexOf('type BoxAction'), body.indexOf('async function saveMeasurement'));
+const actions = body.slice(
+  body.indexOf('type BoxAction'),
+  body.indexOf('async function saveMeasurement'),
+);
 function evaluate(code, context) {
-  vm.runInNewContext(ts.transpileModule(code, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React },
-  }).outputText, context);
+  vm.runInNewContext(
+    ts.transpileModule(code, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.React,
+      },
+    }).outputText,
+    context,
+  );
 }
-function catalogue(language) {
-  const context = { exports: {} };
-  evaluate(read(`../src/i18n/${language}.ts`), context);
-  return context.exports[language];
-}
-const catalogues = { fr: catalogue('fr'), en: catalogue('en') };
+const catalogues = loadI18n().translations;
+const InfoPill = ({ label, value }) =>
+  React.createElement('div', null, label, value);
+const PolypbaseIcon = ({ name }) =>
+  React.createElement('svg', { 'data-icon': name });
 const environmentContext = { exports: {} };
 evaluate(read('../src/utils/environmentFormat.ts'), environmentContext);
 const { formatSalinity, formatTemperature } = environmentContext.exports;
 
-function render({ desktop = false, phone = false, active = true, busy = false, write = true, status = true, language = 'en', currentZone = null, boxSalinity } = {}) {
+function render({
+  desktop = false,
+  phone = false,
+  active = true,
+  busy = false,
+  write = true,
+  status = true,
+  language = 'en',
+  currentZone = null,
+  boxSalinity,
+} = {}) {
   const contextSignal = new AbortController().signal;
   const context = {
-    React, useState: React.useState, useEffect: React.useEffect,
+    React,
+    useState: React.useState,
+    useEffect: React.useEffect,
     getOrganizationResourceSignal: () => contextSignal,
-    apiGetResource: () => { throw new Error('Server rendering must not fetch QR resources'); },
-    CirclePause, CirclePlay, GitFork, Route,
-    isDesktopApp: desktop, isPhoneLayout: phone, isTabletLayout: !desktop && !phone,
-    canWriteLabData: write, canShowStatusButton: status, isBoxActive: active, isChangingBoxStatus: busy,
-    box: { global_code: 'LONG-BOX-CODE-123456789', species: { scientific_name: 'Aurelia aurita' }, thermal_zone: null, latest_salinity_psu: boxSalinity },
+    apiGetResource: () => {
+      throw new Error('Server rendering must not fetch QR resources');
+    },
+    CirclePause,
+    CirclePlay,
+    GitFork,
+    Route,
+    isDesktopApp: desktop,
+    isPhoneLayout: phone,
+    isTabletLayout: !desktop && !phone,
+    canWriteLabData: write,
+    canShowStatusButton: status,
+    isBoxActive: active,
+    isChangingBoxStatus: busy,
+    box: {
+      global_code: 'LONG-BOX-CODE-123456789',
+      species: { scientific_name: 'Aurelia aurita' },
+      thermal_zone: null,
+      latest_salinity_psu: boxSalinity,
+    },
     qr: { imageUrl: '/api/boxes/7/qr.svg', scanUrl: '/bac/7' },
-    statusPresentation: { tone: active ? 'active' : 'inactive' }, displayDate: { labelKey: 'created', date: null }, currentZone,
-    t: key => catalogues[language][key] ?? key,
-    formatSalinity, formatTemperature, formatDisplayDate: value => value,
-    buildQrLabelItem: (box, imageUrl) => ({ globalCode: box.global_code, qrImageUrl: imageUrl }),
-    InfoPill: ({ label, value }) => React.createElement('div', null, label, value),
-    PolypbaseIcon: ({ name }) => React.createElement('svg', { 'data-icon': name }),
-    RowActionMenu: props => {
+    statusPresentation: { tone: active ? 'active' : 'inactive' },
+    displayDate: { labelKey: 'created', date: null },
+    currentZone,
+    t: (key) => catalogues[language][key] ?? key,
+    formatSalinity,
+    formatTemperature,
+    formatDisplayDate: (value) => value,
+    buildQrLabelItem: (box, imageUrl) => ({
+      globalCode: box.global_code,
+      qrImageUrl: imageUrl,
+    }),
+    InfoPill,
+    PolypbaseIcon,
+    // biome-ignore lint/correctness/noComponentHookFactories: This stub captures menu props in the current test context.
+    RowActionMenu: (props) => {
       context.menu = props;
-      return React.createElement('button', { className: 'row-action-menu-trigger', 'aria-label': props.ariaLabel });
+      return React.createElement('button', {
+        type: 'button',
+        className: 'row-action-menu-trigger',
+        'aria-label': props.ariaLabel,
+      });
     },
   };
-  const qrAst = ts.createSourceFile('QrLabel.tsx', read('../src/components/QrLabel.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const qrFunction = qrAst.statements.find(node => ts.isFunctionDeclaration(node));
+  const qrAst = ts.createSourceFile(
+    'QrLabel.tsx',
+    read('../src/components/QrLabel.tsx'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const qrFunction = qrAst.statements.find((node) =>
+    ts.isFunctionDeclaration(node),
+  );
   evaluate(qrFunction.getText(qrAst).replace('export default ', ''), context);
-  evaluate(`${actions}\n globalThis.renderHeader = () => (${header.getText(ast)});`, context);
-  return { markup: renderToStaticMarkup(React.createElement(context.renderHeader)), context };
+  evaluate(
+    `${actions}\n globalThis.renderHeader = () => (${header.getText(ast)});`,
+    context,
+  );
+  return {
+    markup: renderToStaticMarkup(React.createElement(context.renderHeader)),
+    context,
+  };
 }
 
 for (const language of ['fr', 'en']) {
@@ -72,24 +145,59 @@ for (const language of ['fr', 'en']) {
     test(`React tablet render binds the final action glyphs and ${language} accessible labels (${active ? 'active' : 'inactive'})`, () => {
       const { markup } = render({ language, active });
       assert.match(markup, /class="[^"]*is-tablet/);
-      assert.match(markup, /box-hero-qr[\s\S]*qr-label--trigger[\s\S]*box-tablet-actions/);
+      assert.match(
+        markup,
+        /box-hero-qr[\s\S]*qr-label--trigger[\s\S]*box-tablet-actions/,
+      );
       assert.match(markup, /loading="eager"/);
       // QrLabel must resolve its resource in the organization context, not expose
       // the API URL as a direct, unauthenticated image source during render.
       assert.doesNotMatch(markup, /src="\/api\/boxes/);
-      assert.match(markup, /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/);
-      assert.ok(markup.includes(`<span>${catalogues[language].moveAction}</span>`));
-      assert.equal((markup.match(/box-compact-action--labeled/g) ?? []).length, active ? 2 : 1);
+      assert.match(
+        markup,
+        /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/,
+      );
+      assert.ok(
+        markup.includes(`<span>${catalogues[language].moveAction}</span>`),
+      );
+      assert.equal(
+        (markup.match(/box-compact-action--labeled/g) ?? []).length,
+        active ? 2 : 1,
+      );
       if (active) {
-        assert.match(markup, /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-git-fork box-subculture-glyph"[^>]*aria-hidden="true"/);
-        assert.ok(markup.includes(`<span>${catalogues[language].subcultureAction}</span>`));
+        assert.match(
+          markup,
+          /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-git-fork box-subculture-glyph"[^>]*aria-hidden="true"/,
+        );
+        assert.ok(
+          markup.includes(
+            `<span>${catalogues[language].subcultureAction}</span>`,
+          ),
+        );
       } else {
         assert.doesNotMatch(markup, /lucide-git-fork|box-subculture-glyph/);
-        assert.equal(markup.includes(`aria-label="${catalogues[language].subcultureAction}"`), false);
+        assert.equal(
+          markup.includes(
+            `aria-label="${catalogues[language].subcultureAction}"`,
+          ),
+          false,
+        );
       }
-      assert.match(markup, new RegExp(`<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide ${active ? 'lucide-circle-pause' : 'lucide-circle-play'}"[^>]*aria-hidden="true"`));
-      assert.doesNotMatch(markup, /lucide-share2|lucide-arrow-right|box-move-glyph|lucide-git-branch|lucide-map-pin-house|row-action-menu-trigger/);
-      for (const key of ['moveAction', ...(active ? ['subcultureAction'] : []), active ? 'boxArchiveAction' : 'boxActivateAction']) {
+      assert.match(
+        markup,
+        new RegExp(
+          `<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide ${active ? 'lucide-circle-pause' : 'lucide-circle-play'}"[^>]*aria-hidden="true"`,
+        ),
+      );
+      assert.doesNotMatch(
+        markup,
+        /lucide-share2|lucide-arrow-right|box-move-glyph|lucide-git-branch|lucide-map-pin-house|row-action-menu-trigger/,
+      );
+      for (const key of [
+        'moveAction',
+        ...(active ? ['subcultureAction'] : []),
+        active ? 'boxArchiveAction' : 'boxActivateAction',
+      ]) {
         assert.ok(markup.includes(`aria-label="${catalogues[language][key]}"`));
       }
       assert.ok(markup.includes('LONG-BOX-CODE-123456789'));
@@ -100,26 +208,46 @@ for (const language of ['fr', 'en']) {
 for (const language of ['fr', 'en']) {
   test(`tablet compact text and callbacks use existing ${language} actions`, () => {
     const { context } = render({ language });
-    const nodes = tree => Array.isArray(tree) ? tree.flatMap(nodes)
-      : React.isValidElement(tree) ? [tree, ...nodes(tree.props.children)] : [];
-    const buttons = nodes(context.renderHeader()).filter(node => node.type === 'button'
-      && node.props.className.includes('box-compact-action--labeled'));
-    assert.deepEqual(buttons.map(button => button.props['aria-label']), language === 'fr'
-      ? ['Déplacer', 'Repiquer'] : ['Move', 'Transplanting']);
+    const nodes = (tree) =>
+      Array.isArray(tree)
+        ? tree.flatMap(nodes)
+        : React.isValidElement(tree)
+          ? [tree, ...nodes(tree.props.children)]
+          : [];
+    const buttons = nodes(context.renderHeader()).filter(
+      (node) =>
+        node.type === 'button' &&
+        node.props.className.includes('box-compact-action--labeled'),
+    );
+    assert.deepEqual(
+      buttons.map((button) => button.props['aria-label']),
+      language === 'fr' ? ['Déplacer', 'Repiquer'] : ['Move', 'Transplanting'],
+    );
     const calls = [];
-    context.setIsMoveOpen = value => calls.push(['move', value]);
-    context.setSubcultureError = value => calls.push(['error', value]);
-    context.setIsSubcultureOpen = value => calls.push(['subculture', value]);
+    context.setIsMoveOpen = (value) => calls.push(['move', value]);
+    context.setSubcultureError = (value) => calls.push(['error', value]);
+    context.setIsSubcultureOpen = (value) => calls.push(['subculture', value]);
     for (const button of buttons) {
       assert.equal(button.props.type, 'button');
       assert.equal(button.props.title, button.props['aria-label']);
       assert.equal(button.props.disabled, undefined);
       button.props.onClick();
     }
-    assert.deepEqual(calls, [['move', true], ['error', null], ['subculture', true]]);
+    assert.deepEqual(calls, [
+      ['move', true],
+      ['error', null],
+      ['subculture', true],
+    ]);
     const phone = render({ language, phone: true });
-    assert.deepEqual(Array.from(phone.context.menu.actions, item => item.label),
-      ['qrLabelTitle', 'moveAction', 'subcultureAction', 'boxArchiveAction'].map(key => catalogues[language][key]));
+    assert.deepEqual(
+      Array.from(phone.context.menu.actions, (item) => item.label),
+      [
+        'qrLabelTitle',
+        'moveAction',
+        'subcultureAction',
+        'boxArchiveAction',
+      ].map((key) => catalogues[language][key]),
+    );
   });
 }
 
@@ -127,28 +255,63 @@ for (const language of ['fr', 'en']) {
   for (const layout of [{ desktop: true }, {}, { phone: true }]) {
     const name = layout.desktop ? 'desktop' : layout.phone ? 'phone' : 'tablet';
     test(`Box summary preserves zero, missing values and formatting in ${language} on ${name}`, () => {
-      const summaryValues = options => {
+      const summaryValues = (options) => {
         const { context } = render({ ...layout, language, ...options });
-        const summary = context.renderHeader().props.children.find(node =>
-          React.isValidElement(node) && node.props.className === 'entity-header__summary box-zone-summary');
-        return summary.props.children.filter(node => React.isValidElement(node)
-          && node.type === context.InfoPill).map(node => [node.props.label, node.props.value]);
+        const summary = context
+          .renderHeader()
+          .props.children.find(
+            (node) =>
+              React.isValidElement(node) &&
+              node.props.className ===
+                'entity-header__summary box-zone-summary',
+          );
+        return summary.props.children
+          .filter(
+            (node) =>
+              React.isValidElement(node) && node.type === context.InfoPill,
+          )
+          .map((node) => [node.props.label, node.props.value]);
       };
-      const labels = ['zoneSalinityShort', 'boxSalinityShort', 'temperatureShort']
-        .map(key => catalogues[language][key]);
-      const expected = values => labels.map((label, index) => [label, values[index]]);
-      assert.deepEqual(summaryValues({
-        currentZone: { salinity_psu: '0.00', latest_temperature: { average_temperature_c: 0 } },
-        boxSalinity: 0,
-      }), expected(['0.0', '0.0', '0.0°C']));
-      assert.deepEqual(summaryValues({ boxSalinity: null }), expected(['-', '-', '-']));
-      assert.deepEqual(summaryValues({
-        currentZone: { salinity_psu: '', latest_temperature: { average_temperature_c: null } },
-      }), expected(['-', '-', '-']));
-      assert.deepEqual(summaryValues({
-        currentZone: { salinity_psu: '31.25', latest_temperature: { average_temperature_c: '-2.25' } },
-        boxSalinity: '30.00',
-      }), expected(['31.3', '30.0', '-2.3°C']));
+      const labels = [
+        'zoneSalinityShort',
+        'boxSalinityShort',
+        'temperatureShort',
+      ].map((key) => catalogues[language][key]);
+      const expected = (values) =>
+        labels.map((label, index) => [label, values[index]]);
+      assert.deepEqual(
+        summaryValues({
+          currentZone: {
+            salinity_psu: '0.00',
+            latest_temperature: { average_temperature_c: 0 },
+          },
+          boxSalinity: 0,
+        }),
+        expected(['0.0', '0.0', '0.0°C']),
+      );
+      assert.deepEqual(
+        summaryValues({ boxSalinity: null }),
+        expected(['-', '-', '-']),
+      );
+      assert.deepEqual(
+        summaryValues({
+          currentZone: {
+            salinity_psu: '',
+            latest_temperature: { average_temperature_c: null },
+          },
+        }),
+        expected(['-', '-', '-']),
+      );
+      assert.deepEqual(
+        summaryValues({
+          currentZone: {
+            salinity_psu: '31.25',
+            latest_temperature: { average_temperature_c: '-2.25' },
+          },
+          boxSalinity: '30.00',
+        }),
+        expected(['31.3', '30.0', '-2.3°C']),
+      );
     });
   }
 }
@@ -156,8 +319,14 @@ for (const language of ['fr', 'en']) {
 test('tablet tracking remains icon-only, disabled while saving, and outside labeled styling', () => {
   for (const active of [true, false]) {
     const { markup } = render({ active, busy: true });
-    assert.match(markup, /class="icon-button box-compact-action"[^>]*disabled=""[^>]*><svg[^>]*width="36"/);
-    assert.equal(markup.includes(`<span>${catalogues.en.saving}</span>`), false);
+    assert.match(
+      markup,
+      /class="icon-button box-compact-action"[^>]*disabled=""[^>]*><svg[^>]*width="36"/,
+    );
+    assert.equal(
+      markup.includes(`<span>${catalogues.en.saving}</span>`),
+      false,
+    );
   }
 });
 
@@ -166,9 +335,16 @@ for (const active of [true, false]) {
     const { markup, context } = render({ phone: true, busy: true, active });
     assert.match(markup, /class="[^"]*is-phone/);
     assert.equal((markup.match(/row-action-menu-trigger/g) ?? []).length, 1);
-    assert.doesNotMatch(markup, /box-hero-qr|box-tablet-actions|box-action-stack/);
-    assert.deepEqual(Array.from(context.menu.actions, item => item.action), active
-      ? ['qr', 'move', 'subculture', 'tracking'] : ['qr', 'move', 'tracking']);
+    assert.doesNotMatch(
+      markup,
+      /box-hero-qr|box-tablet-actions|box-action-stack/,
+    );
+    assert.deepEqual(
+      Array.from(context.menu.actions, (item) => item.action),
+      active
+        ? ['qr', 'move', 'subculture', 'tracking']
+        : ['qr', 'move', 'tracking'],
+    );
     assert.equal(context.menu.actions.at(-1).disabled, true);
   });
 }
@@ -179,13 +355,19 @@ test('React desktop render retains labeled actions and pending tracking without 
   assert.match(markup, /class="move-trigger"[^>]*>Move<\/button>/);
   assert.match(markup, /class="subculture-trigger"/);
   assert.match(markup, /class="archive-box-trigger"[^>]*disabled=""/);
-  assert.doesNotMatch(markup, /box-tablet-actions|row-action-menu-trigger|box-move-glyph/);
+  assert.doesNotMatch(
+    markup,
+    /box-tablet-actions|row-action-menu-trigger|box-move-glyph/,
+  );
 });
 
 test('React read-only render exposes no QR or mutation controls when both capabilities are absent', () => {
   for (const layout of [{}, { phone: true }, { desktop: true }]) {
     const { markup } = render({ ...layout, write: false, status: false });
-    assert.doesNotMatch(markup, /box-hero-qr|box-compact-action|row-action-menu-trigger|move-trigger|subculture-trigger|archive-box-trigger/);
+    assert.doesNotMatch(
+      markup,
+      /box-hero-qr|box-compact-action|row-action-menu-trigger|move-trigger|subculture-trigger|archive-box-trigger/,
+    );
   }
 });
 
@@ -193,29 +375,59 @@ test('Box tablet actions retain 64px minimum targets and one row without changin
   const tablet = read('../src/styles/responsive/tablet.css');
   const phone = read('../src/styles/responsive/phone.css');
   const qrCss = read('../src/styles/components/qr-label.css');
-  const compact = tablet.match(/\.is-tablet \.box-compact-action \{([^}]+)\}/)?.[1];
+  const compact = tablet.match(
+    /\.is-tablet \.box-compact-action \{([^}]+)\}/,
+  )?.[1];
   assert.ok(compact);
-  for (const property of ['width', 'min-width', 'height', 'min-height']) assert.match(compact, new RegExp(`${property}: 64px`));
+  for (const property of ['width', 'min-width', 'height', 'min-height'])
+    assert.match(compact, new RegExp(`${property}: 64px`));
   assert.match(compact, /border-radius: var\(--radius-md\)/);
-  const labeled = tablet.match(/\.is-tablet \.box-compact-action--labeled \{([^}]+)\}/)?.[1];
+  const labeled = tablet.match(
+    /\.is-tablet \.box-compact-action--labeled \{([^}]+)\}/,
+  )?.[1];
   assert.ok(labeled);
   assert.match(labeled, /width: auto;/);
   assert.match(labeled, /flex: 0 0 auto;/);
   assert.match(labeled, /grid-auto-flow: row;/);
   assert.match(labeled, /padding-inline: var\(--space-3\);/);
   assert.match(labeled, /white-space: nowrap;/);
-  assert.doesNotMatch(labeled, /(?:min-width|height|min-height):|overflow:|transform:|background:|color:/);
-  assert.match(tablet, /\.box-tablet-actions \{ display: flex; gap: var\(--space-2\); \}/);
-  const tabletQrWidth = Number(tablet.match(/\.is-tablet \.box-hero-qr \{ width: (\d+)px/)?.[1]);
-  const desktopQrWidth = Number(qrCss.match(/\.qr-label--trigger \{[^}]*width: (\d+)px/)?.[1]);
+  assert.doesNotMatch(
+    labeled,
+    /(?:min-width|height|min-height):|overflow:|transform:|background:|color:/,
+  );
+  assert.match(
+    tablet,
+    /\.box-tablet-actions \{ display: flex; gap: var\(--space-2\); \}/,
+  );
+  const tabletQrWidth = Number(
+    tablet.match(/\.is-tablet \.box-hero-qr \{ width: (\d+)px/)?.[1],
+  );
+  const desktopQrWidth = Number(
+    qrCss.match(/\.qr-label--trigger \{[^}]*width: (\d+)px/)?.[1],
+  );
   assert.equal(tabletQrWidth, 64);
   assert.ok(tabletQrWidth < desktopQrWidth);
-  assert.equal(Number(compact.match(/(?:^|\s)width: (\d+)px/)?.[1]), tabletQrWidth);
+  assert.equal(
+    Number(compact.match(/(?:^|\s)width: (\d+)px/)?.[1]),
+    tabletQrWidth,
+  );
   assert.match(source, /import \{[^}]*\bRoute\b[^}]*\} from 'lucide-react'/);
   assert.match(tablet, /--qr-label-image-size: 54px/);
   assert.match(tablet, /--qr-label-padding: 4px/);
-  assert.match(tablet, /\.is-tablet \.box-subculture-glyph \{ transform: rotate\(90deg\); \}/);
-  assert.match(tablet, /@container box-detail \(width < 680px\)[\s\S]*"identity" "tools" "summary"/);
-  assert.match(tablet, /\.is-tablet \.box-code-line h2 \{ overflow-wrap: anywhere; white-space: normal; \}/);
-  assert.match(phone, /\.is-phone \.box-header-tools \{ align-self: start; justify-self: end; \}/);
+  assert.match(
+    tablet,
+    /\.is-tablet \.box-subculture-glyph \{ transform: rotate\(90deg\); \}/,
+  );
+  assert.match(
+    tablet,
+    /@container box-detail \(width < 680px\)[\s\S]*"identity" "tools" "summary"/,
+  );
+  assert.match(
+    tablet,
+    /\.is-tablet \.box-code-line h2 \{ overflow-wrap: anywhere; white-space: normal; \}/,
+  );
+  assert.match(
+    phone,
+    /\.is-phone \.box-header-tools \{ align-self: start; justify-self: end; \}/,
+  );
 });

@@ -1,0 +1,387 @@
+export const locationsThermal = {
+  adminAddProbe: {
+    fr: 'Ajouter la sonde',
+    en: 'Add probe',
+    ja: 'センサーを追加',
+  },
+  adminCreateZone: {
+    fr: 'Créer l’emplacement',
+    en: 'Create zone',
+    ja: '設置場所を登録',
+  },
+  adminProbeCode: { fr: 'Code sonde', en: 'Probe code', ja: 'センサーコード' },
+  adminProbeLocation: { fr: 'Emplacement', en: 'Location', ja: '設置場所' },
+  adminProbeType: {
+    fr: 'Type de sonde',
+    en: 'Probe type',
+    ja: 'センサーの種類',
+  },
+  adminProbeZone: {
+    fr: 'Emplacement associé',
+    en: 'Linked location',
+    ja: '紐づけ先の設置場所',
+  },
+  adminSaveZone: { fr: 'Enregistrer', en: 'Save', ja: '保存' },
+  adminTargetTemperature: {
+    fr: 'Température consigne',
+    en: 'Target temperature',
+    ja: '水温設定値',
+  },
+  adminZoneCapacity: { fr: 'Capacité', en: 'Capacity', ja: '収容上限' },
+  adminZoneName: {
+    fr: 'Nom de l’emplacement',
+    en: 'Location name',
+    ja: '設置場所名',
+  },
+  adminZoneOrganization: {
+    fr: 'Structure',
+    en: 'Organization',
+    ja: '所属機関',
+  },
+  adminZoneSalinity: {
+    fr: 'Salinité (PSU)',
+    en: 'Salinity (PSU)',
+    ja: '塩分（PSU）',
+  },
+  adminZoneType: {
+    fr: 'Type d’emplacement',
+    en: 'Location type',
+    ja: '設置場所の種類',
+  },
+  adminZoneTypeCabinet: { fr: 'Emplacement', en: 'Rack', ja: 'ラック' },
+  adminZoneTypeIncubator: {
+    fr: 'Étuve',
+    en: 'Incubator',
+    ja: 'インキュベーター',
+  },
+  dailyTemperatureAggregate: {
+    fr: 'Température',
+    en: 'Temperature',
+    ja: '水温',
+  },
+  latestReadingDate: {
+    fr: 'Dernière mesure',
+    en: 'Latest record',
+    ja: '最新の測定記録',
+  },
+  manualSalinityDate: { fr: 'Date', en: 'Date', ja: '日付' },
+  manualSalinitySave: {
+    fr: 'Enregistrer la salinité',
+    en: 'Save salinity',
+    ja: '塩分を保存',
+  },
+  manualSalinityValue: {
+    fr: 'Salinité (PSU)',
+    en: 'Salinity (PSU)',
+    ja: '塩分（PSU）',
+  },
+  manualTemperatureAction: {
+    fr: 'Saisir une température',
+    en: 'Record a temperature',
+    ja: '水温を記録',
+  },
+  manualTemperatureDate: { fr: 'Date', en: 'Date', ja: '日付' },
+  manualTemperatureForbidden: {
+    fr: 'Ce compte ne peut pas saisir de température pour cet emplacement.',
+    en: 'This account cannot record temperature for this location.',
+    ja: 'このアカウントでは、この設置場所の水温を記録できません。',
+  },
+  manualTemperatureSave: {
+    fr: 'Enregistrer la température',
+    en: 'Save temperature',
+    ja: '水温を保存',
+  },
+  manualTemperatureTitle: {
+    fr: 'Température manuelle',
+    en: 'Manual temperature',
+    ja: '水温の手入力',
+  },
+  manualTemperatureValue: {
+    fr: 'Température mesurée (°C)',
+    en: 'Measured temperature (°C)',
+    ja: '実測水温（°C）',
+  },
+  maxTemperature: { fr: 'Max.', en: 'Max.', ja: '最大' },
+  minTemperature: { fr: 'Min.', en: 'Min.', ja: '最小' },
+  openBox: { fr: 'Ouvrir', en: 'Open', ja: '開く' },
+  probes: { fr: 'Sondes', en: 'Probes', ja: 'センサー' },
+  recordedOriginalLocation: {
+    fr: 'Emplacement enregistré (fiche d’origine)',
+    en: 'Recorded location (original record)',
+    ja: '元の記録にある設置場所',
+  },
+  salinityFull: {
+    fr: 'Salinité du relevé (PSU)',
+    en: 'Recorded salinity (PSU)',
+    ja: '測定記録の塩分（PSU）',
+  },
+  targetTemperature: { fr: 'Consigne', en: 'Target', ja: '設定値' },
+  temperature: { fr: 'Température', en: 'Temperature', ja: '水温' },
+  temperatureAverage: { fr: 'Moyenne', en: 'Average', ja: '平均' },
+  temperatureCombinedSources: {
+    fr: 'via import historique et via Polypbase',
+    en: 'via historical import and via Polypbase',
+    ja: '過去データのインポートおよびPolypbase',
+  },
+  temperatureControl: {
+    fr: 'Contrôle thermique',
+    en: 'Thermal control',
+    ja: '温度管理',
+  },
+  temperatureDailyGap: {
+    fr: 'Écart moy. − consigne',
+    en: 'Gap: mean − target',
+  },
+  temperatureDailyMean: { fr: 'Moyenne journalière', en: 'Daily mean' },
+  temperatureDailyPeriod: {
+    fr: 'Statistiques du {date}',
+    en: 'Daily statistics for {date}',
+  },
+  temperatureGap: { fr: 'Écart', en: 'Gap', ja: '差' },
+  temperatureHistoricalSource: {
+    fr: 'via import historique',
+    en: 'via historical import',
+    ja: '過去データのインポート：',
+  },
+  temperatureMeasurement: { fr: 'Mesure', en: 'Measurement', ja: '測定値' },
+  temperatureMissing: {
+    fr: 'Aucune température relevée',
+    en: 'No temperature reading',
+    ja: '水温の測定記録はありません',
+  },
+  temperatureMultipleSources: {
+    fr: 'Plusieurs sources :',
+    en: 'Multiple sources:',
+    ja: '複数のソース：',
+  },
+  temperatureNoData: {
+    fr: 'Aucune température disponible sur cette période.',
+    en: 'No temperature data for this period.',
+    ja: 'この期間の水温データはありません。',
+  },
+  temperatureNoRecent: {
+    fr: 'Aucune mesure récente',
+    en: 'No recent measurement',
+  },
+  temperatureOutsideScale: {
+    fr: 'Valeur hors de la plage habituelle 0–40 °C : échelle étendue.',
+    en: 'Value outside the usual 0–40 °C range: expanded scale.',
+  },
+  temperatureRecentError: {
+    fr: 'Actualisation des mesures indisponible',
+    en: 'Measurement refresh unavailable',
+  },
+  temperatureRecentMean: { fr: 'Moyenne récente', en: 'Recent mean' },
+  temperatureRecentPeriod: {
+    fr: '{count} sonde(s) : {period}',
+    en: '{count} probe(s): {period}',
+  },
+  temperatureShort: { fr: 'Temp.', en: 'Temp.', ja: '水温' },
+  temperatureTrendTitle: {
+    fr: 'Évolution sur {hours} h',
+    en: 'Change over {hours} h',
+  },
+  thermalMonitoringDeviation: {
+    fr: 'Écart à la consigne',
+    en: 'Deviation from target',
+  },
+  thermalMonitoringEmpty: {
+    fr: 'Aucune mesure de sonde sur cette période',
+    en: 'No probe measurements in this period',
+  },
+  thermalMonitoringExtrema: { fr: 'Min. / Max.', en: 'Min. / Max.' },
+  thermalMonitoringKeyboard: {
+    fr: 'Flèches gauche et droite : parcourir les mesures. Échap : fermer l’infobulle.',
+    en: 'Left and right arrows: browse measurements. Escape: close the tooltip.',
+  },
+  thermalMonitoringPeriod: { fr: '4 dernières heures', en: 'Last 4 hours' },
+  zoneAddProbeTitle: {
+    fr: 'Nouvelle sonde',
+    en: 'New probe',
+    ja: '新しいセンサー',
+  },
+  zoneAddTitle: {
+    fr: 'Nouvel emplacement',
+    en: 'New location',
+    ja: '新しい設置場所',
+  },
+  zoneBoxesDirectoryAction: {
+    fr: 'Voir toutes les boîtes',
+    en: 'View all boxes',
+    ja: 'すべての容器を見る',
+  },
+  zoneBoxesDirectoryEmpty: {
+    fr: 'Aucune boîte dans cet emplacement.',
+    en: 'No box in this location.',
+    ja: 'この設置場所には容器がありません。',
+  },
+  zoneBoxesDirectoryTitle: {
+    fr: 'Boîtes par espèce',
+    en: 'Boxes by species',
+    ja: '種ごとの容器一覧',
+  },
+  zoneCapacityMissing: {
+    fr: 'Capacité non renseignée',
+    en: 'Capacity not set',
+    ja: '収容上限は未設定です',
+  },
+  zoneCurrentStaySince: {
+    fr: 'Dans cet emplacement',
+    en: 'In this location since',
+    ja: 'この場所に設置した日',
+  },
+  zoneEditTitle: {
+    fr: 'Paramètres de l’emplacement',
+    en: 'Location settings',
+    ja: '設置場所の設定',
+  },
+  zoneFilterAll: { fr: 'Toutes', en: 'All', ja: 'すべて' },
+  zoneLabel: { fr: 'Emplacement', en: 'Location', ja: '設置場所' },
+  zoneMovementAllEntries: {
+    fr: 'Voir toutes les entrées',
+    en: 'View all entries',
+    ja: 'すべての設置記録を見る',
+  },
+  zoneMovementAllExits: {
+    fr: 'Voir toutes les sorties',
+    en: 'View all exits',
+    ja: 'すべての撤去記録を見る',
+  },
+  zoneMovementDirectionFilter: {
+    fr: 'Entrées ou sorties',
+    en: 'Entries or exits',
+    ja: '設置または撤去',
+  },
+  zoneMovementEmpty: {
+    fr: 'Aucune entrée ou sortie enregistrée.',
+    en: 'No entry or exit recorded.',
+    ja: '設置・撤去の記録はありません。',
+  },
+  zoneMovementEntries: { fr: 'Entrées', en: 'Entries', ja: '設置' },
+  zoneMovementEntriesEmpty: {
+    fr: 'Aucune entrée enregistrée.',
+    en: 'No entry recorded.',
+    ja: '設置記録はありません。',
+  },
+  zoneMovementExits: { fr: 'Sorties', en: 'Exits' },
+  zoneMovementExitsEmpty: {
+    fr: 'Aucune sortie enregistrée.',
+    en: 'No exit recorded.',
+    ja: '撤去記録はありません。',
+  },
+  zoneMovementFlowChartLabel: {
+    fr: 'Entrées et sorties d’emplacement des huit dernières semaines',
+    en: 'Location entries and exits over the last eight weeks',
+    ja: '過去8週間の設置・撤去履歴',
+  },
+  zoneMovementFrom: {
+    fr: 'Depuis {zone}',
+    en: 'From {zone}',
+    ja: '{zone}から',
+  },
+  zoneMovementHistoricalEntry: {
+    fr: 'Entrée historique',
+    en: 'Historical entry',
+  },
+  zoneMovementHistoricalExit: {
+    fr: 'Sortie historique',
+    en: 'Historical exit',
+  },
+  zoneMovementHistoricalTotals: {
+    fr: 'Entrées historiques : {entries}. Sorties historiques : {exits}. Non placées sur le graphique, car leur semaine exacte n’est pas établie.',
+    en: 'Historical entries: {entries}. Historical exits: {exits}. Not placed on the chart because their exact week is not established.',
+  },
+  zoneMovementHistoryTitle: {
+    fr: 'Historique des entrées et sorties',
+    en: 'Entry and exit history',
+    ja: '設置・撤去履歴',
+  },
+  zoneMovementInterval: {
+    fr: 'Entre les semaines {from} et {to} de {year}',
+    en: 'Between weeks {from} and {to} of {year}',
+  },
+  zoneMovementIntervalAcrossYears: {
+    fr: 'Entre la semaine {from} de {fromYear} et la semaine {to} de {toYear}',
+    en: 'Between week {from} of {fromYear} and week {to} of {toYear}',
+  },
+  zoneMovementNext: { fr: 'Suivant', en: 'Next', ja: '次へ' },
+  zoneMovementPagination: {
+    fr: 'Pagination de l’historique',
+    en: 'History pagination',
+    ja: '履歴のページ切り替え',
+  },
+  zoneMovementPrevious: { fr: 'Précédent', en: 'Previous', ja: '前へ' },
+  zoneMovementRange: {
+    fr: '{start}–{end} sur {count}',
+    en: '{start}–{end} of {count}',
+    ja: '全{count}件中、{start}～{end}件',
+  },
+  zoneMovementRetry: { fr: 'Réessayer', en: 'Try again', ja: '再試行' },
+  zoneMovementTo: { fr: 'Vers {zone}', en: 'To {zone}', ja: '{zone}へ' },
+  zoneMovementWeekShort: { fr: 'S{week}', en: 'W{week}', ja: '{week}週' },
+  zoneMovementWeekSummary: {
+    fr: 'Semaine {week} de {year} : {entries} entrées, {exits} sorties (périodes d’emplacement).',
+    en: 'Week {week} of {year}: {entries} entries, {exits} exits (location periods).',
+    ja: '{year}年第{week}週：設置{entries}件、撤去{exits}件（設置期間に基づく）',
+  },
+  zoneNoProbe: {
+    fr: 'Aucune sonde associée',
+    en: 'No linked probe',
+    ja: '紐づけられたセンサーはありません',
+  },
+  zoneOccupancy: { fr: 'Occupation', en: 'Occupancy', ja: '収容数' },
+  zoneProbesTitle: {
+    fr: 'Sondes associées',
+    en: 'Linked probes',
+    ja: '紐づけられたセンサー',
+  },
+  zoneRecentMovementsTitle: {
+    fr: 'Entrées et sorties',
+    en: 'Entries and exits',
+    ja: '設置・撤去',
+  },
+  zoneSalinity: { fr: 'Salinité', en: 'Salinity', ja: '塩分' },
+  zoneSalinityCreateAction: {
+    fr: 'Ajouter un relevé de salinité',
+    en: 'Add a salinity measurement',
+  },
+  zoneSalinityCreateTitle: {
+    fr: 'Nouveau relevé de salinité',
+    en: 'New salinity measurement',
+  },
+  zoneSalinityEditAction: {
+    fr: 'Modifier le relevé de salinité',
+    en: 'Edit salinity measurement',
+  },
+  zoneSalinityEditExpired: {
+    fr: 'La période de correction est terminée. Ajoutez un nouveau relevé.',
+    en: 'The correction window has closed. Add a new measurement.',
+  },
+  zoneSalinityEditTitle: {
+    fr: 'Modifier le relevé de salinité',
+    en: 'Edit salinity measurement',
+  },
+  zoneSalinityLatestTitle: {
+    fr: 'Dernier relevé de salinité',
+    en: 'Latest salinity measurement',
+  },
+  zoneSalinityNoReading: { fr: 'Aucun relevé', en: 'No measurements' },
+  zoneSalinityNotes: { fr: 'Commentaire', en: 'Comment', ja: 'コメント' },
+  zoneSalinityShort: {
+    fr: 'Sal. armoire',
+    en: 'Rack sal.',
+    ja: 'ラックの塩分',
+  },
+  zoneSheet: {
+    fr: 'Fiche emplacement thermique',
+    en: 'Thermal zone sheet',
+    ja: '温度管理設備の詳細',
+  },
+  zoneTarget: { fr: 'Consigne', en: 'Target', ja: '設定値' },
+  zones: { fr: 'Emplacements', en: 'Location', ja: '設置場所' },
+  zonesTitle: {
+    fr: 'Emplacements thermiques',
+    en: 'Thermal locations',
+    ja: '温度管理設備',
+  },
+};

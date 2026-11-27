@@ -1,0 +1,902 @@
+{
+  "shareAbsent": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "efa531ad75e83aa42c3278b3368dc82380060b915f7fbb8e96e405d0a53656fb"
+    }
+  },
+  "shareAccept": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cf7d0473ec2cae9550179e039c88107e522b24114803baa5ddf97720d19736c8"
+    }
+  },
+  "shareAcceptedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "160f121de153a1cc234a1fcdddb459d38e67f8f9d2c5e8f8c455c80c0b0143ca"
+    }
+  },
+  "shareAccessExpiry": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "46aa498bd05e9515bf117073de02081aa0378d5ecd4a58d181721d0834f55b7a"
+    }
+  },
+  "shareAddedFields": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1a8b4bc0cfa20d2443014df7c38533cbb5a6a5225264511bf623da9ee069987e"
+    }
+  },
+  "shareAreas": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5b0f21c317215595a1fda8b8485cb6a65e7fd6512d3db6735ea6783cd7d3369a"
+    }
+  },
+  "shareBlank": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b3dfe7b1e9a40a5f5e470b8fb4012af8a43ec8b54c05f69373920cf2643aba42"
+    }
+  },
+  "shareBoxCode": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f26494da577b339a24674aefae8473e870abcbe35a7817452cb8f737e1c38a6a"
+    }
+  },
+  "shareBoxPages": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bf193cff314c410018e965e4d6f89ee5ad669049bdaacd113912a5ddd54d275e"
+    }
+  },
+  "shareBoxSearchHint": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cda21672e78d29d5a4deba57df85fa28419d8f478f4abd789831243dd6853144"
+    }
+  },
+  "shareCaptureHash": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "24fb2d7b824123286b4e377982c228403b07f0c14f1df7850588c1c25d635fa5"
+    }
+  },
+  "shareCapturedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0aa114ae5c595806d974ed0a5ba0547e8d875c51d057b3f89a1a857b5848b9f3"
+    }
+  },
+  "shareChangeBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8467d943baaccf9da48d06ca18735ee38758c304eabdfef2e98d711c8fed5284"
+    }
+  },
+  "shareCheckingAccess": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e36f139f8e96a5506cbb5e1353edfb3e23bc15f153e0c736ec7169f27f2957d5"
+    }
+  },
+  "shareConfirmDisclosure": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "41a8de2d293967f868c251a7442327951f54905a749cae8beaba162371b2cbbe"
+    }
+  },
+  "shareConfirmExpansion": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1786fbfd28126f47dd824ad1a14eef760e67322fa3420645251790b5f0f4cd85"
+    }
+  },
+  "shareConfirmRecapture": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "72c1e6e1b7c6f43d6de0c0ec90f22d9ff5a4f538dccc822222f2d13d5a114be0"
+    }
+  },
+  "shareCreate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a454b94f6060ecf68dfb7b88d93259aded2de702b960eb31ee7a15c8c13475e3"
+    }
+  },
+  "shareCreateConfirm": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "69b563c110bac39d3e51849662be659162d84c844964eb57e49f4f8f63e9c3d4"
+    }
+  },
+  "shareCreatedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3e403102f64caee3f70071f2142609e7493435f445ec028ddc313b6f018d0b55"
+    }
+  },
+  "shareDeliveryFailed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "103c23967c1e3b95b03a954b80c52e3a5317fdfb202b2e195e9be684b4d367bf"
+    }
+  },
+  "shareDeliveryHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ae45b5d51eb20c047af1b7917e84f9e595c7ce0f51c93d0aea1747db4af142e9"
+    }
+  },
+  "shareDeliveryPending": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "61fabf8d69dea89488b88526c3dc92bb7dbe62c401c8ba3b7e61d5a9af9c5d26"
+    }
+  },
+  "shareDeliverySent": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "19234b3a39beb3ebb6a6f6c1368955dd2536b59415d8773fed7c5e303595eba8"
+    }
+  },
+  "shareDeliveryUncertain": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7ab23914d9ea67ba15fb17191d37dac47a22ed813f8bcb833f7d5b64c31500e8"
+    }
+  },
+  "shareDeliveryUpdated": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8911b9ffc995ea4cb030cf849a517e9a201fd373e4f47047180057409851294e"
+    }
+  },
+  "shareDirectEntry": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fdb61f01f66a17c0a8a7c0e3edd17347dcdd286b7492519b77d77e8a1f86a25f"
+    }
+  },
+  "shareDisclosure": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5e713334b461768eed5d81764f233545e0b76ed526520599aad50c228a514abb"
+    }
+  },
+  "shareDisclosureHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3f4bdf35b7e5b3427cf825dc9901c0adbf23e95a0fc0622e88d08495ecfc2238"
+    }
+  },
+  "shareEdit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "63785ab66e00b3dd8f5f936502fa074a70f2bd83c7ca969c38ef5623eafd6fcf"
+    }
+  },
+  "shareEphyrae": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fee3bf92e238f13f1277e7eb6a0bfe12728eb482a0976b3c0f62a5fc38c6e465"
+    }
+  },
+  "shareErrorBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c3c86c419cde60f3edb97746fd99ee5096dfd998dab08b12ef23ca515312dd06"
+    }
+  },
+  "shareErrorChanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4028e5c4a20015869a6a076576325f4310f6a3f5ac220c5f41a18a36f7f098e2"
+    }
+  },
+  "shareErrorConfiguration": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "205bc4f97a2c3b39d74582b3342f08e95d8bc86545b34aad1f8b61beed62acdd"
+    }
+  },
+  "shareErrorDates": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c260bc524e79f3a1b6e9a721a159cbfa9f3162816087137e89f348022b07aa17"
+    }
+  },
+  "shareErrorDelivery": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b2f908137f6df15360c734440d21c99a7e04bf88d4c8c194c918c619095a0b8a"
+    }
+  },
+  "shareErrorDisclosure": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6bdc2c3119db49e0b7376f13ed858378bfcc058331f1f8a1a2e7e6033e31632d"
+    }
+  },
+  "shareErrorEmail": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1c0f4645c032db759b6c2a07dba2d6f5c3c2136202db81fd7ac6023ec07b9f45"
+    }
+  },
+  "shareErrorExists": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8928ee5ebe023a82ad163730ad623eeccade8ff8c17a3af8947e14bf8e373a07"
+    }
+  },
+  "shareErrorExpired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ad3513e553e970aa4a9d47ba765c89ef3c454957950086adc5360e688ffdbc40"
+    }
+  },
+  "shareErrorFrozen": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "63ad91773e87533af30aaa8777a8ed1391d09c16e242492cc448b3dbd3774952"
+    }
+  },
+  "shareErrorInvitation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cdb8f601131e7ae350a13d11bda9c545efcb12f882eb96db600e0b65b12e8dbc"
+    }
+  },
+  "shareErrorInvitationExpired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "60f3c544360d351b168d762570f193aec72dcf22e3895d4c500948a6d8dc5045"
+    }
+  },
+  "shareErrorMismatch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e2ebd56ea4f3b2bc82d2c7f49619cecc6f64722ad2b9f68ad82aaa62c9531e08"
+    }
+  },
+  "shareErrorNetwork": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "097757a81948adf8420302e4502e521d5d5e5ae9cb8e916ba6340115532edd98"
+    }
+  },
+  "shareErrorNotFound": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b28d7c085c78c1ef1e094eb6c1e01d764e4aab038e35990cc302c39a054beb62"
+    }
+  },
+  "shareErrorNotPending": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "086b2eb9af115a3b3be6462ec5febe78aaddb5a7c6a467cf1b02d60dc1350b56"
+    }
+  },
+  "shareErrorPermission": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9e15315287c0e6d04e6dc14812a09dc618a9d83a5ed318534282a2d151172227"
+    }
+  },
+  "shareErrorRevision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "139100a6ce56acb62259a099774d064760f856834b3395e6811da8ed29a8179d"
+    }
+  },
+  "shareErrorRevoked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2ff2797d1b23ed1f189bffa29f93ce026b522b689943d3380920d796c1d2c353"
+    }
+  },
+  "shareErrorSource": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b6a2ac4b12506978f891abdbd2804e3d3a4556e5f8e37c56afca1950b2c1d520"
+    }
+  },
+  "shareErrorValidation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6a3d9cc1896d7db71daeb9c2693ad1405bde3e3336ae4fdb803ae1c3540e6e99"
+    }
+  },
+  "shareFileImport": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "42e6278a64cbc8559751f1f3ac5254dfcea47c16a5ba5e78c57f1d881a4538e2"
+    }
+  },
+  "shareFilterBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1ce17ef5786bfc94d31d1452a61fb91ff194fcd239270d8c4d8bbf02dd59b943"
+    }
+  },
+  "shareFindBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2f64934a7bb1852201224e9cb5b027b1748597f4f4fcc058928b8db0367169ab"
+    }
+  },
+  "shareFrozen": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a5bdb4055e0ce8bbb91b48bc963230cc0f300eb21a63c899b171f0fd2150847f"
+    }
+  },
+  "shareFrozenHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6181fa67d8054b94454b866f6473e614bcd456e1332589289ce808240dd93d49"
+    }
+  },
+  "shareHistoryEmpty": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0fa2ebce97e4c422b7e874052dce58fa57bb0bbee4861df7abde54e8368625c7"
+    }
+  },
+  "shareHistoryPages": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "83ad09e0a2ee77c9ef8f7f2a8f1993888b0d81b445523aa31c5b689607b4df2a"
+    }
+  },
+  "shareHistoryScope": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4776b9b38417998950da5ddd9943035eec146d0798a018a66b36258ed97f4e8e"
+    }
+  },
+  "shareHistoryScroll": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b4ba18cbe1e3f56f42513f7c81e646867fe3af7e40563ea0060fce2dbe7ede98"
+    }
+  },
+  "shareHistoryUndisclosed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "29636ddc55252abe4d9fd05314854ac6917ff5a9b1e0a6fbc49988dad9c8e470"
+    }
+  },
+  "shareIdentity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fba037846f55522d8ab57f27ccd69387391a91dad0477754033fc73cea47640d"
+    }
+  },
+  "shareInstitution": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "058548ea7fc10a0b3002e384eb79fab44dc0dae3b2035519ee63c7eba67704cc"
+    }
+  },
+  "shareInstitutionId": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e35296df3e1d3df8627ac07fc67d4aa2418167a073c39c4b42e26205a3a978a4"
+    }
+  },
+  "shareInvitationExpiry": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3812e6c04a90ad4acad15744994f2a0287aa869b43d5de00d671fc19aad3ae8a"
+    }
+  },
+  "shareInvitationFrom": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2b0b8653e62afe19b443309ed66da8a8bf6e3773cecb6ddb6555a5a6e7327792"
+    }
+  },
+  "shareInvitationReadOnly": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c9dc91c6bbe3b9dd0f58ed4cfb84100d2f21f65b119c387796a343d3c9684768"
+    }
+  },
+  "shareInvitationSignIn": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8ba04d0a107a042e7f615d6f362f156a26cb7786c804da964eef6d3979a8b337"
+    }
+  },
+  "shareInvitationTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b1b0084bda9e578d90f90bd8e216a519ca19ad0cc88a4e8be5fe5f870769b651"
+    }
+  },
+  "shareKeepExpiry": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "377aecd8c33b248d76b672d50762a6863336290419d0c58d32132aa5af090798"
+    }
+  },
+  "shareLegacyDate": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c07da71a3423b0e240907c95230ce32a41ba9ab519ba76fabba5ab8cbd80363b"
+    }
+  },
+  "shareLegacyOrigin": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "960f8e0d579b1a3ef8a467fc1cee11b43b689e4aac714834ae64ac1298f86184"
+    }
+  },
+  "shareLifetimeLimit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "58a6fbac701b0814388dcc4cbe5741cfed6c577f112b02769922862be2db927c"
+    }
+  },
+  "shareLive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fcefd80d83308dc7a2f9a180b424360f59955d4c5031886d180a9909b6621d35"
+    }
+  },
+  "shareLiveHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "acaa2a03a787731bd61e3a97d3a0fb3cd49f7d2b3f38363db70102e196c30ffc"
+    }
+  },
+  "shareMode": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "196c043fbaf1372022f75721e58f82ace89635ab128d62fc23620f44eb2db6ce"
+    }
+  },
+  "shareNext": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "df2df3bc713a79064b75356c0d00c71fe5f98fbeb5939f60e7d2c69321f6d6db"
+    }
+  },
+  "shareNoAccount": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "277a46e7c81f66d525a93fc8b434543a36ec884c0fb21f1978f69acbf2589cc0"
+    }
+  },
+  "shareNoBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "453a59faa13ae12c757ff2ec2d2adae493e6bf8b64d6f3cdbef5647412635552"
+    }
+  },
+  "shareNoMatchingOutgoing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0ee1262fe4f5981dd67a56fd6f40bdd7fb06f362476749da39bb36ed06b47457"
+    }
+  },
+  "shareNoOutgoing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a3c6caafaaa9d8a1f2f87f846651827f5e191fd2ac1b92b6861b15205cc39f4b"
+    }
+  },
+  "shareNoReceived": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6dee6824f09dae4f201f326a1601d2b18c3eb747456f9efc5354196d129c4a4c"
+    }
+  },
+  "shareNonAtomic": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b6ecf9b15063d7b132766829558b88183cc43864d60613bd55923c8eb863c747"
+    }
+  },
+  "shareNull": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bf2eb11c5b8b042c7156e9f4c3a61138bf230a29979a2c0f0946a3e0d58e7c09"
+    }
+  },
+  "shareObservationTime": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fdbad86f2203efc6aa38bc4b6952c1453c8fb99e61578a309842a3fa253ee45b"
+    }
+  },
+  "shareObservations": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3d10836ea8f6e4b0f2b15fd2f3d5e2360a7bcd41e1be0d101570a1449e513578"
+    }
+  },
+  "shareObserver": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "977e4e71f070b7bfff15083882521ec3c9b1ef480fe67539e7a142a9a27c939c"
+    }
+  },
+  "shareObserverKnown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fdb997fbdea140da32ef57aae17d05996ecf3113e53a0248a7a579e66f58a8ba"
+    }
+  },
+  "shareObserverLegacy": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6ac2d9aea33225a0c3ef34260d5e83a83ae83575ecf1a79fd3503a56facedb6c"
+    }
+  },
+  "shareObserverNotRecorded": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4268fa01260dfd9480110cba8dd848b7acec9d17f2258860a1072423115058f2"
+    }
+  },
+  "shareOrigin": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e6b91bfeccd4baa1cfe16666e2253fc61b9e6e2c21a666e77f8192cda8ac24df"
+    }
+  },
+  "shareOutgoing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6facb64c9f89b7e30290f018002a485c926fd0c85686e7923bc9d6ae750b9a4b"
+    }
+  },
+  "shareOutgoingPages": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "caacfb4db85a35de40b2762cadd2a2aaa48cdadc633b750d8dd0d2ec942e2521"
+    }
+  },
+  "sharePage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7b2478a95138b0b20b6b921d8051dfada24888778a8939f20624bfb7ec2b2ab8"
+    }
+  },
+  "sharePolyps": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5aca946e913a38d6e589d693aee5a0ce210935a12bf8114a0c68d182918ea02b"
+    }
+  },
+  "sharePreview": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f62d9d6fb7068dec08018f4df0f87c973ca558ab27c2a28c4b88fa9bbe55a784"
+    }
+  },
+  "sharePreviewHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7c3a433528bff80defd06a5c4e987532390549f334df95ecd0893cce38c86ef7"
+    }
+  },
+  "sharePreviewTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "43139a33112fe0ba91bfc499a27bbb7e26a050774de65aba23f62adf425c0283"
+    }
+  },
+  "sharePrevious": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "30b0e9a45aba4d1630554cb3ec0f721dea2e9bd4b76e6321b48eb096ac1617fb"
+    }
+  },
+  "shareProjectedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "38572a0808ee3a99ae272bab36f63882f312ac779e7cfcfda2b3ac33f766e62b"
+    }
+  },
+  "shareProvenance": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7ae29f136113e6bc6eea3b5295873e25085e78017bde110c5b8b3f4d03605c29"
+    }
+  },
+  "shareRead": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d1d3e63879c9afb3c06d5640d31364d94368cbffe067490569af2f81d7c41325"
+    }
+  },
+  "shareReadOnly": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2af697456ab21797b4aa0a5f7a78380dbdb75450fd9ce5bd9e936d69a1b4d0c4"
+    }
+  },
+  "shareReaderScope": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4ce2ed481f8c95826fed29ac26f3fc5445f5e36a5192b50d3cd37daa84f2e949"
+    }
+  },
+  "shareReaderSignIn": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6e64614a52d6d07cd87f1f9cdf8d67c4c020330367159263b57cea1f08a200f4"
+    }
+  },
+  "shareReceived": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7501a691381fc52bff93ae84c6e3d8c81ba6e58bb11e884e8f4df8b85d050e80"
+    }
+  },
+  "shareReceivedHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8f31e238d7c0691777a60cfddd145521024f029337b1ea13c1458e7ca224fa6d"
+    }
+  },
+  "shareReceivedPages": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "33215a4e30683b529f9808525126b4c8e9c1a392929c461af6c558be69996172"
+    }
+  },
+  "shareRecipient": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "046ba55e23a54883e6920368fa42f546c5b09034bef3d9e313e0bf7dc8981fcd"
+    }
+  },
+  "shareReissue": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "418248b210c6d5fbbfd04ef7d618ab1b5780b4bdf277cfd9c0391dc4a6cb9b64"
+    }
+  },
+  "shareReissueHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0b6e291271ac619fd029c1615a3926f0062227903630a0802c74b1cfee137e62"
+    }
+  },
+  "shareReloadPolicy": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1c18ef2a9ff8a830502670e5630e77324f46aba1054f8edda810827c88cbc59c"
+    }
+  },
+  "shareRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8048f96ea7a51f604fc53cb042344930e47771db6343bb71418aa8528deec603"
+    }
+  },
+  "shareRequires": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1a67985a205aee02b497ad71c912c94b716d69fa8258ab35c5f2762beb3a897e"
+    }
+  },
+  "shareRevision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "373c0ec1c1e2dc5146eb12c09f35c2617e610904a508db2a21fe8c8addf00e7a"
+    }
+  },
+  "shareRevoke": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "397b9f5500f2c6948b564be3bdbea53b1ae0f9056622da36f8b4c4237ac26cba"
+    }
+  },
+  "shareRevokeHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cd57eb81f1a988a03cd4273349c4630404150e3d66e859bd4bd91b85fca9f5d8"
+    }
+  },
+  "shareRevokedAt": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f1133a1272dcb178b371c3ea91aff8aacfc43c983a25261b6b8f0fdd919a5557"
+    }
+  },
+  "shareRevokedSuccess": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bd7dfbc364503c95dfaf6f0a1694ee05df880c487dc4285a78afbb7a8fe42cad"
+    }
+  },
+  "shareSave": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "45951f6ac18435ae2d2cb098a99ff741c34afbff0d26d3273a61a6b9ab95d0b6"
+    }
+  },
+  "shareSaved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "66d11fc30e8bba0a927862569e4a2b0c747205de51d18791a07e0d8ff17e1b25"
+    }
+  },
+  "shareScientificLegend": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ecda7ed643e368fa779ffd0db6d53b905238b2ff30845bbb301321c84d281fee"
+    }
+  },
+  "shareSearch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "733d1c742675f53792b10c780b3584b2197101e56f892ca382c35133ca6dce55"
+    }
+  },
+  "shareSelectedBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ffbd186f60fcc259e89e5fd888d5c3c57fbbd1c3b6162f32b210cd0a21ba6232"
+    }
+  },
+  "shareSentHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "38ad25d1d1fe33625cab1ff48d2d223af7c99ea63fe1a493f1a0917d4d3024a3"
+    }
+  },
+  "shareSharedBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4bce5fd802d276c737e953147f6fd94c8b3b0e3160bb1a4756c964a4b8c7781d"
+    }
+  },
+  "shareSharedBy": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "74d75e6c31babc1aa8bc2e84373a4b318acb9285ad71cfff714dfef4c1f821d4"
+    }
+  },
+  "shareSkip": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "914f8377a13a3b1b0e3c67e37c2922d0745d178131c57c4676635f660631f058"
+    }
+  },
+  "shareSource": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0e570ca6fabe24f94e52c1833f3ffd25567022beb826fa16891f3322051bc221"
+    }
+  },
+  "shareSpecies": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "70e5067f2dcdea31ca49adf5e7af79589dcf6bd752ab1ebfe0cf604b796da174"
+    }
+  },
+  "shareStateActive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "14bc941cf1bfc5fb81b290455f1ac2ddb922b4e056de268d5599a50e3a4b7bb5"
+    }
+  },
+  "shareStateExpired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c99fd78aed2dfde4a7ab65481421cc2402ab464fb4227bdfd4aa149ceb63a6a9"
+    }
+  },
+  "shareStateInvitationExpired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d26923a3b6dd4a9dbf6b4faff1134dc0c8207e2661e2d71d821cd89d1e150f92"
+    }
+  },
+  "shareStatePending": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1b040ab443de327c1bfa1b5089659f5d56940670d07781d454af40b71fcc73f5"
+    }
+  },
+  "shareStateRevoked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "07784ea7212ed2af3ac2c647a3b792c4b9a87a4dc66812ad2826d3f97910bbe9"
+    }
+  },
+  "shareStateUnavailable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a641319a86e4767627abc787a7399d984f79d27d6b0cb5afb24e6d61e1137b77"
+    }
+  },
+  "shareStrain": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d59440dfe77844193b4134bab3a230cdeb1fc6606c75ce6b4397d9bcd69594c1"
+    }
+  },
+  "shareStrainId": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e9b46db332b2b9688f4f71362bb2ed72eead02a5e45d591dfd193a27e5bc0c9c"
+    }
+  },
+  "shareStrobilae": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c51f8d9406896baa366869e15b7c52a25b397d167099a2ae88f9b472f7db793f"
+    }
+  },
+  "shareTracking": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "30667e4cd9111b3fcf496605c58df5e3268369896f7270863974b8c916202e8c"
+    }
+  },
+  "shareTrackingHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e35500da014622c41a3f2d5727749c90889a9cfc46e362171a4b9db18e90aa3b"
+    }
+  },
+  "shareUTC": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "83c2662395c602fe621ae0c95e4c2bab00a94c78935a459b646309cee60c794e"
+    }
+  },
+  "shareUnavailableTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e03a7c4031eacb87715ec5dad28a5962fa4b6b1db7d1f92526d5217fbd5af00b"
+    }
+  },
+  "shareUncertainHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a34c82203d10885f60cf48a81497da12305c859929d6f22af206560c91ab4605"
+    }
+  },
+  "shareUndisclosed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "019399300205c49e5718c024649e0f5c6d5f2bafceaa218085caa2a81065bf58"
+    }
+  },
+  "shareUnsupported": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2e908980c71d14faaf3d545b61647374e7070ef9d10406d2283642eb38af3c02"
+    }
+  },
+  "shareWeekOnly": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "85691fe97d5ef55104ec3e65268f7fc0e8ead9b37366be5b437b20fb436a89a9"
+    }
+  },
+  "shareWorkspace": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4be5a5a237205094fef19b3b7f490111aecd2563911cc247a10200a0b0599453"
+    }
+  },
+  "shareWorkspaceHelp": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "95f12974b490cd6861080c53885807f368ade806058142e9c3d76f998e74e8ec"
+    }
+  }
+}
