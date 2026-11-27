@@ -51,8 +51,12 @@ service, Nginx, and health-check safeguards.
 
 - Before fast-forward, the release requires `BACKUP_OK` from the root-installed
   deployment backup broker running as the separate `polypbase_backup` OS account.
-  Verify the approved commit and pinned helper hashes through the operator
-  procedure. Never grant the web identity access to broker credentials or archives.
+  The release passes the full target commit as a filename label only. Verify the
+  pinned helper hashes through the operator procedure. The nightly service calls
+  the broker without a commit. For legacy VM configuration, follow the
+  [one-time root cutover](../../../docs/operations/deployment-operations.md#one-time-root-cutover-for-backup-approval)
+  under separate explicit approval. Never grant the web identity access to broker
+  credentials or archives.
 - The release records `migrate --plan` and runs `migrate --check --noinput` in
   read-only mode for schema changes. It never applies migrations. Pending migrations
   stop the release before static files, publication, restart, or health checks.
