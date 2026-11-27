@@ -193,6 +193,9 @@ to the PR; never commit the images.
 - **Bad:** Base a PR on another unmerged feature, report unrun checks as passed, or
   commit screenshots to the branch.
 
+On Windows, the versioned helpers in `scripts/pr_tools.ps1` automate the local
+workflow; see the [local pull request workflow](operations/local-pr-workflow.md).
+
 ## Documentation index and compatibility stubs
 
 Add or update the relevant entry in [the index](INDEX.md) when adding, moving, or
