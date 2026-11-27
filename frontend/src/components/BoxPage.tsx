@@ -1524,6 +1524,8 @@ export default function BoxPage({
               qrLabelResourceUnavailable: t('qrLabelResourceUnavailable'),
               qrLabelImagePreparationFailed: t('qrLabelImagePreparationFailed'),
               qrLabelPreparationFailed: t('qrLabelPreparationFailed'),
+              qrLabelStrainNameTooLong: t('qrLabelStrainNameTooLong'),
+              qrLabelStrainNameTooLongBatch: t('qrLabelStrainNameTooLongBatch'),
               qrLabelRetry: t('qrLabelRetry'),
               print: t('print'),
               qrCode: t('qrCode'),

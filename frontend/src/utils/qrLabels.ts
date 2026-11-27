@@ -122,12 +122,21 @@ export type QrLabelPreparationLabels = {
   qrLabelResourceUnavailable: string;
   qrLabelImagePreparationFailed: string;
   qrLabelPreparationFailed: string;
+  qrLabelStrainNameTooLong: string;
+  qrLabelStrainNameTooLongBatch: string;
   qrLabelRetry: string;
 };
 
 export function getQrLabelPreparationMessage(
-  reason: QrLabelPreparationFailure,
+  {
+    reason,
+    boxCode,
+  }: Pick<
+    Extract<QrLabelPreparationResult, { status: 'failed' }>,
+    'reason' | 'boxCode'
+  >,
   labels: QrLabelPreparationLabels,
+  batch = false,
 ) {
   switch (reason) {
     case 'popup-blocked':
@@ -139,6 +148,11 @@ export function getQrLabelPreparationMessage(
     case 'image-preparation':
       return labels.qrLabelImagePreparationFailed;
     case 'text-overflow':
+      return (
+        batch
+          ? labels.qrLabelStrainNameTooLongBatch
+          : labels.qrLabelStrainNameTooLong
+      ).replace('{code}', () => boxCode ?? '');
     case 'preparation':
       return labels.qrLabelPreparationFailed;
   }

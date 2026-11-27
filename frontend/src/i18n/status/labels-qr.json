@@ -356,6 +356,26 @@
       "reviewer": "japanese-reviewer"
     }
   },
+  "qrLabelStrainNameTooLong": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1cee8772a45b5636846cbfc0189f8c91da57b31f7e8e3ae7adf83c3f27bfb8d2"
+    },
+    "ja": {
+      "status": "ai",
+      "source_sha256": "a3a0a13eca48b21e602d286151ca2725eb7cd2e8ad1632e95d06b627870e018a"
+    }
+  },
+  "qrLabelStrainNameTooLongBatch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "415f9a3e6bfffa0cd3bf95563d56e1e383ca3091b9743864903614d9809d2966"
+    },
+    "ja": {
+      "status": "ai",
+      "source_sha256": "6b6c64d7313dfcba69c73014f9bfc5bd9a5da05b190a7bcd9c902262bcea868b"
+    }
+  },
   "qrLabelTitle": {
     "en": {
       "status": "validated",

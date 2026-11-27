@@ -88,6 +88,8 @@ export function getLabelsViewLabels(t: Translator) {
     qrLabelResourceUnavailable: t('qrLabelResourceUnavailable'),
     qrLabelImagePreparationFailed: t('qrLabelImagePreparationFailed'),
     qrLabelPreparationFailed: t('qrLabelPreparationFailed'),
+    qrLabelStrainNameTooLong: t('qrLabelStrainNameTooLong'),
+    qrLabelStrainNameTooLongBatch: t('qrLabelStrainNameTooLongBatch'),
     qrLabelRetry: t('qrLabelRetry'),
     qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
     qrLabelNoMatches: t('qrLabelNoMatches'),

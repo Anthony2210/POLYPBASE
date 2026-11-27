@@ -125,6 +125,16 @@ export const labelsQr = {
     en: '{count} sel.',
     ja: '{count}件選択',
   },
+  qrLabelStrainNameTooLong: {
+    fr: '{code} : le nom de la souche est trop long pour ce format d’étiquette.',
+    en: '{code}: The strain name is too long for this label format.',
+    ja: '{code}：このラベル形式には系統名が長すぎます。',
+  },
+  qrLabelStrainNameTooLongBatch: {
+    fr: '{code} : le nom de la souche est trop long pour ce format d’étiquette. Aucune étiquette n’a été imprimée ni téléchargée.',
+    en: '{code}: The strain name is too long for this label format. No labels were printed or downloaded.',
+    ja: '{code}：このラベル形式には系統名が長すぎます。ラベルは1枚も印刷またはダウンロードされていません。',
+  },
   qrLabelTitle: {
     fr: 'Étiquette QR code',
     en: 'QR code label',

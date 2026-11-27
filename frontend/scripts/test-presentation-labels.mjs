@@ -108,6 +108,8 @@ const expectedKeys = {
     'qrLabelResourceUnavailable',
     'qrLabelImagePreparationFailed',
     'qrLabelPreparationFailed',
+    'qrLabelStrainNameTooLong',
+    'qrLabelStrainNameTooLongBatch',
     'qrLabelRetry',
     'qrLabelNoEligibleBoxes',
     'qrLabelNoMatches',
