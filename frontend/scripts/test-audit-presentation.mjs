@@ -165,7 +165,7 @@ test('account summaries reject inherited actions and descriptions while retainin
 });
 
 const ccaEobReason = 'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. '
-  + "Environmental context now resolves through the target box under Anthony's approved product decision. "
+  + "Environmental context now resolves through the target box under the product owner's approved product decision. "
   + 'No location or movement history is modified.';
 const ccaEobSummary = {
   action: 'import',

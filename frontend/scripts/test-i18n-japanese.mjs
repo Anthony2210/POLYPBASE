@@ -1653,7 +1653,7 @@ test('all eight open Japanese questions use current English until validation', (
     const row = manifest.find(row => row.identity === key);
     assert.equal(row.status, 'FALLBACK_EN_REVIEW', key);
     assert.equal(row.reason_code, 'OPEN_QUESTION', key);
-    assert.ok(row.ja_validated, `${key}: preserve Takeru's original text`);
+    assert.ok(row.ja_validated, `${key}: preserve the Japanese reviewer's original text`);
     assert.equal(Object.hasOwn(ja, key), false, key);
     assert.equal(translate(key), en[key], key);
   }

@@ -300,7 +300,7 @@ test('standalone candidates and assessments do not add rows, provenance or a par
 test('starting location shows only the first observation date, title and established zone', () => {
   const qualification = { id: 'lifecycle:1', kind: 'qualification', provenance: 'lifecycle_audit',
     temporal_precision: 'unresolved', occurred_at: null, evidence: {}, reconciliation_status: 'recorded',
-    from_thermal_zone: null, to_thermal_zone: null, actor: { first_name: 'Anthony', last_name: 'Audit' } };
+    from_thermal_zone: null, to_thermal_zone: null, actor: { first_name: 'Sample', last_name: 'Auditor' } };
   const first = { id: 1, measured_on: '2024-04-01', polyp_count: 0 };
   const period = { id: 2, thermal_zone: { id: 10, name: 'Zone 10.0°C' },
     starts_at: '2024-01-01T00:00:00+01:00', ends_at: null, end_date_unknown: false };
@@ -315,7 +315,7 @@ test('starting location shows only the first observation date, title and establi
       [language === 'fr' ? 'Emplacement de départ' : 'Starting location']);
     assert.deepEqual(h.find(node => node.props.className === 'movement-locations').map(text), ['Zone 10.0°C']);
     assert.equal(h.find(node => node.type === 'small').length, 0);
-    for (const value of ['Anthony', catalogs[language].historyUnresolved, catalogs[language].historyNoDestination])
+    for (const value of ['Sample', catalogs[language].historyUnresolved, catalogs[language].historyNoDestination])
       assert.equal(h.html.includes(value), false);
     assert.equal(createInsights({ language, historyEvents: [qualification], measurements: [first], locations: [period] }).rows().length, 0,
       'the UI never guesses from the current zone or qualification');
@@ -334,7 +334,7 @@ test('starting location shows only the first observation date, title and establi
     assert.equal(represented.find(node => node.type === 'time')[0].props.dateTime, first.measured_on);
     assert.equal(represented.find(node => node.type === 'small').length, 0);
     assert.ok(represented.html.includes(linked.notes));
-    assert.equal(represented.html.includes('Anthony'), false);
+    assert.equal(represented.html.includes('Sample'), false);
     represented.find(node => node.props.className?.includes('movement-correct-button'))[0].props.onClick();
     assert.equal(corrected, 7);
   }
@@ -693,7 +693,7 @@ for (const language of ['fr', 'en']) {
     const origin = { id: 20, name: 'Zone 20.0°C' };
     const exit = { id: 'lifecycle:exit', kind: 'deactivation', provenance: 'lifecycle_audit',
       occurred_at: '2026-10-05T14:22:00+02:00', temporal_precision: 'exact', reconciliation_status: 'recorded',
-      from_thermal_zone: origin, to_thermal_zone: null, actor: { first_name: 'Anthony', last_name: 'Audit' },
+      from_thermal_zone: origin, to_thermal_zone: null, actor: { first_name: 'Sample', last_name: 'Auditor' },
       evidence: { closed_location_ids: [8], period_pairing_reliable: true }, notes: '' };
     const phantom = { ...exit, id: 'lifecycle:phantom', kind: 'reactivation', occurred_at: null,
       temporal_precision: 'unresolved', from_thermal_zone: null, evidence: {} };
