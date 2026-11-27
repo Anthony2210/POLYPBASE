@@ -1,10 +1,13 @@
 import type { BiologicalMeasurement } from '../types';
+import { parseIsoCalendarDate } from './dateFormat';
 
 export type MeasurementEditorMode = 'create' | 'edit' | 'locked' | 'read_only';
 
-export function getIsoWeekStart(dateValue: string): string {
-  const [year, month, day] = dateValue.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
+export function getIsoWeekStart(
+  dateValue: string | null | undefined,
+): string | null {
+  const date = parseIsoCalendarDate(dateValue);
+  if (!date) return null;
   const weekday = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() - weekday + 1);
   return date.toISOString().slice(0, 10);
@@ -12,12 +15,15 @@ export function getIsoWeekStart(dateValue: string): string {
 
 export function findMeasurementForWeek(
   measurements: BiologicalMeasurement[],
-  referenceDate: string,
+  referenceDate: string | null | undefined,
 ): BiologicalMeasurement | null {
   const weekStart = getIsoWeekStart(referenceDate);
-  return measurements.find(
-    (measurement) => getIsoWeekStart(measurement.measured_on) === weekStart,
-  ) ?? null;
+  if (weekStart === null) return null;
+  return (
+    measurements.find(
+      (measurement) => getIsoWeekStart(measurement.measured_on) === weekStart,
+    ) ?? null
+  );
 }
 
 export function getMeasurementEditorMode(input: {
@@ -32,9 +38,7 @@ export function getMeasurementEditorMode(input: {
   return 'read_only';
 }
 
-export function getMeasurementFormValues(
-  measurement: BiologicalMeasurement,
-) {
+export function getMeasurementFormValues(measurement: BiologicalMeasurement) {
   return {
     measuredOn: measurement.measured_on,
     polypCount: String(measurement.polyp_count),
@@ -59,30 +63,44 @@ export function isMeasurementPayloadUnchanged(
   persisted: MeasurementPayloadValues,
   draft: MeasurementPayloadValues,
 ): boolean {
-  return persisted.measured_on === draft.measured_on
-    && persisted.polyp_count === draft.polyp_count
-    && persisted.ephyrae_count === draft.ephyrae_count
-    && persisted.salinity_psu === draft.salinity_psu
-    && persisted.notes === draft.notes;
+  return (
+    persisted.measured_on === draft.measured_on &&
+    persisted.polyp_count === draft.polyp_count &&
+    persisted.ephyrae_count === draft.ephyrae_count &&
+    persisted.salinity_psu === draft.salinity_psu &&
+    persisted.notes === draft.notes
+  );
 }
 
-export function formatMeasurementCount(value: number | null | undefined): string {
+export function formatMeasurementCount(
+  value: number | null | undefined,
+): string {
   return value == null ? '-' : String(value);
 }
 
 export function isMeasurementWeekConflict(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { status?: unknown; data?: unknown };
-  if (candidate.status !== 409 || !candidate.data || typeof candidate.data !== 'object') {
+  if (
+    candidate.status !== 409 ||
+    !candidate.data ||
+    typeof candidate.data !== 'object'
+  ) {
     return false;
   }
-  return (candidate.data as { code?: unknown }).code === 'measurement_week_conflict';
+  return (
+    (candidate.data as { code?: unknown }).code === 'measurement_week_conflict'
+  );
 }
 
 export function isMeasurementEditWindowExpired(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { status?: unknown; data?: unknown };
-  if (candidate.status !== 403 || !candidate.data || typeof candidate.data !== 'object') {
+  if (
+    candidate.status !== 403 ||
+    !candidate.data ||
+    typeof candidate.data !== 'object'
+  ) {
     return false;
   }
   return (candidate.data as { code?: unknown }).code === 'edit_window_expired';
