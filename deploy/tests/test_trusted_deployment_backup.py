@@ -299,9 +299,12 @@ class ExecutionTests(unittest.TestCase):
                 patch.object(broker.os, "chdir"),
                 patch.dict(os.environ, {}, clear=True),
                 patch.object(broker.os, "umask"),
+                patch.object(broker, "apply_retention") as retention,
                 redirect_stdout(output),
             ):
                 self.assertEqual(broker.main(), 0)
+            retention.assert_called_once()
+            self.assertEqual(retention.call_args.kwargs["just_written"], archive_name)
             probe.complete.assert_called_once_with(
                 database, Path(directory), label, client_major=18
             )
@@ -345,6 +348,8 @@ class ExecutionTests(unittest.TestCase):
                 return_value=types.SimpleNamespace(st_mode=0o40700),
             ),
             patch.object(broker, "run_backup", side_effect=run),
+            patch.object(broker, "apply_retention"),
+            redirect_stderr(io.StringIO()),
         ):
             self.assertEqual(broker.main(), 0)
         load.assert_called_once_with()

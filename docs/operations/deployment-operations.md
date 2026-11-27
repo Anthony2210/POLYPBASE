@@ -80,8 +80,8 @@ The deployment backup broker's private archives are separate:
 `/var/lib/polypbase/deployment-backups` must be under a root:root ancestor with
 mode 0755, and the directory itself must be owned by
 `polypbase_backup:polypbase_backup` with mode 0700. Never make these archives
-readable by `polypbase`. The broker does not apply automatic retention; this
-procedure does not move or prune existing archives.
+readable by `polypbase`. The broker prunes its own archives after each verified
+backup; see [deployment backup retention](#deployment-backup-retention).
 
 The `polypbase-backup.timer` timer runs the isolated broker each night at about
 2:30 a.m., with up to 15 minutes of randomized delay. The service passes no
@@ -218,6 +218,81 @@ To run only the local checks without contacting the VM:
 .\deploy\deploy_vm.ps1 -PreflightOnly
 ```
 
+### Deployment backup retention
+
+The broker prunes `/var/lib/polypbase/deployment-backups` itself, as
+`polypbase_backup`, and only after a backup was written and verified. A failed
+backup deletes nothing. Each run prunes only the category it just wrote:
+
+- nightly: keep the 14 most recent, plus the most recent nightly of each ISO
+  week (UTC) for the last 8 weeks, meaning the current week and the 7 before it;
+- pre-deploy: keep the 10 most recent.
+
+Everything else in that category is deleted. Times come from the UTC timestamp in
+the name, never from the modification time. The broker considers only regular
+files owned by `polypbase_backup` whose names exactly match
+`nightly-<YYYYMMDDTHHMMSSZ>.dump` or `pre-<8 lowercase hex>-<YYYYMMDDTHHMMSSZ>.dump`.
+Older name formats, links, directories, and files of other owners are never
+touched. If the backup just written is not the newest of its category (a clock
+anomaly or a concurrent backup), it deletes nothing.
+
+A pruning failure prints `RETENTION_ERROR` and keeps the backup just written.
+Broker exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Backup verified; retention done, or failed during a pre-deploy run. |
+| `1` | `BACKUP_ERROR`: no verified backup; nothing was deleted. |
+| `3` | Nightly run only: backup verified and kept, retention failed. |
+
+A pre-deploy retention failure never fails the backup or the deployment. A
+nightly one fails `polypbase-backup.service` with status 3, so `OnFailure=`
+alerting can report it; check the `RETENTION` lines in the journal.
+
+Preview the plan without deleting anything. Root runs it as the backup account;
+the broker refuses root itself. It needs no database access and writes no backup.
+
+```bash
+runuser -u polypbase_backup -- /usr/local/libexec/polypbase-deployment-backup --retention-dry-run
+```
+
+The output has one `RETENTION keep` or `RETENTION would-delete` line per managed
+file, each with its reason, then a `RETENTION_DRY_RUN kept=<n> would_delete=<n>`
+summary. Unmanaged entries are only counted.
+
+Every real run logs each kept and deleted file with its reason, then
+`RETENTION_OK kept=<n> deleted=<n>`, on stderr. The release runner's stdout
+contract (`BACKUP_OK <path>`) is unchanged. Nightly decisions are in the journal,
+and pre-deploy decisions are in that release's log under `/srv/polypbase/deployments`:
+
+```bash
+journalctl -u polypbase-backup.service --since -30d -o cat --no-pager | grep -E '^RETENTION'
+grep -h '^RETENTION' /srv/polypbase/deployments/deploy-*.log
+```
+
+The broker is installed by root, so retention reaches the VM only when root
+installs it from a reviewed, root-controlled snapshot. On a VM that has not had
+the [cutover](#one-time-root-cutover-for-backup-approval), it ships through
+cutover step 2. For a later broker update after the cutover (explicit production
+approval required), reuse the step 1 definitions and
+`stop_timer_and_wait_for_backup`, save the current broker, install the new one,
+preview, then restart the timer:
+
+```bash
+stop_timer_and_wait_for_backup || exit 1
+saved=$(mktemp -d)
+cp -p -- "$broker" "$saved/"
+install -o root -g root -m 0755 deploy/scripts/trusted_deployment_backup.py "$broker"
+runuser -u polypbase_backup -- "$broker" --retention-dry-run
+systemctl start "$timer"
+```
+
+Review the plan before restarting the timer; to roll back, reinstall
+`$saved/polypbase-deployment-backup` the same way. The broker is not part of the
+SHA-256-pinned helper bundle, so the JSON stays unchanged. The systemd unit is
+unchanged: `ProtectSystem=full` leaves `/var/lib` writable, and the account
+already owns the archive directory.
+
 ### One-time root cutover for backup approval
 
 Run only after explicit production approval, as root in Bash from an independently
@@ -281,7 +356,9 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    A failed wait aborts the step before any file changes. Keep the path of the
    root-only rollback directory. Save only the broker and unit files, not
    the JSON or anything containing credentials. Install the new broker first:
-   the old one still requires `approved_commit` and a SHA argument.
+   the old one still requires `approved_commit` and a SHA argument. This broker
+   applies [retention](#deployment-backup-retention) after every backup from
+   step 4 on. Review its dry-run plan, which deletes nothing, before going on.
 
    ```bash
    stop_timer_and_wait_for_backup || exit 1
@@ -290,6 +367,7 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    cp -p -- "$broker" "$fragment" "$dropins/10-isolated-broker.conf" \
      "$dropins/20-current-release.conf" "$saved/"
    install -o root -g root -m 0755 deploy/scripts/trusted_deployment_backup.py "$broker"
+   runuser -u polypbase_backup -- "$broker" --retention-dry-run
    ```
 
 3. Remove just `approved_commit` from the JSON with a root editor that leaves
@@ -319,7 +397,9 @@ settings, peer mapping, sudo rule, archive directory, and timer schedule unchang
    owned by `polypbase_backup`. The web account must not be able to read the
    archive or the config. Then check the deploy-time sudo call with a reviewed
    full SHA (a second backup, not a deployment). Start the timer again only
-   after both checks succeed.
+   after both checks succeed. If `systemctl start` fails and
+   `systemctl show "$unit" -p ExecMainStatus` reports `3`, the backup was kept
+   but retention failed: stop and review the `RETENTION` journal lines.
 
    ```bash
    started=$(date '+%Y-%m-%d %H:%M:%S')
@@ -383,7 +463,11 @@ sudo rule to request backups only with the approved SHA. Afterward it can
 request backups with any valid SHA or no label. Labels do not prove that a
 release or the timer initiated a backup. Repeated requests can consume database,
 CPU, or disk capacity; the old check did not prevent repeat requests for an
-approved SHA. This change adds no throttling and does not change retention.
+approved SHA. This change adds no throttling. With retention, repeated requests
+can also push older archives of one category out of the recent keep counts.
+Weekly nightly archives from earlier weeks survive, because new requests only
+add archives to the current week. The web identity can also run the read-only
+dry run, which reveals archive names but no content.
 
 The web identity still cannot select the database, credentials, helpers, or
 output directory. The sudo rule, pinned helper checks, isolated OS identity,
