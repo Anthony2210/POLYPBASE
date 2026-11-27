@@ -82,6 +82,8 @@ by that account whose names exactly match NIGHTLY_NAME or PRE_DEPLOY_NAME are
 considered; other names, links and directories are never touched. Keep counts are
 KEEP_NIGHTLY, KEEP_WEEKLY_WEEKS and KEEP_PRE_DEPLOY. The single argument
 --retention-dry-run prints the plan for both categories and deletes nothing.
+A retention failure keeps the backup and prints RETENTION_ERROR; a pre-deploy
+run still exits 0, a nightly run exits RETENTION_FAILED_EXIT.
 No application code/settings, app venv, or caller environment is used. Archives
 remain private; BACKUP_OK is an attestation, not permission for web to read them.
 """
@@ -111,6 +113,8 @@ SAFE_ENV = {
     "PYTHON_DOTENV_DISABLED": "1",
 }
 DRY_RUN_FLAG = "--retention-dry-run"
+# Nightly only: the verified backup was kept but pruning failed (1 = no backup).
+RETENTION_FAILED_EXIT = 3
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 NIGHTLY_NAME = re.compile(r"nightly-([0-9]{8}T[0-9]{6}Z)\.dump")
 PRE_DEPLOY_NAME = re.compile(r"pre-[0-9a-f]{8}-([0-9]{8}T[0-9]{6}Z)\.dump")
@@ -439,8 +443,11 @@ def main():
             log=lambda line: print(line, file=sys.stderr),
         )
     except Exception:
-        # The backup stays valid; a pruning problem must not block a deploy.
+        # The backup stays valid. A pruning problem never blocks a deploy, but
+        # fails the nightly unit so OnFailure alerting can report it.
         print("RETENTION_ERROR retention refused or failed", file=sys.stderr)
+        if label == "nightly":
+            return RETENTION_FAILED_EXIT
     return 0
 
 

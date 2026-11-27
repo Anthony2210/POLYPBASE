@@ -436,25 +436,74 @@ class MainTests(unittest.TestCase):
         self.assertEqual(len(present), 19)
         self.assertIn("RETENTION_OK kept=19 deleted=69", self.stderr.getvalue())
 
-    def test_retention_error_keeps_the_backup_success(self):
-        archive = self.directory / nightly(at("2026-11-27T02:40"))
+    def run_refused_retention(self, args, written, future):
+        """Back up `written` while a future-dated name makes retention refuse."""
+        (self.directory / future).write_bytes(b"fixture")
+        before = set(os.listdir(self.directory)) | {written}
+
+        def backup(*arguments):
+            (self.directory / written).write_bytes(b"fixture")
+            print("BACKUP_OK " + str(self.directory / written))
+            return self.directory / written
+
         with ExitStack() as stack:
-            self.patches(stack, [])
+            self.patches(stack, args)
             stack.enter_context(
                 patch.object(broker, "load_control", return_value=({}, {}))
             )
-            stack.enter_context(
-                patch.object(broker, "run_backup", return_value=archive)
-            )
-            stack.enter_context(
-                patch.object(
-                    broker, "apply_retention", side_effect=OSError("secret-fixture")
-                )
-            )
-            self.assertEqual(broker.main(), 0)
+            stack.enter_context(patch.object(broker, "run_backup", side_effect=backup))
+            code = broker.main()
+        self.assertEqual(set(os.listdir(self.directory)), before)
         self.assertEqual(
-            self.stderr.getvalue(), "RETENTION_ERROR retention refused or failed\n"
+            self.stdout.getvalue(), f"BACKUP_OK {self.directory / written}\n"
         )
+        self.assertTrue(
+            self.stderr.getvalue().endswith(
+                "RETENTION_ERROR retention refused or failed\n"
+            )
+        )
+        return code
+
+    def test_nightly_retention_error_fails_the_unit_but_keeps_the_backup(self):
+        code = self.run_refused_retention(
+            [], nightly(at("2026-11-27T02:40")), nightly(at("2030-01-01T00:00"))
+        )
+        self.assertEqual(code, broker.RETENTION_FAILED_EXIT)
+        self.assertNotIn(code, (0, 1))
+
+    def test_pre_deploy_retention_error_never_fails_the_backup(self):
+        code = self.run_refused_retention(
+            ["abcdef01" * 5],
+            pre("abcdef01", at("2026-11-27T10:00")),
+            pre("01234567", at("2030-01-01T00:00")),
+        )
+        self.assertEqual(code, 0)
+
+    def test_retention_error_hides_details_for_both_labels(self):
+        for args, written, expected in (
+            ([], nightly(at("2026-11-27T02:40")), broker.RETENTION_FAILED_EXIT),
+            (["a" * 40], pre("aaaaaaaa", at("2026-11-27T10:00")), 0),
+        ):
+            with self.subTest(args=args), ExitStack() as stack:
+                self.patches(stack, args)
+                stack.enter_context(
+                    patch.object(broker, "load_control", return_value=({}, {}))
+                )
+                stack.enter_context(
+                    patch.object(
+                        broker, "run_backup", return_value=self.directory / written
+                    )
+                )
+                stack.enter_context(
+                    patch.object(
+                        broker, "apply_retention", side_effect=OSError("secret-fixture")
+                    )
+                )
+                self.assertEqual(broker.main(), expected)
+                self.assertEqual(
+                    self.stderr.getvalue(),
+                    "RETENTION_ERROR retention refused or failed\n",
+                )
 
     def test_dry_run_flag_needs_no_control_and_deletes_nothing(self):
         with ExitStack() as stack:
