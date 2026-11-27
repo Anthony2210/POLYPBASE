@@ -53,7 +53,9 @@ service, Nginx, and health-check safeguards.
   deployment backup broker running as the separate `polypbase_backup` OS account.
   The release passes the full target commit as a filename label only. Verify the
   pinned helper hashes through the operator procedure. The nightly service calls
-  the broker without a commit. For legacy VM configuration, follow the
+  the broker without a commit. After each verified backup the broker applies its
+  [retention](../../../docs/operations/deployment-operations.md#deployment-backup-retention).
+  For legacy VM configuration, follow the
   [one-time root cutover](../../../docs/operations/deployment-operations.md#one-time-root-cutover-for-backup-approval)
   under separate explicit approval. Never grant the web identity access to broker
   credentials or archives.
