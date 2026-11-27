@@ -24,7 +24,12 @@ export function validatedChanges(previous, current) {
         errors.push(`${label}: previously validated value was removed`);
         continue;
       }
-      if (after.statuses[language].status !== 'ai') {
+      const status = after.statuses?.[language];
+      if (!status) {
+        errors.push(
+          `${label}: changed validated value has no status record; set it to ai`,
+        );
+      } else if (status.status !== 'ai') {
         errors.push(`${label}: changed validated value must be set to ai`);
       }
     }

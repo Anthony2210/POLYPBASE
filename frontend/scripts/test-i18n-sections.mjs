@@ -413,6 +413,17 @@ test('changed validated targets must move to ai even if their source hash is fre
   );
 });
 
+test('changing a validated value without a status record reports a clear error', () => {
+  const base = inventory();
+  const current = inventory({ ...values, en: 'Tea {x}' });
+  const entry = current.entries.get('coffee');
+  delete entry.statuses.en;
+
+  assert.deepEqual(validatedChanges(base, current), [
+    `${entry.path}:${entry.line}: coffee.en: changed validated value has no status record; set it to ai`,
+  ]);
+});
+
 test('removals are detected by key and language, permitting removal of unvalidated values', () => {
   const base = inventory();
   const noJapanese = { fr: values.fr, en: values.en };
