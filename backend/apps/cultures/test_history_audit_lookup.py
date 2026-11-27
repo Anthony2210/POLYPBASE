@@ -296,10 +296,8 @@ class HistoryAuditLookupTests(TestCase):
             for index in indexes:
                 cursor.execute(f"DROP INDEX {connection.ops.quote_name(index.name)}")
         try:
-            before_numeric = self.old_numeric().order_by("pk").explain()
-            before_projection = (
-                self.old_projection().order_by("created_at", "pk").explain()
-            )
+            self.old_numeric().order_by("pk").explain()
+            self.old_projection().order_by("created_at", "pk").explain()
             old_rows = list(self.old_projection().order_by("created_at", "pk"))
             self.assertEqual(len(old_rows), 4)
             self.assertEqual(self.old_numeric().count(), 1)
@@ -342,17 +340,3 @@ class HistoryAuditLookupTests(TestCase):
             or a.metadata.get("box_id", self.box.pk) == self.box.pk
         ]
         self.assertEqual((numeric.count(), len(new_rows), len(retained)), (1, 4, 3))
-        print(
-            "\nFIX2 synthetic: total=4004; before/after numeric=1, projection=4, retained=3"
-        )
-        print(
-            "BEFORE numeric:\n",
-            before_numeric,
-            "\nBEFORE projection:\n",
-            before_projection,
-        )
-        print("AFTER numeric SQL:", numeric.query.sql_with_params())
-        print("AFTER projection SQL:", projection.query.sql_with_params())
-        print(
-            "AFTER numeric:\n", after_numeric, "\nAFTER projection:\n", after_projection
-        )
