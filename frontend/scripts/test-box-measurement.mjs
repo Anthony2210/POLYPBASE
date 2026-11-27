@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
-import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 import ts from 'typescript';
 import { appHarness, functionNode } from './app-operation-test-harness.mjs';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 for (const [input, expected] of [
   ['0', 0],
@@ -93,18 +93,27 @@ test('biological salinity input permits the backend two-decimal precision indepe
   );
 });
 
-const source = readFileSync(
-  new URL('../src/utils/boxMeasurement.ts', import.meta.url),
-  'utf8',
-);
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: {
-    module: ts.ModuleKind.CommonJS,
-    target: ts.ScriptTarget.ES2022,
-  },
+function loadUtility(name, dependencies = {}) {
+  const source = readFileSync(
+    new URL(`../src/utils/${name}.ts`, import.meta.url),
+    'utf8',
+  );
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  });
+  const exports = {};
+  vm.runInNewContext(outputText, {
+    exports,
+    require: (path) => dependencies[path],
+  });
+  return exports;
+}
+const exports = loadUtility('boxMeasurement', {
+  './dateFormat': loadUtility('dateFormat'),
 });
-const exports = {};
-vm.runInNewContext(outputText, { exports });
 
 function measurement(overrides = {}) {
   return {
@@ -283,11 +292,11 @@ test('measurement workflow uses PATCH for weekly corrections and locks server-de
   assert.match(appSource, /disabled=\{isMeasurementFormLocked\}/);
   assert.match(
     appSource,
-    /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/,
+    /isDisabled=\{\s*isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\s*\}/,
   );
   assert.match(
     appSource,
-    /const canShowMeasurementForm = measurementEditorMode === 'create'\s*\|\| \(isMeasurementEditorOpen && Boolean\(editingMeasurement\?\.can_edit\)\);/s,
+    /const canShowMeasurementForm =\s*measurementEditorMode === 'create'\s*\|\|\s*\(isMeasurementEditorOpen && Boolean\(editingMeasurement\?\.can_edit\)\);/s,
   );
   assert.match(
     appSource,
@@ -305,7 +314,7 @@ test('weekly measurement defaults to one compact server-authorized summary', () 
   );
   assert.match(
     appSource,
-    /const showWeeklyMeasurementSummary = Boolean\(weeklyMeasurement\)\s*&& \(!isMeasurementEditorOpen \|\| !editingMeasurement\?\.can_edit\);/s,
+    /const showWeeklyMeasurementSummary =\s*Boolean\(weeklyMeasurement\)\s*&&\s*\(!isMeasurementEditorOpen \|\| !editingMeasurement\?\.can_edit\);/s,
   );
   assert.match(
     appSource,
@@ -337,7 +346,7 @@ test('weekly measurement defaults to one compact server-authorized summary', () 
   assert.match(summarySource, /onClick=\{openWeeklyMeasurementEditor\}/);
   assert.match(
     summarySource,
-    /weeklyMeasurement\.edit_restriction === 'edit_window_expired'/,
+    /weeklyMeasurement\.edit_restriction ===\s*'edit_window_expired'/,
   );
   assert.doesNotMatch(summarySource, /className="measurement-edit-button"/);
   assert.doesNotMatch(summarySource, /Date\.now|profile|userHas/);
@@ -415,13 +424,14 @@ test('Box uses shared localized back controls with a non-desktop normal-page esc
   );
   assert.match(
     appSource,
-    /\{!isDesktopApp \? <DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/> : null\}/,
+    /\{!isDesktopApp \?\s*\(\s*<DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/>\s*\)\s*: null\}/,
   );
   const controlSource = readSource('../src/components/DetailBackButton.tsx');
   assert.match(controlSource, /aria-label=\{label\}/);
   assert.match(controlSource, /title=\{label\}/);
-  assert.equal(loadI18n().translations.fr.back, 'Retour');
-  assert.equal(loadI18n().translations.en.back, 'Back');
+  const { fr, en } = loadI18n().translations;
+  assert.equal(fr.back, 'Retour');
+  assert.equal(en.back, 'Back');
 });
 
 test('measurement summary and editor are mutually exclusive states of one anchored module', () => {
@@ -430,7 +440,7 @@ test('measurement summary and editor are mutually exclusive states of one anchor
 
   assert.match(
     appSource,
-    /const isMeasurementEditorExpanded = Boolean\(weeklyMeasurement\)\s*&& isMeasurementEditorOpen\s*&& Boolean\(editingMeasurement\?\.can_edit\);/s,
+    /const isMeasurementEditorExpanded =\s*Boolean\(weeklyMeasurement\)\s*&&\s*isMeasurementEditorOpen\s*&&\s*Boolean\(editingMeasurement\?\.can_edit\);/s,
   );
   assert.match(
     appSource,
@@ -553,16 +563,16 @@ test('an unchanged weekly measurement cannot be saved again', () => {
   );
   assert.match(
     appSource,
-    /const isMeasurementDraftUnchanged = persistedMeasurementPayload != null && draftMeasurementPayload != null\s*&& isMeasurementPayloadUnchanged\(persistedMeasurementPayload, draftMeasurementPayload\);/s,
+    /const isMeasurementDraftUnchanged =\s*persistedMeasurementPayload != null\s*&&\s*draftMeasurementPayload != null\s*&&\s*isMeasurementPayloadUnchanged\(\s*persistedMeasurementPayload,\s*draftMeasurementPayload,?\s*\);/s,
   );
   assert.match(
     appSource,
-    /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\) return false;/,
+    /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\)\s*return false;/,
   );
   assert.match(appSource, /const payload = buildMeasurementPayload\(form\);/);
   assert.match(
     appSource,
-    /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/,
+    /isDisabled=\{\s*isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\s*\}/,
   );
   assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
 });
