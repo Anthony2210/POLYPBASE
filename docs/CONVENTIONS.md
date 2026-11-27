@@ -184,7 +184,7 @@ into `main`. Once approved and checks pass, use a merge commit, not squash or
 rebase merge. Follow the [PR template](../.github/pull_request_template.md):
 include a summary, why, tests actually run and their results, and risks. Put
 unchecked items under **Not verified** and specific questions or manual checks
-for Anthony under **To confirm by Anthony**. Use `None` when a section does not
+for the product owner under **To confirm**. Use `None` when a section does not
 apply. For UI changes, attach 1–3 before/after screenshots using demo-only data
 to the PR; never commit the images.
 

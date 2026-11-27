@@ -24,9 +24,9 @@
 
 <!-- List skipped or unverified checks and why, or write None. -->
 
-## To confirm by Anthony
+## To confirm
 
-<!-- List specific decisions or manual checks for Anthony, or write None. -->
+<!-- List specific decisions or manual checks for the product owner, or write None. -->
 
 ## UI screenshots
 

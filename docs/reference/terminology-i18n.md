@@ -2,7 +2,7 @@
 
 Read this reference when working on any user-visible text, i18n, translation, or domain term. The i18n mechanisms (`frontend/src/i18n/` catalogues, FR/EN parity, `CONTENT_LANGUAGES`) are in [`frontend-ux.md`](frontend.md).
 
-Sources: product decisions approved by Anthony and historical translations from the “Traduction Polypbase” workbook, archived outside the repository. The terminology rules below are the reference for new development. Changes actually applied to the application are tracked in docs/translation-review/application/register.csv. Earlier cleanup proposals are not decisions that can be applied automatically.
+Sources: product decisions approved by the product owner and historical translations from the “Traduction Polypbase” workbook, archived outside the repository. The terminology rules below are the reference for new development. Changes actually applied to the application are tracked in docs/translation-review/application/register.csv. Earlier cleanup proposals are not decisions that can be applied automatically.
 
 ## A. Confirmed product vocabulary
 
@@ -41,7 +41,7 @@ Examples:
 
 ## B. Approved translations to preserve
 
-- **Japanese**: Takeru personally approved the 1,384 JA translations marked “Fait.” Never overwrite, normalize, retranslate, or automatically “align” them, even to apply a term or rule from section A. Any Japanese adaptation requiring new wording remains unresolved until explicitly approved and is never applied automatically. Japanese is a partially supported interface language: only approved translations that are still compatible with current FR/EN are displayed; the other keys display English (manifest and Takeru review: [`../translation-review/japanese/`](../archive/2026-11-traductions/provenance-japonaise.md)). Japanese also remains a separate content language (`CONTENT_LANGUAGES`). Explicit exception, limited to the 2026-11-04 batch: 59 new React keys absent from the workbook use an independent AI review, tracked as `AI_REVIEWED` / `ja_ai_reviewed` in the manifest. They are neither human-approved nor validated by Takeru, do not replace any historical Japanese translations, and do not resolve any deferred questions. See the contract and locked sources in the Japanese provenance note linked above.
+- **Japanese**: The Japanese reviewer personally approved the 1,384 JA translations marked “Fait.” Never overwrite, normalize, retranslate, or automatically “align” them, even to apply a term or rule from section A. Any Japanese adaptation requiring new wording remains unresolved until explicitly approved and is never applied automatically. Japanese is a partially supported interface language: only approved translations that are still compatible with current FR/EN are displayed; the other keys display English (manifest and the Japanese reviewer's review: [`../translation-review/japanese/`](../archive/2026-11-traductions/provenance-japonaise.md)). Japanese also remains a separate content language (`CONTENT_LANGUAGES`). Explicit exception, limited to the 2026-11-04 batch: 59 new React keys absent from the workbook use an independent AI review, tracked as `AI_REVIEWED` / `ja_ai_reviewed` in the manifest. They are neither human-approved nor validated by the Japanese reviewer, do not replace any historical Japanese translations, and do not resolve any deferred questions. See the contract and locked sources in the Japanese provenance note linked above.
 - **G36 glossary**: Lecteurs / Read-only mode / 閲覧専用 stays as is.
 - **Statuses**: never modify a “Fait” approval or a Correction cell. A Correction is a reviewer comment, not an approved value.
 - **Reference Japanese values**, already approved: 容器 (box), 測定記録 (biological record), 測定値 (measurement), 移植 (transplant), 機関 (institution as an entity), 系統 (strain), 系譜 (lineage), 設置場所 (location), 現在の設置場所 (current location), 設置期間 (location period). Citing them does not reopen them for review.
@@ -60,13 +60,13 @@ Examples:
 
 The current values `Provenance not established` and `Needs review` are preserved by the register (T019/T022, then T764/T763) and protected in `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` and `To be checked` reflect the historical worksheet, not a decision to replace the wording in the application. Any alignment requires a new explicit decision.
 
-Application catalogues are never automatically rewritten from the historical workbook. Discrepancies identified during cleanup are kept in private archives outside the repository. Decisions and changes actually reviewed in the application are tracked in docs/translation-review/application/register.csv. Unresolved discrepancies must not be corrected automatically. adminZoneTypeCabinet was aligned with Emplacement / Rack in the application by Anthony's explicit decision (2026-10-28).
+Application catalogues are never automatically rewritten from the historical workbook. Discrepancies identified during cleanup are kept in private archives outside the repository. Decisions and changes actually reviewed in the application are tracked in docs/translation-review/application/register.csv. Unresolved discrepancies must not be corrected automatically. adminZoneTypeCabinet was aligned with Emplacement / Rack in the application by the product owner's explicit decision (2026-10-28).
 
 Every change to FR/EN application text, or decision not to change it, is tracked in `docs/translation-review/application/register.csv` and checked by `check_register.py` (see the README in that directory).
 
 ## D. Unresolved language choices
 
-Do not treat these as normative. Reuse the current approved value and raise the question with Anthony.
+Do not treat these as normative. Reuse the current approved value and raise the question with the product owner.
 
 - English wording still proposed in `translation_review_queue.csv` (status other than `confirmed_product_decision`): none is approved.
 - Japanese adaptations requiring new wording: movement provenance, 継代 / 移植 on an audit key, 機関 / 所属機関, the term for transfers between institutions, 撤去 for the end of a period, last known location, JA terms for Appartenance and Accès, and the request to contact an administrator in Django's transplant denial message.
@@ -82,7 +82,7 @@ The overall audit of visible permission-denial messages (frontend and Django mes
 
 1. Look up the key, the code that displays it, and the domain context ([domain reference](../INDEX.md)). The FR word alone is not enough.
 2. Reuse a term from section A or B if it covers exactly that meaning.
-3. Otherwise, do not invent product or scientific terminology: ask Anthony. New Japanese wording remains unresolved.
+3. Otherwise, do not invent product or scientific terminology: ask the product owner. New Japanese wording remains unresolved.
 4. Add all new user-visible text in FR and EN to the catalogues, preserve variables (`{zone}`, `{count}`, etc.), and do not use the middle dot.
 5. For the shared workbook: always identify a row by its exact key, never by row number; never restore a deleted key or deduplicate based on matching text.
 
