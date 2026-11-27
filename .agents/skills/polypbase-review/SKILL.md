@@ -14,7 +14,7 @@ pushes, or GitHub comments unless the user asks.
 1. With a PR number, run `gh pr view <n> --json title,body,baseRefName,headRefName,files`,
    `gh pr diff <n>`, and `gh pr checks <n>`. Otherwise review the current branch
    against `git merge-base origin/main HEAD`.
-2. Read the PR description: its steps, "Not verified", and "To confirm by Anthony".
+2. Read the PR description: its steps, "Not verified", and "To confirm".
 3. Read [AGENTS.md](../../../AGENTS.md), then only the pages of
    [docs/INDEX.md](../../../docs/INDEX.md) that cover the touched domains.
 4. Exclude lockfiles, generated files, and the `.claude/skills/` mirror, and say so.
@@ -62,7 +62,7 @@ pushes, or GitHub comments unless the user asks.
 Each finding gives `file:line`, the problem, a concrete failure scenario, and the
 direction of a fix. Report at most three pre-existing issues, separately. Do not
 invent a business rule: when the right behavior depends on a product decision,
-put it under "To confirm by Anthony". Never pad: an empty severity is "None".
+put it under "To confirm". Never pad: an empty severity is "None".
 
 ## Report
 
@@ -75,7 +75,7 @@ Medium: ...
 Low: ...
 Pre-existing: ...
 Not verified: ...
-To confirm by Anthony: ...
+To confirm: ...
 ```
 
 Stop after the report.
