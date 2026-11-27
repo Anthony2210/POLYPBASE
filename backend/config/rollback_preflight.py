@@ -41,7 +41,10 @@ REVERSE_GUARDS = {
     ("measurements", "0019_box_creation_initial_origin"): "refuse_populated_rollback",
     ("taxonomy", "0013_institutionstraincreationrequest"): "refuse_receipt_loss",
     ("taxonomy", "0014_speciescodechangerequest"): "refuse_receipt_loss",
-    ("taxonomy", "0015_provenance_country_acquisition_types"): "refuse_populated_rollback",
+    (
+        "taxonomy",
+        "0015_provenance_country_acquisition_types",
+    ): "refuse_populated_rollback",
 }
 # Same key as apps.cultures.box_codes.lock_local_id_registry.
 REGISTRY_LOCK = (192837, 19)
@@ -80,12 +83,16 @@ def preflight_rollback_plan(*, plan, apps, using):
     connection = connections[using]
     if connection.vendor == "postgresql" and using not in _held:
         if connection.in_atomic_block:
-            raise IrreversibleError("A protected rollback must not run inside an outer transaction.")
+            raise IrreversibleError(
+                "A protected rollback must not run inside an outer transaction."
+            )
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", REGISTRY_LOCK)
             acquired = cursor.fetchone()[0]
         if not acquired:
-            raise IrreversibleError("Identity writers are active. Stop the application before this rollback.")
+            raise IrreversibleError(
+                "Identity writers are active. Stop the application before this rollback."
+            )
         _held.add(using)
     try:
         with transaction.atomic(using=using):
@@ -96,15 +103,21 @@ def preflight_rollback_plan(*, plan, apps, using):
     except DatabaseError as error:
         release_registry_lock(using)
         cause = error.__cause__
-        if (getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)) == "55P03":
-            raise IrreversibleError("Protected tables are in use. Stop the application before this rollback.") from error
+        if (
+            getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)
+        ) == "55P03":
+            raise IrreversibleError(
+                "Protected tables are in use. Stop the application before this rollback."
+            ) from error
         raise
     except BaseException:
         release_registry_lock(using)
         raise
 
 
-def refuse_lossy_rollback_plan(sender, *, plan=None, apps=None, using="default", **kwargs):
+def refuse_lossy_rollback_plan(
+    sender, *, plan=None, apps=None, using="default", **kwargs
+):
     preflight_rollback_plan(plan=plan, apps=apps, using=using)
 
 
