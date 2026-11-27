@@ -5,7 +5,7 @@ locks. Run only against a disposable local cluster (see
 `config.test_settings` with POLYPBASE_TEST_POSTGRES=1), never a shared one.
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, timedelta
 import json
 import threading
@@ -24,13 +24,19 @@ from apps.measurements.models import BiologicalMeasurement
 from . import services
 from .models import BoxReaderShare, BoxReaderShareCapture
 from .services import SharingError
-from .sharing_testing import OBSERVATION_SELECTORS, SHARING_SETTINGS, build_world, last_token
+from .sharing_testing import (
+    OBSERVATION_SELECTORS,
+    SHARING_SETTINGS,
+    build_world,
+    last_token,
+)
 
 WAIT = 20
 
 
 def _in_thread(function):
     """Run in a worker with its own connection; return a value or a SharingError code."""
+
     def run():
         try:
             return ("ok", function())
@@ -38,10 +44,13 @@ def _in_thread(function):
             return ("refused", error.code)
         finally:
             connections.close_all()
+
     return run
 
 
-@skipUnless(connection.vendor == "postgresql", "Requires PostgreSQL snapshots and row locks.")
+@skipUnless(
+    connection.vendor == "postgresql", "Requires PostgreSQL snapshots and row locks."
+)
 @override_settings(**SHARING_SETTINGS)
 class PostgresSharingConcurrencyTests(TransactionTestCase):
     def setUp(self):
@@ -52,9 +61,14 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
     def create(self, *, actor=None, mode="live", **overrides):
         now = timezone.now()
         arguments = {
-            "actor": actor or self.w.admin, "organization": self.w.source, "box_id": self.w.box.pk,
-            "recipient_email": self.w.recipient.email, "mode": mode, "selectors": OBSERVATION_SELECTORS,
-            "invitation_expires_at": now + timedelta(days=2), "access_expires_at": now + timedelta(days=30),
+            "actor": actor or self.w.admin,
+            "organization": self.w.source,
+            "box_id": self.w.box.pk,
+            "recipient_email": self.w.recipient.email,
+            "mode": mode,
+            "selectors": OBSERVATION_SELECTORS,
+            "invitation_expires_at": now + timedelta(days=2),
+            "access_expires_at": now + timedelta(days=30),
         }
         arguments.update(overrides)
         return services.create_share(**arguments)
@@ -78,16 +92,27 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             assert release.wait(WAIT)
             return original(source, box, disclosure)
 
-        with patch.object(scientific_projection, "_observation_rows", side_effect=paused_rows):
+        with patch.object(
+            scientific_projection, "_observation_rows", side_effect=paused_rows
+        ):
             future = self.pool.submit(_in_thread(lambda: self.create(mode="frozen").pk))
             self.assertTrue(reached.wait(WAIT))
             # Committed writes that leave the Box row itself untouched, so the
             # capture is not refused and its reads can be compared.
-            BiologicalMeasurement.objects.filter(pk=self.w.zero.pk).update(polyp_count=41)
-            BiologicalMeasurement.objects.bulk_create([BiologicalMeasurement(
-                box=self.w.box, measured_on=date(2026, 5, 6), week_start=date(2026, 5, 4),
-                polyp_count=8, ephyrae_count=2,
-            )])
+            BiologicalMeasurement.objects.filter(pk=self.w.zero.pk).update(
+                polyp_count=41
+            )
+            BiologicalMeasurement.objects.bulk_create(
+                [
+                    BiologicalMeasurement(
+                        box=self.w.box,
+                        measured_on=date(2026, 5, 6),
+                        week_start=date(2026, 5, 4),
+                        polyp_count=8,
+                        ephyrae_count=2,
+                    )
+                ]
+            )
             release.set()
             outcome = future.result(WAIT)
         self.assertEqual(outcome[0], "ok", outcome)
@@ -99,9 +124,13 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         observations = self.observations(capture)
         # The state at the start of the capture: one observation, uncorrected.
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0]["values"]["polyp_count"], {"state": "value", "value": 0})
+        self.assertEqual(
+            observations[0]["values"]["polyp_count"], {"state": "value", "value": 0}
+        )
         # The source really changed meanwhile.
-        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.w.box).count(), 2)
+        self.assertEqual(
+            BiologicalMeasurement.objects.filter(box=self.w.box).count(), 2
+        )
 
     def test_measurement_entry_during_a_capture_refuses_the_capture(self):
         """The ordinary write path bumps the Box row: the capture fails closed."""
@@ -113,17 +142,27 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             assert release.wait(WAIT)
             return original(source, box, disclosure)
 
-        with patch.object(scientific_projection, "_observation_rows", side_effect=paused_rows):
+        with patch.object(
+            scientific_projection, "_observation_rows", side_effect=paused_rows
+        ):
             future = self.pool.submit(_in_thread(lambda: self.create(mode="frozen").pk))
             self.assertTrue(reached.wait(WAIT))
             BiologicalMeasurement.objects.create(
-                box=self.w.box, measured_on=date(2026, 5, 6), polyp_count=8, ephyrae_count=2,
+                box=self.w.box,
+                measured_on=date(2026, 5, 6),
+                polyp_count=8,
+                ephyrae_count=2,
             )
             release.set()
             outcome = future.result(WAIT)
         self.assertEqual(outcome, ("refused", "concurrent_source_change"))
-        self.assertEqual((BoxReaderShare.objects.count(), BoxReaderShareCapture.objects.count()), (0, 0))
-        self.assertFalse(AuditLog.objects.filter(object_type="box_reader_share").exists())
+        self.assertEqual(
+            (BoxReaderShare.objects.count(), BoxReaderShareCapture.objects.count()),
+            (0, 0),
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(object_type="box_reader_share").exists()
+        )
         self.assertEqual(len(mail.outbox), 0)
 
     def test_control_without_the_snapshot_guarantee_the_same_race_mixes_states(self):
@@ -163,21 +202,34 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
 
         def recapture():
             return services.update_share(
-                actor=self.w.admin, organization=self.w.source, share_id=share.pk, expected_policy_revision=1,
-                selectors=["source.institution_name"], confirm_recapture=True,
+                actor=self.w.admin,
+                organization=self.w.source,
+                share_id=share.pk,
+                expected_policy_revision=1,
+                selectors=["source.institution_name"],
+                confirm_recapture=True,
             ).policy_revision
 
         with patch.object(services, "_locked_source", side_effect=paused_source):
             future = self.pool.submit(_in_thread(recapture))
             self.assertTrue(reached.wait(WAIT))
-            BoxReaderShare.objects.filter(pk=share.pk).update(access_expires_at=timezone.now() + timedelta(days=10))
+            BoxReaderShare.objects.filter(pk=share.pk).update(
+                access_expires_at=timezone.now() + timedelta(days=10)
+            )
             release.set()
             outcome = future.result(WAIT)
         self.assertEqual(outcome, ("refused", "concurrent_source_change"))
         stored = BoxReaderShare.objects.get(pk=share.pk)
-        self.assertEqual((stored.policy_revision, stored.selectors), (1, sorted(OBSERVATION_SELECTORS)))
+        self.assertEqual(
+            (stored.policy_revision, stored.selectors),
+            (1, sorted(OBSERVATION_SELECTORS)),
+        )
         self.assertEqual(BoxReaderShareCapture.objects.count(), 1)
-        self.assertFalse(AuditLog.objects.filter(description="Box reader share policy updated").exists())
+        self.assertFalse(
+            AuditLog.objects.filter(
+                description="Box reader share policy updated"
+            ).exists()
+        )
 
     # Invitation and grant races ----------------------------------------------
 
@@ -188,6 +240,7 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             def run():
                 barrier.wait(WAIT)
                 return function()
+
             return _in_thread(run)
 
         futures = [self.pool.submit(synchronized(function)) for function in functions]
@@ -197,28 +250,56 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         for _round in range(5):
             share = self.create()
             token = last_token()
-            accept = lambda: services.accept_invitation(user=self.w.recipient, token=token)["id"]  # noqa: E731
+            accept = lambda: services.accept_invitation(  # noqa: E731
+                user=self.w.recipient, token=token
+            )["id"]
             outcomes = sorted(self._race(accept, accept, accept))
-            self.assertEqual(outcomes, [("ok", str(share.public_id)), ("refused", "invitation_unavailable"),
-                                        ("refused", "invitation_unavailable")])
             self.assertEqual(
-                AuditLog.objects.filter(description="Box reader share invitation accepted", object_id=str(share.public_id)).count(), 1,
+                outcomes,
+                [
+                    ("ok", str(share.public_id)),
+                    ("refused", "invitation_unavailable"),
+                    ("refused", "invitation_unavailable"),
+                ],
             )
-            services.revoke_share(actor=self.w.admin, organization=self.w.source, share_id=share.pk)
+            self.assertEqual(
+                AuditLog.objects.filter(
+                    description="Box reader share invitation accepted",
+                    object_id=str(share.public_id),
+                ).count(),
+                1,
+            )
+            services.revoke_share(
+                actor=self.w.admin, organization=self.w.source, share_id=share.pk
+            )
 
     def test_simultaneous_creation_leaves_one_open_share(self):
         for mode in ("live", "frozen"):
             with self.subTest(mode=mode):
-                outcomes = sorted(self._race(
-                    lambda: self.create(mode=mode).pk,
-                    lambda: self.create(mode=mode, actor=self.w.second_admin).pk,
-                ), key=lambda item: item[0])
-                self.assertEqual([item[0] for item in outcomes], ["ok", "refused"], outcomes)
+                outcomes = sorted(
+                    self._race(
+                        lambda: self.create(mode=mode).pk,
+                        lambda: self.create(mode=mode, actor=self.w.second_admin).pk,
+                    ),
+                    key=lambda item: item[0],
+                )
+                self.assertEqual(
+                    [item[0] for item in outcomes], ["ok", "refused"], outcomes
+                )
                 self.assertEqual(outcomes[1][1], "share_already_exists")
                 open_shares = BoxReaderShare.objects.filter(revoked_at__isnull=True)
                 self.assertEqual(open_shares.count(), 1)
-                self.assertEqual(BoxReaderShareCapture.objects.filter(share__revoked_at__isnull=True).count(), int(mode == "frozen"))
-                services.revoke_share(actor=self.w.admin, organization=self.w.source, share_id=open_shares.get().pk)
+                self.assertEqual(
+                    BoxReaderShareCapture.objects.filter(
+                        share__revoked_at__isnull=True
+                    ).count(),
+                    int(mode == "frozen"),
+                )
+                services.revoke_share(
+                    actor=self.w.admin,
+                    organization=self.w.source,
+                    share_id=open_shares.get().pk,
+                )
 
     def test_simultaneous_policy_changes_have_one_winner(self):
         for mode in ("live", "frozen"):
@@ -226,24 +307,40 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
                 share = self.create(mode=mode)
 
                 def change(selectors, actor):
-                    return lambda: services.update_share(
-                        actor=actor, organization=self.w.source, share_id=share.pk, expected_policy_revision=1,
-                        selectors=selectors, confirm_recapture=True,
-                    ).selectors
+                    return lambda: (
+                        services.update_share(
+                            actor=actor,
+                            organization=self.w.source,
+                            share_id=share.pk,
+                            expected_policy_revision=1,
+                            selectors=selectors,
+                            confirm_recapture=True,
+                        ).selectors
+                    )
 
                 first = ["source.institution_name"]
                 second = ["source.institution_name", "observation.time"]
-                outcomes = self._race(change(first, self.w.admin), change(second, self.w.second_admin))
+                outcomes = self._race(
+                    change(first, self.w.admin), change(second, self.w.second_admin)
+                )
                 winners = [item for item in outcomes if item[0] == "ok"]
                 losers = [item for item in outcomes if item[0] == "refused"]
                 self.assertEqual((len(winners), len(losers)), (1, 1), outcomes)
-                self.assertIn(losers[0][1], ("policy_revision_conflict", "concurrent_source_change"))
-                stored = BoxReaderShare.objects.get(pk=share.pk)
-                self.assertEqual((stored.policy_revision, stored.selectors), (2, winners[0][1]))
-                self.assertEqual(
-                    BoxReaderShareCapture.objects.filter(share=share).count(), 2 if mode == "frozen" else 0,
+                self.assertIn(
+                    losers[0][1],
+                    ("policy_revision_conflict", "concurrent_source_change"),
                 )
-                services.revoke_share(actor=self.w.admin, organization=self.w.source, share_id=share.pk)
+                stored = BoxReaderShare.objects.get(pk=share.pk)
+                self.assertEqual(
+                    (stored.policy_revision, stored.selectors), (2, winners[0][1])
+                )
+                self.assertEqual(
+                    BoxReaderShareCapture.objects.filter(share=share).count(),
+                    2 if mode == "frozen" else 0,
+                )
+                services.revoke_share(
+                    actor=self.w.admin, organization=self.w.source, share_id=share.pk
+                )
 
     def _paused_audit(self, description):
         """Pause one transaction after its row lock, just before it commits."""
@@ -259,22 +356,47 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         return patch.object(services, "_audit", side_effect=paused), reached, release
 
     def assert_blocked(self, future):
-        with self.assertRaises(Exception):
+        # A worker waiting on a row lock leaves the future pending, so only the
+        # futures timeout is expected; any other error must surface unchanged.
+        with self.assertRaises(TimeoutError):
             future.result(0.7)
         self.assertFalse(future.done())
+
+    def test_assert_blocked_surfaces_an_unrelated_error(self):
+        """A worker that fails for another reason must not read as a blocked lock."""
+
+        def unrelated_failure():
+            raise RuntimeError("unrelated failure")
+
+        future = self.pool.submit(_in_thread(unrelated_failure))
+        self.assertIsInstance(future.exception(WAIT), RuntimeError)
+        with self.assertRaises(RuntimeError):
+            self.assert_blocked(future)
 
     def test_revocation_committing_first_defeats_a_waiting_acceptance(self):
         share = self.create()
         token = last_token()
         patcher, reached, release = self._paused_audit("Box reader share revoked")
         with patcher:
-            revoke = self.pool.submit(_in_thread(lambda: services.revoke_share(
-                actor=self.w.admin, organization=self.w.source, share_id=share.pk,
-            ).pk))
+            revoke = self.pool.submit(
+                _in_thread(
+                    lambda: (
+                        services.revoke_share(
+                            actor=self.w.admin,
+                            organization=self.w.source,
+                            share_id=share.pk,
+                        ).pk
+                    )
+                )
+            )
             self.assertTrue(reached.wait(WAIT))
-            accept = self.pool.submit(_in_thread(
-                lambda: services.accept_invitation(user=self.w.recipient, token=token)["id"],
-            ))
+            accept = self.pool.submit(
+                _in_thread(
+                    lambda: services.accept_invitation(
+                        user=self.w.recipient, token=token
+                    )["id"],
+                )
+            )
             self.assert_blocked(accept)  # waits on the share row lock
             release.set()
             self.assertEqual(revoke.result(WAIT)[0], "ok")
@@ -287,15 +409,29 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
     def test_acceptance_committing_first_is_then_revoked(self):
         share = self.create()
         token = last_token()
-        patcher, reached, release = self._paused_audit("Box reader share invitation accepted")
+        patcher, reached, release = self._paused_audit(
+            "Box reader share invitation accepted"
+        )
         with patcher:
-            accept = self.pool.submit(_in_thread(
-                lambda: services.accept_invitation(user=self.w.recipient, token=token)["id"],
-            ))
+            accept = self.pool.submit(
+                _in_thread(
+                    lambda: services.accept_invitation(
+                        user=self.w.recipient, token=token
+                    )["id"],
+                )
+            )
             self.assertTrue(reached.wait(WAIT))
-            revoke = self.pool.submit(_in_thread(lambda: services.revoke_share(
-                actor=self.w.admin, organization=self.w.source, share_id=share.pk,
-            ).pk))
+            revoke = self.pool.submit(
+                _in_thread(
+                    lambda: (
+                        services.revoke_share(
+                            actor=self.w.admin,
+                            organization=self.w.source,
+                            share_id=share.pk,
+                        ).pk
+                    )
+                )
+            )
             self.assert_blocked(revoke)
             release.set()
             self.assertEqual(accept.result(WAIT), ("ok", str(share.public_id)))
@@ -307,23 +443,40 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         with self.assertRaises(SharingError) as raised:
             services.read_shared_box(user=self.w.recipient, public_id=share.public_id)
         self.assertEqual(raised.exception.code, "share_revoked")
-        self.assertFalse(AuditLog.objects.filter(action="view", object_type="box_reader_share").exists())
+        self.assertFalse(
+            AuditLog.objects.filter(
+                action="view", object_type="box_reader_share"
+            ).exists()
+        )
 
     def test_acceptance_racing_revocation_never_leaves_a_readable_grant(self):
         for _round in range(8):
             share = self.create()
             token = last_token()
             outcomes = self._race(
-                lambda: services.accept_invitation(user=self.w.recipient, token=token)["id"],
-                lambda: services.revoke_share(actor=self.w.admin, organization=self.w.source, share_id=share.pk).pk,
+                lambda: services.accept_invitation(user=self.w.recipient, token=token)[
+                    "id"
+                ],
+                lambda: (
+                    services.revoke_share(
+                        actor=self.w.admin,
+                        organization=self.w.source,
+                        share_id=share.pk,
+                    ).pk
+                ),
             )
             self.assertEqual(outcomes[1][0], "ok")
-            self.assertIn(outcomes[0], [("ok", str(share.public_id)), ("refused", "invitation_unavailable")])
+            self.assertIn(
+                outcomes[0],
+                [("ok", str(share.public_id)), ("refused", "invitation_unavailable")],
+            )
             stored = BoxReaderShare.objects.get(pk=share.pk)
             self.assertIsNotNone(stored.revoked_at)
             self.assertIsNone(stored.invitation_token_hash)
             with self.assertRaises(SharingError) as raised:
-                services.read_shared_box(user=self.w.recipient, public_id=share.public_id)
+                services.read_shared_box(
+                    user=self.w.recipient, public_id=share.public_id
+                )
             self.assertIn(raised.exception.code, ("share_revoked", "share_not_found"))
 
     def test_membership_change_waits_for_a_share_mutation_holding_the_institution(self):
@@ -340,11 +493,21 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             return True
 
         with patcher:
-            revoke = self.pool.submit(_in_thread(lambda: services.revoke_share(
-                actor=self.w.admin, organization=self.w.source, share_id=share.pk,
-            ).pk))
+            revoke = self.pool.submit(
+                _in_thread(
+                    lambda: (
+                        services.revoke_share(
+                            actor=self.w.admin,
+                            organization=self.w.source,
+                            share_id=share.pk,
+                        ).pk
+                    )
+                )
+            )
             self.assertTrue(reached.wait(WAIT))
-            membership_change = self.pool.submit(_in_thread(lock_institution_like_a_membership_change))
+            membership_change = self.pool.submit(
+                _in_thread(lock_institution_like_a_membership_change)
+            )
             self.assert_blocked(membership_change)
             release.set()
             self.assertEqual(revoke.result(WAIT)[0], "ok")
@@ -373,10 +536,14 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             seen["visible_generation"] = share.invitation_generation
             # Neither the institution nor the share row is locked.
             with transaction.atomic():
-                Organization.objects.select_for_update(nowait=True).get(pk=self.w.source.pk)
+                Organization.objects.select_for_update(nowait=True).get(
+                    pk=self.w.source.pk
+                )
                 BoxReaderShare.objects.select_for_update(nowait=True).get(pk=share.pk)
             # A management mutation completes without waiting for SMTP.
-            services.revoke_share(actor=self.w.admin, organization=self.w.source, share_id=share.pk)
+            services.revoke_share(
+                actor=self.w.admin, organization=self.w.source, share_id=share.pk
+            )
             release.set()
             seen["outcome"] = future.result(WAIT)
         return seen, share
@@ -394,16 +561,24 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
     def test_no_transaction_or_lock_is_held_while_smtp_runs_on_frozen_creation(self):
         seen, share = self._slow_smtp(lambda: self.create(mode="frozen").pk)
         self.assertFalse(seen["in_atomic_block"])
-        self.assertEqual(BoxReaderShareCapture.objects.filter(share_id=share.pk).count(), 1)
-        self.assertEqual(BoxReaderShare.objects.get(pk=share.pk).delivery_status, "pending")
+        self.assertEqual(
+            BoxReaderShareCapture.objects.filter(share_id=share.pk).count(), 1
+        )
+        self.assertEqual(
+            BoxReaderShare.objects.get(pk=share.pk).delivery_status, "pending"
+        )
 
     def test_no_transaction_or_lock_is_held_while_smtp_runs_on_reissue(self):
         share = self.create()
-        self.assertEqual(BoxReaderShare.objects.get(pk=share.pk).delivery_status, "sent")
+        self.assertEqual(
+            BoxReaderShare.objects.get(pk=share.pk).delivery_status, "sent"
+        )
 
         def reissue():
             return services.reissue_invitation(
-                actor=self.w.admin, organization=self.w.source, share_id=share.pk,
+                actor=self.w.admin,
+                organization=self.w.source,
+                share_id=share.pk,
                 invitation_expires_at=timezone.now() + timedelta(days=3),
             ).pk
 
@@ -411,7 +586,9 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         self.assertFalse(seen["in_atomic_block"])
         self.assertEqual(seen["visible_generation"], 2)
         stored = BoxReaderShare.objects.get(pk=share.pk)
-        self.assertEqual((stored.invitation_generation, stored.delivery_status), (2, "pending"))
+        self.assertEqual(
+            (stored.invitation_generation, stored.delivery_status), (2, "pending")
+        )
         self.assertIsNotNone(stored.revoked_at)
 
     def test_email_is_sent_only_after_the_creation_commit(self):
@@ -420,7 +597,9 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
         def inspecting_send(*args, **kwargs):
             seen["in_atomic_block"] = connection.in_atomic_block
             seen["rows"] = BoxReaderShare.objects.count()
-            seen["audits"] = AuditLog.objects.filter(description="Box reader share created").count()
+            seen["audits"] = AuditLog.objects.filter(
+                description="Box reader share created"
+            ).count()
             return 1
 
         with patch.object(services, "send_mail", side_effect=inspecting_send):
@@ -435,8 +614,10 @@ class PostgresSharingConcurrencyTests(TransactionTestCase):
             if description == "Box reader share created":
                 raise RuntimeError("fail before commit")
 
-        with patch.object(services, "_audit", side_effect=failing_audit), \
-                patch.object(services, "send_mail") as send:
+        with (
+            patch.object(services, "_audit", side_effect=failing_audit),
+            patch.object(services, "send_mail") as send,
+        ):
             with self.assertRaises(RuntimeError):
                 self.create()
         send.assert_not_called()
