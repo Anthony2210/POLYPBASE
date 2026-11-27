@@ -18,8 +18,15 @@ class PathTests(unittest.TestCase):
             b"docs/operations/example.md": set(),
             b"frontend/src/example.ts": {"frontend"},
             b"docs/translation-review/japanese/manifest.csv": {"frontend"},
-            b"docs/translation-review/application/register.csv": {"frontend", "backend"},
-            b"backend/apps/example.py": {"backend", "backend_postgres", "deploy_scripts"},
+            b"docs/translation-review/application/register.csv": {
+                "frontend",
+                "backend",
+            },
+            b"backend/apps/example.py": {
+                "backend",
+                "backend_postgres",
+                "deploy_scripts",
+            },
             b"uv.lock": {"backend", "backend_postgres", "deploy_scripts"},
             b"scripts/run_backend_postgres_ci.py": {"backend", "backend_postgres"},
             b"deploy/deploy_vm.ps1": {"deploy_scripts"},
@@ -38,14 +45,21 @@ class EventTests(unittest.TestCase):
             "GITHUB_SHA": HEAD,
             "PR_BASE_SHA": BASE,
             "PR_HEAD_SHA": PR_HEAD,
-
         }
 
     def test_pr_uses_verified_merge_result(self):
         parents = f"{HEAD} {BASE} {PR_HEAD}\n".encode()
-        with patch.object(ci_changes, "git", side_effect=[HEAD.encode(), parents, b"frontend/\xff\nfile\0deploy/old\0"]) as git:
-            self.assertEqual(ci_changes.select_checks(self.env), {"frontend", "deploy_scripts"})
-        self.assertEqual(git.call_args_list[1].args, ("rev-list", "--parents", "-n", "1", HEAD))
+        with patch.object(
+            ci_changes,
+            "git",
+            side_effect=[HEAD.encode(), parents, b"frontend/\xff\nfile\0deploy/old\0"],
+        ) as git:
+            self.assertEqual(
+                ci_changes.select_checks(self.env), {"frontend", "deploy_scripts"}
+            )
+        self.assertEqual(
+            git.call_args_list[1].args, ("rev-list", "--parents", "-n", "1", HEAD)
+        )
         args = git.call_args.args
         self.assertIn("-z", args)
         self.assertIn("--no-renames", args)
@@ -53,28 +67,45 @@ class EventTests(unittest.TestCase):
 
     def test_main_push_selects_all_checks_without_a_diff(self):
         env = self.env | {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main"}
-        with patch.object(ci_changes, "changed_paths", return_value=[b"docs/example.md"]) as diff:
+        with patch.object(
+            ci_changes, "changed_paths", return_value=[b"docs/example.md"]
+        ) as diff:
             self.assertEqual(ci_changes.select_checks(env), set(ci_changes.CHECKS))
         diff.assert_not_called()
 
     def test_dispatch_needs_no_git(self):
         with patch.object(ci_changes, "git") as git:
-            self.assertEqual(ci_changes.select_checks({"GITHUB_EVENT_NAME": "workflow_dispatch"}), set(ci_changes.CHECKS))
+            self.assertEqual(
+                ci_changes.select_checks({"GITHUB_EVENT_NAME": "workflow_dispatch"}),
+                set(ci_changes.CHECKS),
+            )
         git.assert_not_called()
 
     def test_unverified_comparisons_run_all_checks(self):
         cases = (
-
             ({"PR_BASE_SHA": "--bad-option"}, [HEAD.encode()]),
             ({}, [BASE.encode()]),
             ({}, [HEAD.encode(), f"{HEAD} {PR_HEAD} {BASE}".encode()]),
-            ({}, [HEAD.encode(), f"{HEAD} {BASE} {PR_HEAD}".encode(), subprocess.CalledProcessError(128, "git diff")]),
+            (
+                {},
+                [
+                    HEAD.encode(),
+                    f"{HEAD} {BASE} {PR_HEAD}".encode(),
+                    subprocess.CalledProcessError(128, "git diff"),
+                ],
+            ),
             ({}, [subprocess.TimeoutExpired("git rev-parse", 60)]),
         )
         for overrides, replies in cases:
-            with self.subTest(overrides=overrides, replies=replies), contextlib.redirect_stderr(io.StringIO()):
+            with (
+                self.subTest(overrides=overrides, replies=replies),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
                 with patch.object(ci_changes, "git", side_effect=replies):
-                    self.assertEqual(ci_changes.select_checks(self.env | overrides), set(ci_changes.CHECKS))
+                    self.assertEqual(
+                        ci_changes.select_checks(self.env | overrides),
+                        set(ci_changes.CHECKS),
+                    )
 
 
 if __name__ == "__main__":
