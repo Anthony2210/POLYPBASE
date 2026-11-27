@@ -17,10 +17,12 @@ class PathTests(unittest.TestCase):
         cases = {
             b"docs/operations/example.md": set(),
             b"frontend/src/example.ts": {"frontend"},
-            b"docs/translation-review/japanese/manifest.csv": {"frontend"},
-            b"docs/translation-review/application/register.csv": {
-                "frontend",
+            b"frontend/src/i18n/sections/example.ts": {"frontend"},
+            b"frontend/src/i18n/status/example.json": {"frontend"},
+            b"backend/locale/coverage-exception-evidence.csv": {
                 "backend",
+                "backend_postgres",
+                "deploy_scripts",
             },
             b"backend/apps/example.py": {
                 "backend",

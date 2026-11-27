@@ -147,6 +147,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The i18n guard in test:all compares against the origin/main merge base.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -211,18 +213,15 @@ jobs:
         working-directory: .
         run: uv run --frozen python -B scripts/compile_django_messages.py --check
 
-      - name: Check backend i18n coverage and translation history
+      - name: Check backend i18n coverage
         working-directory: .
-        run: |
-          uv run --frozen python -B docs/translation-review/application/check_register.py
-          uv run --frozen python -B scripts/check_i18n.py
+        run: uv run --frozen python -B scripts/check_i18n.py
 
-      - name: Test i18n tooling and register regressions
+      - name: Test backend i18n tooling
         working-directory: .
         run: |
           uv run --frozen python -B -m unittest discover -s scripts -p test_compile_django_messages.py
           uv run --frozen python -B -m unittest discover -s scripts -p test_check_i18n.py
-          uv run --frozen python -B -m unittest discover -s docs/translation-review/application -p "test_*.py"
 
       - name: Check Django configuration
         run: >-

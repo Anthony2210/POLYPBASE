@@ -16,10 +16,8 @@ def classify(paths):
     for path in paths:
         if path.startswith(b".github/workflows/") or path == b".gitattributes":
             return set(CHECKS)
-        if path.startswith((b"frontend/", b"docs/translation-review/")):
+        if path.startswith(b"frontend/"):
             selected.add("frontend")
-        if path.startswith(b"docs/translation-review/application/"):
-            selected.add("backend")
         if path == b"scripts/pr_tools.ps1":
             selected.add("deploy_scripts")
         elif path.startswith(b"scripts/"):
