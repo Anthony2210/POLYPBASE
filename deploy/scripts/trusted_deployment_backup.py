@@ -75,11 +75,19 @@ installer. No general-purpose sudo python, shell, editor or env permission.
 
 Root reviews and pins the installed helper bytes independently of app releases.
 Legacy approved_commit entries are ignored.
+
+Retention: after a verified backup, the broker prunes archives of the same
+category (nightly or pre-deploy) as the backup account. Only regular files owned
+by that account whose names exactly match NIGHTLY_NAME or PRE_DEPLOY_NAME are
+considered; other names, links and directories are never touched. Keep counts are
+KEEP_NIGHTLY, KEEP_WEEKLY_WEEKS and KEEP_PRE_DEPLOY. The single argument
+--retention-dry-run prints the plan for both categories and deletes nothing.
 No application code/settings, app venv, or caller environment is used. Archives
 remain private; BACKUP_OK is an attestation, not permission for web to read them.
 """
 
 import contextlib
+import datetime
 import hashlib
 import io
 import json
@@ -102,6 +110,15 @@ SAFE_ENV = {
     "LANG": "C.UTF-8",
     "PYTHON_DOTENV_DISABLED": "1",
 }
+DRY_RUN_FLAG = "--retention-dry-run"
+TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
+NIGHTLY_NAME = re.compile(r"nightly-([0-9]{8}T[0-9]{6}Z)\.dump")
+PRE_DEPLOY_NAME = re.compile(r"pre-[0-9a-f]{8}-([0-9]{8}T[0-9]{6}Z)\.dump")
+CATEGORIES = {"nightly": NIGHTLY_NAME, "pre-deploy": PRE_DEPLOY_NAME}
+KEEP_NIGHTLY = 14
+KEEP_WEEKLY_WEEKS = 8
+KEEP_PRE_DEPLOY = 10
+KEEP_RECENT = {"nightly": KEEP_NIGHTLY, "pre-deploy": KEEP_PRE_DEPLOY}
 
 
 def backup_identity():
@@ -226,6 +243,144 @@ def run_backup(label, database, sources):
     ):
         raise ValueError("Unsafe backup result.")
     print("BACKUP_OK " + str(archive))
+    return archive
+
+
+def classify_backup(name):
+    """Return (category, UTC time taken from the name) for a managed name, else None."""
+    for category, pattern in CATEGORIES.items():
+        match = pattern.fullmatch(name)
+        if match is None:
+            continue
+        try:
+            moment = datetime.datetime.strptime(match[1], TIMESTAMP_FORMAT)
+        except ValueError:
+            return None
+        # Accept only the canonical spelling the backup helper writes.
+        if moment.strftime(TIMESTAMP_FORMAT) != match[1]:
+            return None
+        return category, moment.replace(tzinfo=datetime.UTC)
+    return None
+
+
+def plan_retention(names, *, now, categories=tuple(CATEGORIES), just_written=None):
+    """Return sorted (name, keep, reason) decisions for managed names in categories.
+
+    Pure: nothing is read from disk. The weekly window is the UTC ISO week that
+    contains now plus the KEEP_WEEKLY_WEEKS - 1 weeks before it.
+    """
+    backups = {category: [] for category in categories}
+    for name in set(names):
+        classified = classify_backup(name)
+        if classified is not None and classified[0] in backups:
+            backups[classified[0]].append((classified[1], name))
+    for entries in backups.values():
+        entries.sort(reverse=True)
+    if just_written is not None:
+        classified = classify_backup(just_written)
+        entries = backups.get(classified[0] if classified else None)
+        # Missing, or not the newest name: a clock anomaly or a race, so stop.
+        if not entries or entries[0] != (classified[1], just_written):
+            raise ValueError(
+                "The just-written backup is not the newest of its category."
+            )
+    reasons = {} if just_written is None else {just_written: ["just written"]}
+    for category, entries in backups.items():
+        keep = KEEP_RECENT[category]
+        for _, name in entries[:keep]:
+            reasons.setdefault(name, []).append(
+                f"{category}: one of the {keep} most recent"
+            )
+    monday = now.date() - datetime.timedelta(days=now.weekday())
+    start = monday - datetime.timedelta(weeks=KEEP_WEEKLY_WEEKS - 1)
+    weeks = set()
+    for moment, name in backups.get("nightly", ()):
+        week = moment.isocalendar()[:2]
+        if moment.date() >= start and week not in weeks:
+            weeks.add(week)
+            reasons.setdefault(name, []).append(
+                f"nightly: newest of ISO week {week[0]}-W{week[1]:02d}"
+            )
+    decisions = []
+    for category, entries in backups.items():
+        if sum(name in reasons for _, name in entries) < min(
+            KEEP_RECENT[category], len(entries)
+        ):
+            raise ValueError("Retention plan would go below a keep count.")
+        for _, name in entries:
+            reason = "; ".join(reasons.get(name, ()))
+            decisions.append(
+                (name, bool(reason), reason or f"{category}: no keep rule")
+            )
+    return sorted(decisions)
+
+
+def scan_backups(directory, owner, log):
+    """Return {name: (st_dev, st_ino)} for managed regular files owned by owner."""
+    found, unmanaged = {}, 0
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            if classify_backup(entry.name) is None:
+                unmanaged += 1
+                continue
+            info = (directory / entry.name).lstat()
+            if stat.S_ISREG(info.st_mode) and info.st_uid == owner:
+                found[entry.name] = (info.st_dev, info.st_ino)
+            else:
+                log(
+                    f"RETENTION ignore {entry.name} (not a regular file of the backup account)"
+                )
+    if unmanaged:
+        log(f"RETENTION ignore {unmanaged} entries with unmanaged names")
+    return found
+
+
+def apply_retention(
+    directory, owner, *, now, just_written=None, dry_run=False, log=print
+):
+    """Log every decision, then unlink planned files one exact path at a time.
+
+    With just_written, only its category is pruned. Returns the deleted names.
+    """
+    found = scan_backups(directory, owner, log)
+    categories = tuple(CATEGORIES)
+    if just_written is not None:
+        classified = classify_backup(just_written)
+        if classified is None:
+            raise ValueError("Unmanaged just-written backup name.")
+        categories = (classified[0],)
+    decisions = plan_retention(
+        found, now=now, categories=categories, just_written=just_written
+    )
+    deleted = []
+    for name, keep, reason in decisions:
+        if keep:
+            log(f"RETENTION keep {name} ({reason})")
+        elif dry_run:
+            log(f"RETENTION would-delete {name} ({reason})")
+        else:
+            path = directory / name
+            try:
+                info = path.lstat()
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != owner
+                    or (info.st_dev, info.st_ino) != found[name]
+                ):
+                    log(f"RETENTION skip {name} (changed since the scan)")
+                    continue
+                path.unlink()
+            except FileNotFoundError:
+                log(f"RETENTION skip {name} (already removed)")
+                continue
+            deleted.append(name)
+            log(f"RETENTION delete {name} ({reason})")
+    kept = sum(keep for _, keep, _ in decisions)
+    if dry_run:
+        log(f"RETENTION_DRY_RUN kept={kept} would_delete={len(decisions) - kept}")
+    else:
+        log(f"RETENTION_OK kept={kept} deleted={len(deleted)}")
+    return deleted
 
 
 def main():
@@ -234,8 +389,9 @@ def main():
             raise ValueError(
                 "Isolated launcher with at most one commit label required."
             )
+        dry_run = sys.argv[1:] == [DRY_RUN_FLAG]
         label = "nightly"
-        if len(sys.argv) == 2:
+        if len(sys.argv) == 2 and not dry_run:
             commit = sys.argv[1]
             if re.fullmatch("[0-9a-f]{40}", commit) is None:
                 raise ValueError("Expected a full lowercase commit label.")
@@ -254,18 +410,44 @@ def main():
         os.environ.update(SAFE_ENV)
         os.umask(0o077)
         os.chdir("/")
+        if dry_run:
+            require_output(identity)
+            apply_retention(
+                OUTPUT,
+                identity.pw_uid,
+                now=datetime.datetime.now(datetime.UTC),
+                dry_run=True,
+            )
+            return 0
         database, sources = load_control()
-        info = require_path(OUTPUT, directory=True, owner=identity.pw_uid)
-        if stat.S_IMODE(info.st_mode) != 0o700:
-            raise ValueError("Private backup directory required.")
-        run_backup(label, database, sources)
+        require_output(identity)
+        archive = run_backup(label, database, sources)
     except Exception:
         # Never expose credentials, connection errors, or application data.
         print(
             "BACKUP_ERROR trusted deployment backup refused or failed", file=sys.stderr
         )
         return 1
+    # Reached only after a verified backup. Stdout stays the single BACKUP_OK line
+    # the deploy runner parses, so retention logs go to stderr (the journal).
+    try:
+        apply_retention(
+            OUTPUT,
+            identity.pw_uid,
+            now=classify_backup(archive.name)[1],
+            just_written=archive.name,
+            log=lambda line: print(line, file=sys.stderr),
+        )
+    except Exception:
+        # The backup stays valid; a pruning problem must not block a deploy.
+        print("RETENTION_ERROR retention refused or failed", file=sys.stderr)
     return 0
+
+
+def require_output(identity):
+    info = require_path(OUTPUT, directory=True, owner=identity.pw_uid)
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        raise ValueError("Private backup directory required.")
 
 
 if __name__ == "__main__":
