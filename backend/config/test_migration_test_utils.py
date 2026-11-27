@@ -8,7 +8,11 @@ from django.db.migrations.executor import MigrationExecutor as DjangoMigrationEx
 from django.db.migrations.loader import MigrationLoader
 from django.test import SimpleTestCase
 
-from .migration_test_utils import BOX_1902_CAPABILITY, MigrationExecutor, historical_targets
+from .migration_test_utils import (
+    BOX_1902_CAPABILITY,
+    MigrationExecutor,
+    historical_targets,
+)
 
 
 class HistoricalTargetsTests(SimpleTestCase):
@@ -21,8 +25,12 @@ class HistoricalTargetsTests(SimpleTestCase):
             ("organizations", "0001_initial"),
         ]
         for targets in (historical, historical[::-1]):
-            with self.subTest(targets=targets), self.assertRaisesRegex(
-                ValueError, r"organizations\.0001_initial.*organizations\.0002_organization_portable_id"
+            with (
+                self.subTest(targets=targets),
+                self.assertRaisesRegex(
+                    ValueError,
+                    r"organizations\.0001_initial.*organizations\.0002_organization_portable_id",
+                ),
             ):
                 historical_targets(self.loader, {"cultures", "organizations"}, targets)
 
@@ -32,11 +40,17 @@ class HistoricalTargetsTests(SimpleTestCase):
         self.assertNotIn(required, self.loader.graph.node_map[cultures].parents)
         self.assertIn(required, self.loader.graph.forwards_plan(cultures))
         with self.assertRaisesRegex(
-            ValueError, r"taxonomy\.0008_strain_canonical_global_identity.*taxonomy\.0009_localstrainnumbercounter"
+            ValueError,
+            r"taxonomy\.0008_strain_canonical_global_identity.*taxonomy\.0009_localstrainnumbercounter",
         ):
-            historical_targets(self.loader, {"cultures", "taxonomy"}, [
-                cultures, ("taxonomy", "0008_strain_canonical_global_identity"),
-            ])
+            historical_targets(
+                self.loader,
+                {"cultures", "taxonomy"},
+                [
+                    cultures,
+                    ("taxonomy", "0008_strain_canonical_global_identity"),
+                ],
+            )
 
     def test_compatible_multi_app_dependencies_are_accepted(self):
         historical = [
@@ -44,24 +58,40 @@ class HistoricalTargetsTests(SimpleTestCase):
             ("organizations", "0002_organization_portable_id"),
             ("taxonomy", "0009_localstrainnumbercounter"),
         ]
-        targets = historical_targets(self.loader, {node[0] for node in historical}, historical)
+        targets = historical_targets(
+            self.loader, {node[0] for node in historical}, historical
+        )
         self.assertTrue(set(historical) <= set(targets))
         self.assertIn(("sharing", "0001_initial"), targets)
 
     def test_0018_excludes_both_integrated_branches(self):
         before = ("cultures", "0018_historicalboxmovement")
         targets = historical_targets(self.loader, {"cultures"}, [before])
-        closure = {node for target in targets for node in self.loader.graph.forwards_plan(target)}
+        closure = {
+            node
+            for target in targets
+            for node in self.loader.graph.forwards_plan(target)
+        }
         self.assertEqual(
             {node for node in closure if node[0] == "cultures"},
-            {node for node in self.loader.graph.forwards_plan(before) if node[0] == "cultures"},
+            {
+                node
+                for node in self.loader.graph.forwards_plan(before)
+                if node[0] == "cultures"
+            },
         )
         for name in (
-            "0019_box_dna_validation", "0019_history_revision_storage",
-            "0020_history_revision_guards", "0021_merge_dna_and_history",
-            "0019_global_box_identity", "0020_box_donation_proposal", "0022_box_global_identity",
-            "0023_box_local_id_alias", "0024_merge_donation_and_local_identity",
-            "0024_local_id_guard_search_path", "0025_merge_local_id_hardening_and_donations",
+            "0019_box_dna_validation",
+            "0019_history_revision_storage",
+            "0020_history_revision_guards",
+            "0021_merge_dna_and_history",
+            "0019_global_box_identity",
+            "0020_box_donation_proposal",
+            "0022_box_global_identity",
+            "0023_box_local_id_alias",
+            "0024_merge_donation_and_local_identity",
+            "0024_local_id_guard_search_path",
+            "0025_merge_local_id_hardening_and_donations",
         ):
             self.assertNotIn(("cultures", name), closure)
         self.assertEqual(
@@ -78,7 +108,9 @@ class HistoricalTargetsTests(SimpleTestCase):
         }
         migration = self.loader.graph.nodes[joined]
         self.assertEqual(set(migration.dependencies), parents)
-        self.assertEqual({node.key for node in self.loader.graph.node_map[joined].parents}, parents)
+        self.assertEqual(
+            {node.key for node in self.loader.graph.node_map[joined].parents}, parents
+        )
         self.assertEqual(migration.operations, [])
         self.assertTrue(parents <= set(self.loader.graph.forwards_plan(joined)))
 
@@ -87,7 +119,9 @@ class HistoricalTargetsTests(SimpleTestCase):
             ("cultures", "0009_portable_lineage"),
             ("organizations", "0002_organization_portable_id"),
         ]
-        targets = historical_targets(self.loader, {node[0] for node in historical}, historical)
+        targets = historical_targets(
+            self.loader, {node[0] for node in historical}, historical
+        )
         self.assertTrue(set(historical) <= set(targets))
         self.assertNotIn(("sharing", "0001_initial"), targets)
 
@@ -97,19 +131,31 @@ class HistoricalTargetsTests(SimpleTestCase):
         measurements_5 = ("measurements", "0005_biologicalmeasurement_week_start")
         organizations_1 = ("organizations", "0001_initial")
         organizations_2 = ("organizations", "0002_organization_portable_id")
-        taxonomy_nodes = sorted(node for node in self.loader.graph.nodes if node[0] == "taxonomy")
+        taxonomy_nodes = sorted(
+            node for node in self.loader.graph.nodes if node[0] == "taxonomy"
+        )
         cases = [
             [("cultures", "0013_box_movement_kind_week_links"), measurements_13],
             [("cultures", "0011_protect_subculture_history"), measurements_13],
             [("cultures", "0009_portable_lineage"), measurements_5],
             [organizations_1, cultures_14, measurements_13],
-            [("taxonomy", "0007_localstrainidentity_provenance_code_assignment"), cultures_14, measurements_13],
+            [
+                ("taxonomy", "0007_localstrainidentity_provenance_code_assignment"),
+                cultures_14,
+                measurements_13,
+            ],
         ]
         # Portable lineage visits both culture states and every taxonomy target.
         for cultures in ("0008_transfer_v2_source_package", "0009_portable_lineage"):
             for taxonomy in taxonomy_nodes:
-                organization = organizations_2 if taxonomy >= ("taxonomy", "0012_institution_species_foundation") else organizations_1
-                cases.append([measurements_5, ("cultures", cultures), organization, taxonomy])
+                organization = (
+                    organizations_2
+                    if taxonomy >= ("taxonomy", "0012_institution_species_foundation")
+                    else organizations_1
+                )
+                cases.append(
+                    [measurements_5, ("cultures", cultures), organization, taxonomy]
+                )
         # The three taxonomy modules exercise before/after states from 0003 to 0007.
         for taxonomy in taxonomy_nodes[2:7]:
             cases.append([cultures_14, measurements_13, taxonomy, organizations_1])
@@ -119,7 +165,11 @@ class HistoricalTargetsTests(SimpleTestCase):
                 graph = loader.graph
                 apps = {node[0] for node in historical}
                 pinned = {
-                    target[0]: {node for node in graph.forwards_plan(target) if node[0] == target[0]}
+                    target[0]: {
+                        node
+                        for node in graph.forwards_plan(target)
+                        if node[0] == target[0]
+                    }
                     for target in historical
                 }
                 expected = []
@@ -127,37 +177,55 @@ class HistoricalTargetsTests(SimpleTestCase):
                     if leaf[0] in apps:
                         continue
                     leaf_closure = set(graph.forwards_plan(leaf))
-                    if all({node for node in leaf_closure if node[0] == app} <= nodes
-                           for app, nodes in pinned.items()):
+                    if all(
+                        {node for node in leaf_closure if node[0] == app} <= nodes
+                        for app, nodes in pinned.items()
+                    ):
                         expected.append(leaf)
                 targets = historical_targets(loader, apps, historical)
                 self.assertEqual(targets, expected + historical)
                 self.assertNotIn(("sharing", "0001_initial"), targets)
                 if historical == [organizations_1, cultures_14, measurements_13]:
-                    self.assertNotIn(("taxonomy", "0015_provenance_country_acquisition_types"), targets)
-                closure = {node for target in targets for node in graph.forwards_plan(target)}
+                    self.assertNotIn(
+                        ("taxonomy", "0015_provenance_country_acquisition_types"),
+                        targets,
+                    )
+                closure = {
+                    node for target in targets for node in graph.forwards_plan(target)
+                }
                 for app, nodes in pinned.items():
-                    self.assertEqual({node for node in closure if node[0] == app}, nodes)
+                    self.assertEqual(
+                        {node for node in closure if node[0] == app}, nodes
+                    )
 
     def test_portable_lineage_rejects_new_taxonomy_with_initial_organization(self):
         for cultures in ("0008_transfer_v2_source_package", "0009_portable_lineage"):
             for taxonomy in (
-                "0012_institution_species_foundation", "0013_institutionstraincreationrequest",
-                "0014_speciescodechangerequest", "0015_provenance_country_acquisition_types",
+                "0012_institution_species_foundation",
+                "0013_institutionstraincreationrequest",
+                "0014_speciescodechangerequest",
+                "0015_provenance_country_acquisition_types",
             ):
                 historical = [
                     ("measurements", "0005_biologicalmeasurement_week_start"),
-                    ("cultures", cultures), ("organizations", "0001_initial"), ("taxonomy", taxonomy),
+                    ("cultures", cultures),
+                    ("organizations", "0001_initial"),
+                    ("taxonomy", taxonomy),
                 ]
                 for targets in (historical, historical[::-1]):
                     with self.subTest(targets=targets):
                         loader = MigrationLoader(None)
-                        self.assertIn(("organizations", "0002_organization_portable_id"),
-                                      loader.graph.forwards_plan(("taxonomy", taxonomy)))
+                        self.assertIn(
+                            ("organizations", "0002_organization_portable_id"),
+                            loader.graph.forwards_plan(("taxonomy", taxonomy)),
+                        )
                         with self.assertRaisesRegex(
-                            ValueError, r"organizations\.0001_initial.*organizations\.0002_organization_portable_id"
+                            ValueError,
+                            r"organizations\.0001_initial.*organizations\.0002_organization_portable_id",
                         ):
-                            historical_targets(loader, {node[0] for node in targets}, targets)
+                            historical_targets(
+                                loader, {node[0] for node in targets}, targets
+                            )
 
 
 class HistoricalMigrationExecutorTests(SimpleTestCase):
@@ -190,7 +258,9 @@ class HistoricalMigrationExecutorTests(SimpleTestCase):
         executor, originals = self.executor("postgresql")
         for node, migration in originals.items():
             self.assertIs(executor.loader.graph.nodes[node], migration)
-        migration = import_module("apps.measurements.migrations.0018_box_1902_preservation")
+        migration = import_module(
+            "apps.measurements.migrations.0018_box_1902_preservation"
+        )
         operation = executor.loader.graph.nodes[BOX_1902_CAPABILITY].operations[0]
         self.assertIs(operation.code, migration.forwards)
         self.assertIs(operation.reverse_code, migration.backwards)
