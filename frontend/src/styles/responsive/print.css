@@ -8,6 +8,7 @@
   .text-button,
   button:not(.print-keep),
   .no-print {
+    /* biome-ignore lint/complexity/noImportantStyles: Printer output must omit screen navigation and controls. */
     display: none !important;
   }
 
@@ -22,14 +23,18 @@
   }
 
   * {
+    /* biome-ignore lint/complexity/noImportantStyles: Do not print screen elevation styling. */
     box-shadow: none !important;
   }
 
   body:has(.qr-print-backdrop) * {
+    /* biome-ignore lint/complexity/noImportantStyles: Isolate the label from the screen workspace. */
     visibility: hidden !important;
   }
 
-  :where(.qr-label-print-sheet, .qr-label-print-sheet *) {
+  body:has(.qr-print-backdrop)
+    :where(.qr-label-print-sheet, .qr-label-print-sheet *) {
+    /* biome-ignore lint/complexity/noImportantStyles: Restore only the isolated printable label. */
     visibility: visible !important;
   }
 
@@ -42,7 +47,12 @@
     background: white;
   }
 
-  :where(.qr-label-modal-heading, .qr-label-selection-panel, .qr-label-modal-actions) {
+  :where(
+    .qr-label-modal-heading,
+    .qr-label-selection-panel,
+    .qr-label-modal-actions
+  ) {
+    /* biome-ignore lint/complexity/noImportantStyles: Hide dialog chrome in the native print path. */
     display: none !important;
   }
 
@@ -56,6 +66,11 @@
     border: 0;
     border-radius: 0;
     print-color-adjust: exact;
+  }
+
+  .qr-label-print-sheet.qr-label-print-svg {
+    padding: 0;
+    object-fit: contain;
   }
 
   .qr-label-print-sheet .qr-label__image {

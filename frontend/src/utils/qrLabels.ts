@@ -1,14 +1,21 @@
-import { ApiError, ApiResourceCancelledError, apiGetResource, getOrganizationResourceSignal } from '../api/client';
+/// <reference lib="es2022.intl" />
+
+import {
+  ApiError,
+  ApiResourceCancelledError,
+  apiGetResource,
+  getOrganizationResourceSignal,
+} from '../api/client';
 import type { BoxDetail, BoxItem } from '../types';
 
 export type QrLabelItem = {
   id: number;
   globalCode: string;
   speciesName: string;
+  strainName?: string;
   zoneName: string;
   qrImageUrl: string;
 };
-
 
 export type QrLabelFontFamily = 'arial' | 'system' | 'georgia' | 'courier';
 
@@ -22,7 +29,6 @@ export type QrLabelPrintSettings = {
   showSpecies: boolean;
 };
 
-
 // Physical printer stock: 41 mm wide x 28 mm high.
 // The QR sits at the left extremity and the code/species block is rotated 90
 // degrees in the right band. These values are shared by print, modal and SVG.
@@ -35,16 +41,16 @@ export const QR_LABEL_QR_TEXT_GAP_MM = 0.4;
 export const QR_LABEL_TEXT_GAP_MM = 0.3;
 // The rotated block is laid out at full inner-label length before rotation. Its
 // height becomes the visible width of the narrow band beside the QR.
-export const QR_LABEL_TEXT_ZONE_MM = Math.round((
-  QR_LABEL_WIDTH_MM
-  - 2 * QR_LABEL_PADDING_MM
-  - QR_LABEL_QR_SIZE_MM
-  - QR_LABEL_QR_TEXT_GAP_MM
-) * 1000) / 1000;
-export const QR_LABEL_TEXT_LINE_LENGTH_MM = Math.round((
-  QR_LABEL_HEIGHT_MM
-  - 2 * QR_LABEL_PADDING_MM
-) * 1000) / 1000;
+export const QR_LABEL_TEXT_ZONE_MM =
+  Math.round(
+    (QR_LABEL_WIDTH_MM -
+      2 * QR_LABEL_PADDING_MM -
+      QR_LABEL_QR_SIZE_MM -
+      QR_LABEL_QR_TEXT_GAP_MM) *
+      1000,
+  ) / 1000;
+export const QR_LABEL_TEXT_LINE_LENGTH_MM =
+  Math.round((QR_LABEL_HEIGHT_MM - 2 * QR_LABEL_PADDING_MM) * 1000) / 1000;
 // Two code lines and three species lines fit the 14.3 mm text band.
 export const QR_LABEL_TEXT_FONT_PT = 7.5;
 export const QR_LABEL_SPECIES_FONT_PT = 7;
@@ -59,20 +65,28 @@ export const DEFAULT_QR_LABEL_PRINT_SETTINGS: QrLabelPrintSettings = {
   showSpecies: true,
 };
 
-export function buildQrLabelItem(box: BoxItem | BoxDetail, qrImageUrl?: string): QrLabelItem {
+export function buildQrLabelItem(
+  box: BoxItem | BoxDetail,
+  qrImageUrl?: string,
+): QrLabelItem {
   return {
     id: box.id,
     globalCode: box.global_code,
     speciesName: box.species.scientific_name,
+    strainName: box.strain?.name?.trim() || undefined,
     zoneName: box.thermal_zone?.name ?? '',
     qrImageUrl: getBoxQrImageUrl(box, qrImageUrl),
   };
 }
 
-export function getBoxQrImageUrl(box: BoxItem | BoxDetail, explicitUrl?: string) {
-  const source = explicitUrl
-    || ('qr_image_url' in box && box.qr_image_url)
-    || `/boites/${box.id}/qr.svg`;
+export function getBoxQrImageUrl(
+  box: BoxItem | BoxDetail,
+  explicitUrl?: string,
+) {
+  const source =
+    explicitUrl ||
+    ('qr_image_url' in box && box.qr_image_url) ||
+    `/boites/${box.id}/qr.svg`;
 
   try {
     const url = new URL(source, window.location.origin);
@@ -94,11 +108,12 @@ export type QrLabelPreparationFailure =
   | 'qr-retrieval'
   | 'fallback-resource'
   | 'image-preparation'
-  | 'preparation';
+  | 'preparation'
+  | 'text-overflow';
 
 export type QrLabelPreparationResult =
   | { status: 'prepared' | 'cancelled' | 'empty' }
-  | { status: 'failed'; reason: QrLabelPreparationFailure };
+  | { status: 'failed'; reason: QrLabelPreparationFailure; boxCode?: string };
 
 export type QrLabelPreparationLabels = {
   qrLabelPreparing: string;
@@ -110,62 +125,102 @@ export type QrLabelPreparationLabels = {
   qrLabelRetry: string;
 };
 
-export function getQrLabelPreparationMessage(reason: QrLabelPreparationFailure, labels: QrLabelPreparationLabels) {
+export function getQrLabelPreparationMessage(
+  reason: QrLabelPreparationFailure,
+  labels: QrLabelPreparationLabels,
+) {
   switch (reason) {
-    case 'popup-blocked': return labels.qrLabelPopupBlocked;
-    case 'qr-retrieval': return labels.qrLabelQrUnavailable;
-    case 'fallback-resource': return labels.qrLabelResourceUnavailable;
-    case 'image-preparation': return labels.qrLabelImagePreparationFailed;
-    case 'preparation': return labels.qrLabelPreparationFailed;
+    case 'popup-blocked':
+      return labels.qrLabelPopupBlocked;
+    case 'qr-retrieval':
+      return labels.qrLabelQrUnavailable;
+    case 'fallback-resource':
+      return labels.qrLabelResourceUnavailable;
+    case 'image-preparation':
+      return labels.qrLabelImagePreparationFailed;
+    case 'text-overflow':
+    case 'preparation':
+      return labels.qrLabelPreparationFailed;
   }
 }
 
 const QR_PREPARATION_TIMEOUT_MS = 15000;
 
 class QrPreparationError extends Error {
-  constructor(readonly reason: QrLabelPreparationFailure) {
+  constructor(
+    readonly reason: QrLabelPreparationFailure,
+    readonly boxCode?: string,
+  ) {
     super(reason);
   }
 }
 
 function failedPreparation(error: unknown): QrLabelPreparationResult {
-  if (error instanceof ApiResourceCancelledError) return { status: 'cancelled' };
-  return { status: 'failed', reason: error instanceof QrPreparationError ? error.reason : 'preparation' };
+  if (error instanceof ApiResourceCancelledError)
+    return { status: 'cancelled' };
+  if (error instanceof QrPreparationError) {
+    return {
+      status: 'failed',
+      reason: error.reason,
+      ...(error.boxCode ? { boxCode: error.boxCode } : {}),
+    };
+  }
+  return { status: 'failed', reason: 'preparation' };
 }
 
 // Open synchronously in the click handler, before awaiting any resources.
 // A prepared result only means handoff to the browser, never printer success.
 export async function printQrLabels(
-  labels: QrLabelItem[], settings?: Partial<QrLabelPrintSettings>,
+  labels: QrLabelItem[],
+  settings?: Partial<QrLabelPrintSettings>,
 ): Promise<QrLabelPreparationResult> {
   if (!labels.length) return { status: 'empty' };
   let printWindow: Window | null = null;
   try {
     printWindow = window.open('', '_blank', 'width=980,height=720');
     if (!printWindow) return { status: 'failed', reason: 'popup-blocked' };
-    return await prepareQrPrint(labels, printWindow, normalizeQrLabelPrintSettings(settings));
+    return await prepareQrPrint(
+      labels,
+      printWindow,
+      normalizeQrLabelPrintSettings(settings),
+    );
   } catch (error) {
     // Closing the preparation window is a user cancellation, even if a resource
     // errors before the close monitor runs. Check before closing failed popups.
     if (printWindow?.closed) return { status: 'cancelled' };
     // Do not leave an empty or partial label document available for printing.
-    try { printWindow?.close(); } catch { /* The window may already be inaccessible. */ }
+    try {
+      printWindow?.close();
+    } catch {
+      /* The window may already be inaccessible. */
+    }
     return failedPreparation(error);
   }
 }
 
-export async function downloadQrLabel(label: QrLabelItem): Promise<QrLabelPreparationResult> {
+export async function downloadQrLabel(
+  label: QrLabelItem,
+): Promise<QrLabelPreparationResult> {
   const controller = new AbortController();
   const contextSignal = getOrganizationResourceSignal();
   const onContextAbort = () => controller.abort(contextSignal.reason);
   contextSignal.addEventListener('abort', onContextAbort, { once: true });
   try {
     // Downloads must remain self-contained; a remote URL is not a usable fallback.
-    const qrDataUrl = await getQrDataUrl(label.qrImageUrl, false, controller.signal, contextSignal);
+    const qrDataUrl = await getQrDataUrl(
+      label.qrImageUrl,
+      false,
+      controller.signal,
+      contextSignal,
+    );
     await prepareQrImage(qrDataUrl, 'image-preparation', controller.signal);
     controller.signal.throwIfAborted();
     const svg = buildQrLabelSvg(label, qrDataUrl);
-    downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
+    downloadTextFile(
+      svg,
+      `${label.globalCode}_etiquette.svg`,
+      'image/svg+xml;charset=utf-8',
+    );
     return { status: 'prepared' };
   } catch (error) {
     return failedPreparation(error);
@@ -176,7 +231,9 @@ export async function downloadQrLabel(label: QrLabelItem): Promise<QrLabelPrepar
 }
 
 async function prepareQrPrint(
-  labels: QrLabelItem[], printWindow: Window, settings: QrLabelPrintSettings,
+  labels: QrLabelItem[],
+  printWindow: Window,
+  settings: QrLabelPrintSettings,
 ): Promise<QrLabelPreparationResult> {
   const controller = new AbortController();
   const { signal } = controller;
@@ -192,25 +249,41 @@ async function prepareQrPrint(
   // Window.closed is reliable even when closing the popup emits no unload event.
   function watchPopup() {
     if (signal.aborted) return;
-    if (printWindow.closed) controller.abort(new QrPreparationError('preparation'));
+    if (printWindow.closed)
+      controller.abort(new QrPreparationError('preparation'));
     else closeTimer = window.setTimeout(watchPopup, 100);
   }
   watchPopup();
 
   async function prepareResources(): Promise<QrLabelPreparationResult> {
     signal.throwIfAborted();
-    const printableLabels = await Promise.all(labels.map(async (label) => ({
-      ...label,
-      qrImageUrl: await getQrDataUrl(label.qrImageUrl, true, signal, contextSignal),
-    })));
+    const printableLabels = await Promise.all(
+      labels.map(async (label) => ({
+        ...label,
+        qrImageUrl: await getQrDataUrl(
+          label.qrImageUrl,
+          true,
+          signal,
+          contextSignal,
+        ),
+      })),
+    );
     signal.throwIfAborted();
     if (printWindow.closed) return { status: 'cancelled' };
 
     printWindow.document.write(buildQrPrintDocument(printableLabels, settings));
     printWindow.document.close();
     const images = Array.from(printWindow.document.images);
-    if (images.length !== labels.length) throw new QrPreparationError('image-preparation');
-    await Promise.all(images.map((image) => waitForQrImage(image, 'image-preparation', signal)));
+    if (images.length !== labels.length)
+      throw new QrPreparationError('image-preparation');
+    await Promise.all(
+      images.map((image) => waitForQrImage(image, 'image-preparation', signal)),
+    );
+    if (settings.showSpecies && labels.some((label) => label.strainName)) {
+      const printDocument = printWindow.document;
+      await printDocument.fonts.ready;
+      assertNamedPrintLabelsFit(printDocument, labels);
+    }
 
     signal.throwIfAborted();
     if (printWindow.closed) return { status: 'cancelled' };
@@ -233,10 +306,18 @@ async function prepareQrPrint(
   }
 }
 
-async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: AbortSignal, contextSignal: AbortSignal) {
+async function getQrDataUrl(
+  qrImageUrl: string,
+  allowFallback: boolean,
+  signal: AbortSignal,
+  contextSignal: AbortSignal,
+) {
   signal.throwIfAborted();
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(new QrPreparationError('qr-retrieval')), QR_PREPARATION_TIMEOUT_MS);
+  const timeout = window.setTimeout(
+    () => controller.abort(new QrPreparationError('qr-retrieval')),
+    QR_PREPARATION_TIMEOUT_MS,
+  );
   const onAbort = () => {
     window.clearTimeout(timeout);
     controller.abort(signal.reason);
@@ -244,21 +325,38 @@ async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: 
   signal.addEventListener('abort', onAbort, { once: true });
   let svgText: string;
   try {
-    svgText = await apiGetResource(qrImageUrl, { signal: controller.signal, contextSignal });
+    svgText = await apiGetResource(qrImageUrl, {
+      signal: controller.signal,
+      contextSignal,
+    });
     signal.throwIfAborted();
   } catch (error) {
     signal.throwIfAborted();
     let resourcePath: string;
-    try { resourcePath = decodeURIComponent(new URL(qrImageUrl, window.location.origin).pathname); }
-    catch { throw new QrPreparationError('fallback-resource'); }
+    try {
+      resourcePath = decodeURIComponent(
+        new URL(qrImageUrl, window.location.origin).pathname,
+      );
+    } catch {
+      throw new QrPreparationError('fallback-resource');
+    }
     const protectedResource = /^\/boites\/\d+\/qr\.svg\/?$/.test(resourcePath);
-    if (controller.signal.aborted || !allowFallback || protectedResource || error instanceof ApiError || error instanceof QrPreparationError) {
+    if (
+      controller.signal.aborted ||
+      !allowFallback ||
+      protectedResource ||
+      error instanceof ApiError ||
+      error instanceof QrPreparationError
+    ) {
       throw new QrPreparationError('qr-retrieval');
     }
     // A network/CORS fallback is usable only after the browser loads the resource.
     let fallbackUrl: string;
-    try { fallbackUrl = new URL(qrImageUrl, window.location.origin).href; }
-    catch { throw new QrPreparationError('fallback-resource'); }
+    try {
+      fallbackUrl = new URL(qrImageUrl, window.location.origin).href;
+    } catch {
+      throw new QrPreparationError('fallback-resource');
+    }
     await prepareQrImage(fallbackUrl, 'fallback-resource', signal);
     return fallbackUrl;
   } finally {
@@ -268,7 +366,11 @@ async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: 
   return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`;
 }
 
-function prepareQrImage(source: string, reason: QrLabelPreparationFailure, signal: AbortSignal) {
+function prepareQrImage(
+  source: string,
+  reason: QrLabelPreparationFailure,
+  signal: AbortSignal,
+) {
   const image = new Image();
   // Register listeners before assigning src, including for cached resources.
   const ready = waitForQrImage(image, reason, signal);
@@ -276,10 +378,16 @@ function prepareQrImage(source: string, reason: QrLabelPreparationFailure, signa
   return ready;
 }
 
-function waitForQrImage(image: HTMLImageElement, reason: QrLabelPreparationFailure, signal: AbortSignal) {
+function waitForQrImage(
+  image: HTMLImageElement,
+  reason: QrLabelPreparationFailure,
+  signal: AbortSignal,
+) {
   if (signal.aborted) return Promise.reject(signal.reason);
   if (image.complete && image.src) {
-    return image.naturalWidth > 0 ? Promise.resolve() : Promise.reject(new QrPreparationError(reason));
+    return image.naturalWidth > 0
+      ? Promise.resolve()
+      : Promise.reject(new QrPreparationError(reason));
   }
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -306,8 +414,40 @@ function waitForQrImage(image: HTMLImageElement, reason: QrLabelPreparationFailu
   });
 }
 
-export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSettings) {
-  const pageMarkup = labels.map((label) => renderPrintableQrLabel(label, settings)).join('');
+function assertNamedPrintLabelsFit(
+  printDocument: Document,
+  labels: QrLabelItem[],
+) {
+  const blocks = printDocument.querySelectorAll('.label-main');
+  const range = printDocument.createRange();
+  for (const [index, block] of blocks.entries()) {
+    const label = labels[index];
+    if (!label?.strainName) continue;
+    const band = block.getBoundingClientRect();
+    // Range rectangles are in physical orientation after rotation, like the band.
+    for (const text of block.querySelectorAll('.label-code, .label-species')) {
+      range.selectNodeContents(text);
+      for (const rect of Array.from(range.getClientRects())) {
+        if (
+          rect.left < band.left ||
+          rect.right > band.right ||
+          rect.top < band.top ||
+          rect.bottom > band.bottom
+        ) {
+          throw new QrPreparationError('text-overflow', label.globalCode);
+        }
+      }
+    }
+  }
+}
+
+export function buildQrPrintDocument(
+  labels: QrLabelItem[],
+  settings: QrLabelPrintSettings,
+) {
+  const pageMarkup = labels
+    .map((label) => renderPrintableQrLabel(label, settings))
+    .join('');
   const fontFamily = getPrintFontFamily(settings.fontFamily);
 
   return `<!doctype html>
@@ -327,7 +467,9 @@ export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPri
   .label-main { position: relative; flex: 1 1 auto; align-self: stretch; min-width: 0; margin-left: ${QR_LABEL_QR_TEXT_GAP_MM}mm; overflow: hidden; }
   .label-text { position: absolute; top: 50%; left: 50%; display: grid; align-content: center; width: ${QR_LABEL_TEXT_LINE_LENGTH_MM}mm; height: ${QR_LABEL_TEXT_ZONE_MM}mm; gap: ${QR_LABEL_TEXT_GAP_MM}mm; text-align: center; transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center; }
   .label-code { display: block; width: 100%; font-size: ${settings.textFontPt}pt; font-style: normal; font-weight: 900; line-height: 1.05; overflow-wrap: break-word; }
-  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #000; font-size: ${settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; font-weight: 900; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #000; font-size: ${(settings.textFontPt * QR_LABEL_SPECIES_FONT_PT) / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; font-weight: 900; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .label-species--named { display: block; overflow: visible; }
+  .label-strain { font-style: normal; font-weight: 400; }
 </style>
 </head>
 <body>
@@ -335,8 +477,6 @@ export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPri
 </body>
 </html>`;
 }
-
-
 
 // Express a physical millimetre value as a percentage of the label width, for
 // previews whose query container is the label itself.
@@ -361,16 +501,22 @@ export function getQrLabelPreviewCssVariables(settings: QrLabelPrintSettings) {
     '--label-preview-text-zone-width': `${getQrLabelWidthPercent(QR_LABEL_TEXT_ZONE_MM)}cqw`,
     '--label-preview-text-line-length': `${getQrLabelWidthPercent(QR_LABEL_TEXT_LINE_LENGTH_MM)}cqw`,
     '--label-preview-font-size': `${getQrLabelWidthPercent(pointsToMillimetres(settings.textFontPt))}cqw`,
-    '--label-preview-species-font-size': `${getQrLabelWidthPercent(pointsToMillimetres(settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT))}cqw`,
+    '--label-preview-species-font-size': `${getQrLabelWidthPercent(pointsToMillimetres((settings.textFontPt * QR_LABEL_SPECIES_FONT_PT) / QR_LABEL_TEXT_FONT_PT))}cqw`,
   };
 }
-
 
 function roundPercent(value: number) {
   return Math.round(value * 10000) / 10000;
 }
 
-function renderPrintableQrLabel(label: QrLabelItem, settings: QrLabelPrintSettings) {
+function renderPrintableQrLabel(
+  label: QrLabelItem,
+  settings: QrLabelPrintSettings,
+) {
+  const species = escapeHtml(label.speciesName);
+  const taxon = label.strainName
+    ? `<span class="label-species label-species--named"><span>${species}</span> <span class="label-strain">${escapeHtml(label.strainName)}</span></span>`
+    : `<span class="label-species">${species}</span>`;
   return `<main class="label-slot">
   <section class="label">
   <div class="label-qr">
@@ -379,29 +525,49 @@ function renderPrintableQrLabel(label: QrLabelItem, settings: QrLabelPrintSettin
   <div class="label-main">
     <div class="label-text">
       <strong class="label-code">${escapeHtml(label.globalCode)}</strong>
-      ${settings.showSpecies ? `<span class="label-species">${escapeHtml(label.speciesName)}</span>` : ''}
+      ${settings.showSpecies ? taxon : ''}
     </div>
   </div>
 </section>
 </main>`;
 }
 
-function normalizeQrLabelPrintSettings(settings?: Partial<QrLabelPrintSettings>): QrLabelPrintSettings {
+function normalizeQrLabelPrintSettings(
+  settings?: Partial<QrLabelPrintSettings>,
+): QrLabelPrintSettings {
   return {
     labelWidthMm: QR_LABEL_WIDTH_MM,
     labelHeightMm: QR_LABEL_HEIGHT_MM,
-    paddingMm: clampNumber(settings?.paddingMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.paddingMm, 0.5, 12),
-    qrSizeMm: clampNumber(settings?.qrSizeMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.qrSizeMm, 14, 55),
-    textFontPt: clampNumber(settings?.textFontPt ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.textFontPt, 6, 18),
+    paddingMm: clampNumber(
+      settings?.paddingMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.paddingMm,
+      0.5,
+      12,
+    ),
+    qrSizeMm: clampNumber(
+      settings?.qrSizeMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.qrSizeMm,
+      14,
+      55,
+    ),
+    textFontPt: clampNumber(
+      settings?.textFontPt ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.textFontPt,
+      6,
+      18,
+    ),
     fontFamily: isQrLabelFontFamily(settings?.fontFamily)
       ? settings.fontFamily
       : DEFAULT_QR_LABEL_PRINT_SETTINGS.fontFamily,
-    showSpecies: settings?.showSpecies ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.showSpecies,
+    showSpecies:
+      settings?.showSpecies ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.showSpecies,
   };
 }
 
 function isQrLabelFontFamily(value: unknown): value is QrLabelFontFamily {
-  return value === 'arial' || value === 'system' || value === 'georgia' || value === 'courier';
+  return (
+    value === 'arial' ||
+    value === 'system' ||
+    value === 'georgia' ||
+    value === 'courier'
+  );
 }
 
 function getPrintFontFamily(fontFamily: QrLabelFontFamily) {
@@ -412,12 +578,10 @@ function getPrintFontFamily(fontFamily: QrLabelFontFamily) {
       return 'Georgia, "Times New Roman", serif';
     case 'courier':
       return '"Courier New", monospace';
-    case 'arial':
     default:
       return 'Arial, sans-serif';
   }
 }
-
 
 function clampNumber(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -458,17 +622,43 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
     3,
   );
 
+  const namedLines = label.strainName
+    ? wrapNamedSvgTaxon(label.speciesName, label.strainName, label.globalCode)
+    : null;
   const codeBlockHeight = codeLines.length * codeLineHeight;
-  const speciesBlockHeight = speciesLines.length * speciesLineHeight;
-  const textBlockHeight = codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesBlockHeight;
+  const speciesBlockHeight =
+    (namedLines?.length ?? speciesLines.length) * speciesLineHeight;
+  const textBlockHeight =
+    codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesBlockHeight;
+  if (namedLines && textBlockHeight > QR_LABEL_TEXT_ZONE_MM) {
+    throw new QrPreparationError('text-overflow', label.globalCode);
+  }
   const textTop = -textBlockHeight / 2;
 
-  const codeMarkup = codeLines.map((line, index) => (
-    `<text class="label-code" x="0" y="${roundMm(textTop + codeLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" font-weight="900" font-style="normal" fill="#000"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
-  )).join('\n    ');
-  const speciesMarkup = speciesLines.map((line, index) => (
-    `<text class="label-species" x="0" y="${roundMm(textTop + codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(speciesFontSize)}" font-weight="900" font-style="italic" fill="#000"${svgTextFitAttributes(line, speciesFontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
-  )).join('\n    ');
+  const codeMarkup = codeLines
+    .map(
+      (line, index) =>
+        `<text class="label-code" x="0" y="${roundMm(textTop + codeLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" font-weight="900" font-style="normal" fill="#000"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`,
+    )
+    .join('\n    ');
+  const speciesMarkup = namedLines
+    ? namedLines
+        .map((line, index) => {
+          const y = roundMm(
+            textTop +
+              codeBlockHeight +
+              QR_LABEL_TEXT_GAP_MM +
+              speciesLineHeight * (index + 0.8),
+          );
+          return `<text class="label-species" x="0" y="${y}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(speciesFontSize)}" font-weight="900" font-style="italic" fill="#000" xml:space="preserve">${escapeXml(line.species)}${line.strain ? `<tspan class="label-strain" font-style="normal" font-weight="400">${escapeXml(line.strain)}</tspan>` : ''}</text>`;
+        })
+        .join('')
+    : speciesLines
+        .map(
+          (line, index) =>
+            `<text class="label-species" x="0" y="${roundMm(textTop + codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(speciesFontSize)}" font-weight="900" font-style="italic" fill="#000"${svgTextFitAttributes(line, speciesFontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`,
+        )
+        .join('\n    ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">
 
@@ -478,6 +668,50 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
     ${speciesMarkup}
   </g>
 </svg>`;
+}
+
+// Use the browser's font fallback for Japanese and other non-Latin text.
+// Keep break spaces in the SVG's text content, but not in the visual width test.
+function wrapNamedSvgTaxon(species: string, strain: string, boxCode: string) {
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) throw new QrPreparationError('preparation');
+  const measure = (text: string, style: string) => {
+    context.font = `${style} ${QR_LABEL_SPECIES_FONT_PT}pt Arial, sans-serif`;
+    return context.measureText(text).width;
+  };
+  const limit = (QR_LABEL_TEXT_LINE_LENGTH_MM * 96) / 25.4;
+  const fits = (line: { species: string; strain: string }) =>
+    measure(
+      line.strain.trim() ? line.species : line.species.trimEnd(),
+      'italic 900',
+    ) +
+      measure(line.strain.trimEnd(), 'normal 400') <=
+    limit;
+  let line = { species: '', strain: '' };
+  const lines: (typeof line)[] = [];
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const add = (value: string, part: keyof typeof line) => {
+    const candidate = { ...line, [part]: line[part] + value };
+    if (!fits(candidate) && (line.species || line.strain)) {
+      lines.push(line);
+      line = { species: '', strain: '' };
+    }
+    if (!fits({ ...line, [part]: line[part] + value })) {
+      for (const { segment } of segmenter.segment(value)) {
+        if (segment === value)
+          throw new QrPreparationError('text-overflow', boxCode);
+        add(segment, part);
+      }
+    } else {
+      line[part] += value;
+    }
+  };
+  for (const word of species.split(/(?<=\s|-)/u)) add(word, 'species');
+  // A single normal-space separator is shared with the React and HTML labels.
+  for (const word of ` ${strain}`.replace(/\s+/gu, ' ').split(/(?<=\s|-)/u))
+    add(word, 'strain');
+  lines.push(line);
+  return lines;
 }
 
 // Greedy wrap that honours the break opportunities a browser uses: after a
