@@ -775,6 +775,29 @@ class BusinessAuditApiTests(TestCase):
             "inactive",
         )
 
+    def test_generic_box_field_changes_use_the_box_detail_type(self):
+        change = self._log(
+            description=f"Box updated: {self.box.global_code}",
+            metadata={
+                "modifications": {"volume_litres": {"avant": "0.50", "apres": "0.00"}}
+            },
+        )
+
+        entry = next(
+            entry
+            for entry in self._admin().json()["results"]
+            if entry["id"] == change.id
+        )
+
+        # The frontend renders generic box changes only for this exact type.
+        self.assertEqual(
+            entry["business_details"],
+            {
+                "type": "box",
+                "changes": {"volume_litres": {"before": "0.50", "after": "0.00"}},
+            },
+        )
+
     def test_box_reference_is_safe_for_admin_and_personal_histories(self):
         action = self._log(action=AuditLog.Action.CREATION)
 

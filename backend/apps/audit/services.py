@@ -718,7 +718,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         # the canonical display value so no raw English token reaches the UI.
         values = _normalized_box_status_values(values)
         changes = _normalized_box_status_changes(changes)
-    return _compact_details(family.rstrip("s"), values=values, changes=changes)
+    # "boxes" must map to "box", the type the frontend contract expects.
+    detail_type = "box" if family == "boxes" else family.rstrip("s")
+    return _compact_details(detail_type, values=values, changes=changes)
 
 
 def serialize_box_reference(box):
