@@ -45,9 +45,9 @@ export const labelsQr = {
     ja: 'QR画像を準備できませんでした。もう一度お試しください。',
   },
   qrLabelNoEligibleBoxes: {
-    fr: 'Aucune boîte active avec un relevé cette année.',
-    en: 'No active box with a record this year.',
-    ja: '今年の測定記録がある有効な容器はありません。',
+    fr: 'Aucune boîte active.',
+    en: 'No active boxes.',
+    ja: '有効な容器はありません。',
   },
   qrLabelNoMatches: {
     fr: 'Aucune boîte ne correspond à la recherche et à la zone choisies.',

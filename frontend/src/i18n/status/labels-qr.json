@@ -157,14 +157,12 @@
   },
   "qrLabelNoEligibleBoxes": {
     "en": {
-      "status": "validated",
-      "source_sha256": "80c65f0b027af9fc0ab278e99fcac05f7b56ab9ba8acfa9866eee3a212b26c29",
-      "reviewer": "english-reviewer"
+      "status": "ai",
+      "source_sha256": "e1c8623c3f2b64306c5e66e72f335c585dbb326787e527b425f95c637d527bc5"
     },
     "ja": {
-      "status": "validated",
-      "source_sha256": "5c150007426cda0cbe6e6360a936b84cc1f5145a6a15f278790d97d03cb4a5fa",
-      "reviewer": "japanese-reviewer"
+      "status": "ai",
+      "source_sha256": "2c0c7491913c02780faadeae2c68e475ddd853e75f21d2ad37072483aa663710"
     }
   },
   "qrLabelNoMatches": {
