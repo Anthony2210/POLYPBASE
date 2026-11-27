@@ -1443,11 +1443,11 @@ test('Box, preview and Overview use the native range loader and put translated s
   );
   assert.match(
     source('components/OverviewView.tsx'),
-    /useTemperatureHistory\(temperatureBoxId, startDate, endDate, box, temperatureLoaders.daily\)/,
+    /useTemperatureHistory\(\s*temperatureBoxId,\s*startDate,\s*endDate,\s*box,\s*temperatureLoaders\.daily,?\s*\)/,
   );
   assert.match(
     source('components/OverviewView.tsx'),
-    /useHistoricalTemperatures\(temperatureBoxId, startDate, endDate, box, temperatureLoaders.historical\)/,
+    /useHistoricalTemperatures\(\s*temperatureBoxId,\s*startDate,\s*endDate,\s*box,\s*temperatureLoaders\.historical,?\s*\)/,
   );
   assert.match(
     source('components/OverviewView.tsx'),
@@ -1459,11 +1459,11 @@ test('Box, preview and Overview use the native range loader and put translated s
   );
   assert.match(
     source('components/OverviewView.tsx'),
-    /temperatureStatus=\{<>\s*<TemperatureHistoryStatus \{\.\.\.temperatureHistory\} language=\{language\} \/>/,
+    /temperatureStatus=\{\s*<>\s*<TemperatureHistoryStatus\s+\{\.\.\.temperatureHistory\}\s+language=\{language\}\s*\/>/,
   );
   assert.match(
     source('components/OverviewView.tsx'),
-    /<HistoricalTemperatureStatus \{\.\.\.historicalTemperatures\}/,
+    /<HistoricalTemperatureStatus\s+\{\.\.\.historicalTemperatures\}/,
   );
   assert.match(
     source('components/BoxTrackingChart.tsx'),

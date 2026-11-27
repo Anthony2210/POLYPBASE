@@ -887,7 +887,7 @@ test('deletion is audited as a deletion in the history presentation', () => {
   );
   assert.match(
     presentation,
-    /prefix: 'Thermal zone deleted: ', render: \(rest, t\) => fillTemplate\(t\('auditDescriptionZoneDeleted'\)/,
+    /prefix: 'Thermal zone deleted: ',\s*render: \(rest, t\) =>\s*fillTemplate\(t\('auditDescriptionZoneDeleted'\)/,
   );
   assert.equal(fr.auditActionDeletion, 'Suppression enregistrée');
   assert.equal(en.auditActionDeletion, 'Deletion saved');

@@ -4,8 +4,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const readSource = (relativePath) => readFileSync(path.join(frontendRoot, relativePath), 'utf8');
+const frontendRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+const readSource = (relativePath) =>
+  readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 const appSource = readSource('src/App.tsx');
 const boxSource = readSource('src/components/BoxPage.tsx');
 const tokensSource = readSource('src/styles/tokens.css');
@@ -49,13 +53,23 @@ const PAGE_ROOT_SOURCE_BY_CLASS = new Map([
   ['zone-overview-shell', zonesViewSource],
   ['zone-page', zonesViewSource],
 ]);
-const SHELL_CLASSES = ['app-shell', 'page-heading', 'workspace', 'workspace-page'];
-const OUTER_FRAME_OWNERSHIP = /(?:^|;)\s*(?:width|max-width|margin|margin-inline)\s*:/;
+const SHELL_CLASSES = [
+  'app-shell',
+  'page-heading',
+  'workspace',
+  'workspace-page',
+];
+const OUTER_FRAME_OWNERSHIP =
+  /(?:^|;)\s*(?:width|max-width|margin|margin-inline)\s*:/;
 
 function listCssFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
-    return entry.isDirectory() ? listCssFiles(entryPath) : entryPath.endsWith('.css') ? [entryPath] : [];
+    return entry.isDirectory()
+      ? listCssFiles(entryPath)
+      : entryPath.endsWith('.css')
+        ? [entryPath]
+        : [];
   });
 }
 
@@ -72,10 +86,12 @@ const allCss = styleSheets.map(({ source }) => source).join('\n');
 // their bodies contain nested braces.
 function cssRules(source) {
   const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '');
-  return [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, declarations]) => ({
-    selector: selector.trim(),
-    declarations,
-  }));
+  return [...withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+    ([, selector, declarations]) => ({
+      selector: selector.trim(),
+      declarations,
+    }),
+  );
 }
 
 function splitTopLevel(value, delimiter = ',') {
@@ -147,7 +163,11 @@ function finalCompound(selector) {
     else if (character === ')') parentheses -= 1;
     else if (character === '[') brackets += 1;
     else if (character === ']') brackets -= 1;
-    else if (parentheses === 0 && brackets === 0 && (/[>+~]/.test(character) || /\s/.test(character))) {
+    else if (
+      parentheses === 0 &&
+      brackets === 0 &&
+      (/[>+~]/.test(character) || /\s/.test(character))
+    ) {
       start = index + 1;
     }
   }
@@ -179,7 +199,10 @@ function findClosingParenthesis(value, openingIndex) {
       continue;
     }
     if (character === '(') depth += 1;
-    if (character === ')' && (depth -= 1) === 0) return index;
+    if (character === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
   }
 
   return -1;
@@ -243,9 +266,14 @@ function collectCompoundClasses(compound, classes) {
       if (functionalMatch) {
         const openingIndex = index + functionalMatch[0].length - 1;
         const closingIndex = findClosingParenthesis(compound, openingIndex);
-        assert.notEqual(closingIndex, -1, `unclosed :${functionalMatch[1]}() in ${compound}`);
+        assert.notEqual(
+          closingIndex,
+          -1,
+          `unclosed :${functionalMatch[1]}() in ${compound}`,
+        );
         const argumentsText = compound.slice(openingIndex + 1, closingIndex);
-        for (const className of subjectClasses(argumentsText)) classes.add(className);
+        for (const className of subjectClasses(argumentsText))
+          classes.add(className);
         index = closingIndex;
         continue;
       }
@@ -269,7 +297,11 @@ function cssRule(source, selector) {
 
 test('selector parsing preserves functional selector groups', () => {
   assert.deepEqual(
-    [...subjectClasses(':where(.profile-page, .export-page), .wrapper > :is(.labels-page, .zone-page)')].sort(),
+    [
+      ...subjectClasses(
+        ':where(.profile-page, .export-page), .wrapper > :is(.labels-page, .zone-page)',
+      ),
+    ].sort(),
     ['export-page', 'labels-page', 'profile-page', 'zone-page'],
   );
   assert.deepEqual(
@@ -284,9 +316,17 @@ test('one shared outer page-width token defines the desktop frame', () => {
   assert.doesNotMatch(tokensSource, /--content-max/);
 
   const definitions = allCss.match(/--page-width\s*:/g) ?? [];
-  assert.equal(definitions.length, 1, '--page-width must be defined exactly once');
+  assert.equal(
+    definitions.length,
+    1,
+    '--page-width must be defined exactly once',
+  );
   assert.doesNotMatch(allCss, /--page-width-(?:wide|standard|narrow)/);
-  assert.doesNotMatch(allCss, /1480px.*1480px/s, 'the desktop frame must not be duplicated');
+  assert.doesNotMatch(
+    allCss,
+    /1480px.*1480px/s,
+    'the desktop frame must not be duplicated',
+  );
 });
 
 test('the page title and the page content consume the same shared outer frame', () => {
@@ -294,13 +334,21 @@ test('the page title and the page content consume the same shared outer frame', 
   assert.match(sharedRule, /width:\s*min\(var\(--page-width\),\s*100%\)/);
   assert.match(sharedRule, /margin-inline:\s*auto/);
 
-  const frameDeclarations = allCss.match(/width:\s*min\(var\(--page-width\),\s*100%\)/g) ?? [];
-  assert.equal(frameDeclarations.length, 1, 'the frame must be declared once, for both selectors');
+  const frameDeclarations =
+    allCss.match(/width:\s*min\(var\(--page-width\),\s*100%\)/g) ?? [];
+  assert.equal(
+    frameDeclarations.length,
+    1,
+    'the frame must be declared once, for both selectors',
+  );
   assert.doesNotMatch(allCss, /--page-frame-width/);
 });
 
 test('no route-dependent page width classification remains', () => {
-  assert.doesNotMatch(appSource, /PageWidthCategory|PAGE_WIDTH_BY_TAB|getPageWidthCategory/);
+  assert.doesNotMatch(
+    appSource,
+    /PageWidthCategory|PAGE_WIDTH_BY_TAB|getPageWidthCategory/,
+  );
   assert.match(appSource, /<section className="workspace">/);
   assert.doesNotMatch(appSource, /page-width-/);
 });
@@ -312,16 +360,26 @@ test('no page-width category shell class remains', () => {
 
 test('the Labels local width hack remains absent', () => {
   assert.doesNotMatch(exportsLabelsSource, /\.workspace-page:has\(/);
-  assert.doesNotMatch(exportsLabelsSource, /:where\(\.export-page, \.labels-page\)\s*\{[^}]*max-width/s);
+  assert.doesNotMatch(
+    exportsLabelsSource,
+    /:where\(\.export-page, \.labels-page\)\s*\{[^}]*max-width/s,
+  );
   assert.doesNotMatch(exportsLabelsSource, /\.labels-page\s*\{[^}]*max-width/s);
 });
 
 test('the Emplacements whole-page cap remains absent', () => {
   assert.doesNotMatch(zonesSource, /max-width:\s*1120px/);
-  assert.doesNotMatch(zonesSource, /:is\(\.zone-overview, \.zone-page\)|:where\(\.zone-overview, \.zone-page\)/);
+  assert.doesNotMatch(
+    zonesSource,
+    /:is\(\.zone-overview, \.zone-page\)|:where\(\.zone-overview, \.zone-page\)/,
+  );
 
   const rule = cssRule(zonesSource, '.zone-page,\n.zone-overview');
-  assert.doesNotMatch(rule, OUTER_FRAME_OWNERSHIP, 'the Emplacements roots must not own the page frame');
+  assert.doesNotMatch(
+    rule,
+    OUTER_FRAME_OWNERSHIP,
+    'the Emplacements roots must not own the page frame',
+  );
 });
 
 test('all actual page roots reject independent outer-frame ownership', () => {
@@ -331,7 +389,13 @@ test('all actual page roots reject independent outer-frame ownership', () => {
     'every configured page root must have a JSX source assertion',
   );
   for (const [className, source] of PAGE_ROOT_SOURCE_BY_CLASS) {
-    assert.match(source, new RegExp(`className=(?:\\{[^}]*\\b${className}\\b[^}]*\\}|["'][^"']*\\b${className}\\b)`), `${className} must be a real JSX root`);
+    assert.match(
+      source,
+      new RegExp(
+        `className=(?:\\{[^}]*\\b${className}\\b[^}]*\\}|["'][^"']*\\b${className}\\b)`,
+      ),
+      `${className} must be a real JSX root`,
+    );
   }
 
   const matchedRootClasses = new Set();
@@ -339,11 +403,13 @@ test('all actual page roots reject independent outer-frame ownership', () => {
 
   for (const { file, source } of styleSheets) {
     for (const { selector, declarations } of cssRules(source)) {
-      const matchedClasses = [...subjectClasses(selector)].filter((className) => PAGE_ROOT_CLASSES.includes(className));
+      const matchedClasses = [...subjectClasses(selector)].filter((className) =>
+        PAGE_ROOT_CLASSES.includes(className),
+      );
       if (!matchedClasses.length) continue;
 
       matchedRootRules += 1;
-      matchedClasses.forEach((className) => matchedRootClasses.add(className));
+      for (const className of matchedClasses) matchedRootClasses.add(className);
       assert.doesNotMatch(
         declarations,
         OUTER_FRAME_OWNERSHIP,
@@ -353,7 +419,10 @@ test('all actual page roots reject independent outer-frame ownership', () => {
   }
 
   assert.ok(matchedRootRules > 0, 'the page-root scan must inspect real rules');
-  assert.ok(matchedRootClasses.size > 0, 'the page-root scan must identify real root classes');
+  assert.ok(
+    matchedRootClasses.size > 0,
+    'the page-root scan must identify real root classes',
+  );
 });
 
 test('all screen shell rules reject viewport-width workarounds', () => {
@@ -367,16 +436,26 @@ test('all screen shell rules reject viewport-width workarounds', () => {
     }
 
     for (const { selector, declarations } of cssRules(source)) {
-      const matchedClasses = [...subjectClasses(selector)].filter((className) => SHELL_CLASSES.includes(className));
+      const matchedClasses = [...subjectClasses(selector)].filter((className) =>
+        SHELL_CLASSES.includes(className),
+      );
       if (!matchedClasses.length) continue;
 
       matchedShellRules += 1;
-      matchedClasses.forEach((className) => matchedShellClasses.add(className));
-      assert.doesNotMatch(declarations, /100vw/, `${file}: ${selector} must not use 100vw`);
+      for (const className of matchedClasses)
+        matchedShellClasses.add(className);
+      assert.doesNotMatch(
+        declarations,
+        /100vw/,
+        `${file}: ${selector} must not use 100vw`,
+      );
     }
   }
 
-  assert.ok(matchedShellRules > 0, 'the screen shell scan must inspect real rules');
+  assert.ok(
+    matchedShellRules > 0,
+    'the screen shell scan must inspect real rules',
+  );
   assert.deepEqual(
     [...matchedShellClasses].sort(),
     [...SHELL_CLASSES].sort(),
@@ -389,12 +468,18 @@ test('the Administration desktop-only redirect and render guards remain in place
     appSource,
     /if \(activeTab === 'admin' && !isDesktopApp\) \{\s*replaceRoute\(\{ tab: 'pilotage', boxCode: null, boxId: null \}, '\/', true\);\s*return;\s*\}/,
   );
-  assert.match(appSource, /if \(activeTab === 'admin' && !isDesktopApp\) return null;/);
+  assert.match(
+    appSource,
+    /if \(activeTab === 'admin' && !isDesktopApp\) return null;/,
+  );
   assert.match(appSource, /\{activeTab === 'admin' && isDesktopApp && \(/);
 });
 
 test('Profile shows the institution selector only when there is a real choice', () => {
-  assert.match(profileViewSource, /const organizations = getSelectableOrganizations\(profile\);/);
+  assert.match(
+    profileViewSource,
+    /const organizations = getSelectableOrganizations\(profile\);/,
+  );
   assert.match(
     profileViewSource,
     /\{organizations\.length > 1 \? \(\s*<section className="profile-block profile-organization-context">/s,
@@ -402,14 +487,19 @@ test('Profile shows the institution selector only when there is a real choice', 
   assert.doesNotMatch(profileViewSource, /organizations\.length > 0/);
 
   // Selecting an institution keeps its existing behaviour.
-  assert.match(profileViewSource, /onClick=\{\(\) => onSelectOrganization\(organization\.id\)\}/);
+  assert.match(
+    profileViewSource,
+    /onClick=\{\(\) => onSelectOrganization\(organization\.id\)\}/,
+  );
   assert.match(profileViewSource, /aria-pressed=\{isActive\}/);
   assert.match(profileViewSource, /className=\{isActive \? 'is-active' : ''\}/);
 });
 
 test('Profile carries the Administration action inside the account card', () => {
   const profileCssSource = readSource('src/styles/pages/profile.css');
-  const cardStart = profileViewSource.indexOf('<header className="profile-identity-card">');
+  const cardStart = profileViewSource.indexOf(
+    '<header className="profile-identity-card">',
+  );
   const cardSource = profileViewSource.slice(
     cardStart,
     profileViewSource.indexOf('</header>', cardStart),
@@ -428,8 +518,14 @@ test('Profile carries the Administration action inside the account card', () => 
   assert.doesNotMatch(profileCssSource, /profile-session-actions/);
 
   // The separate "Administration area" section is fully removed.
-  assert.doesNotMatch(profileViewSource, /profile-admin-entry|profile-admin-button|profile-link-arrow/);
-  assert.doesNotMatch(profileCssSource, /profile-admin-entry|profile-admin-button|profile-link-arrow/);
+  assert.doesNotMatch(
+    profileViewSource,
+    /profile-admin-entry|profile-admin-button|profile-link-arrow/,
+  );
+  assert.doesNotMatch(
+    profileCssSource,
+    /profile-admin-entry|profile-admin-button|profile-link-arrow/,
+  );
 
   // One single capability condition, already desktop-only, drives the entry.
   assert.match(appSource, /canOpenAdmin=\{canUseAdmin && isDesktopApp\}/);
@@ -438,26 +534,42 @@ test('Profile carries the Administration action inside the account card', () => 
 
 test('Profile orders sections and places the full-width logout last', () => {
   const profileCssSource = readSource('src/styles/pages/profile.css');
-  const preferencesIndex = profileViewSource.indexOf('{labels.profilePreferences}');
+  const preferencesIndex = profileViewSource.indexOf(
+    '{labels.profilePreferences}',
+  );
   const actionsIndex = profileViewSource.indexOf('<ProfileActionsSection');
-  const logoutIndex = profileViewSource.indexOf('className="profile-logout-row"');
+  const logoutIndex = profileViewSource.indexOf(
+    'className="profile-logout-row"',
+  );
 
   assert.notEqual(preferencesIndex, -1);
   assert.notEqual(actionsIndex, -1);
   assert.notEqual(logoutIndex, -1);
   // Preferences comes before Mes actions.
-  assert.ok(preferencesIndex < actionsIndex, 'Préférences must precede Mes actions');
+  assert.ok(
+    preferencesIndex < actionsIndex,
+    'Préférences must precede Mes actions',
+  );
   // Logout is the final Profile action.
   assert.ok(logoutIndex > actionsIndex, 'logout must come after Mes actions');
-  assert.ok(logoutIndex > preferencesIndex, 'logout must come after Préférences');
+  assert.ok(
+    logoutIndex > preferencesIndex,
+    'logout must come after Préférences',
+  );
 
   // Logout is full width and separated at the bottom, still on the same handler.
   assert.match(
     profileCssSource,
     /\.profile-logout-row \{\s*display: grid;\s*gap: var\(--space-2\);\s*padding-top: var\(--space-4\);\s*border-top: 1px solid var\(--color-line-soft\);\s*\}/s,
   );
-  assert.match(profileCssSource, /\.profile-logout-row \.profile-sign-out \{ width: 100%; \}/);
-  assert.match(profileViewSource, /className="profile-sign-out"[\s\S]*?onClick=\{handleLogout\}/);
+  assert.match(
+    profileCssSource,
+    /\.profile-logout-row \.profile-sign-out \{ width: 100%; \}/,
+  );
+  assert.match(
+    profileViewSource,
+    /className="profile-sign-out"[\s\S]*?onClick=\{handleLogout\}/,
+  );
 });
 
 function containerBlock(source, name, minWideWidth) {
@@ -480,56 +592,133 @@ const tabletCss = readSource('src/styles/responsive/tablet.css');
 const phoneCss = readSource('src/styles/responsive/phone.css');
 
 test('phone readonly last reading overrides fixed desktop tracks without clipping values or notes', () => {
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card'), /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'), /min-width:\s*0/);
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'), /overflow-wrap:\s*anywhere/);
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'), /overflow:\s*visible/);
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'), /-webkit-line-clamp:\s*unset/);
-  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment-header'), /flex-wrap:\s*wrap/);
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-card'),
+    /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'),
+    /min-width:\s*0/,
+  );
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'),
+    /overflow:\s*visible/,
+  );
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'),
+    /-webkit-line-clamp:\s*unset/,
+  );
+  assert.match(
+    cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment-header'),
+    /flex-wrap:\s*wrap/,
+  );
 });
 
 test('smaller tablet weekly summary uses available width and overrides readonly desktop specificity', () => {
   const compact = containerBlock(tabletCss, 'box-detail', 760);
   const selector = '.box-page-grid > .last-reading-card.measurement-summary';
-  assert.match(cssRule(compact, selector), /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(cssRule(compact, `${selector} .metric`), /overflow-wrap:\s*anywhere/);
+  assert.match(
+    cssRule(compact, selector),
+    /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+  );
+  assert.match(
+    cssRule(compact, `${selector} .metric`),
+    /overflow-wrap:\s*anywhere/,
+  );
   const commentDeclarations = cssRules(compact)
-    .filter((rule) => splitTopLevel(rule.selector).includes(`${selector} .last-reading-comment`))
-    .map((rule) => rule.declarations).join('\n');
+    .filter((rule) =>
+      splitTopLevel(rule.selector).includes(
+        `${selector} .last-reading-comment`,
+      ),
+    )
+    .map((rule) => rule.declarations)
+    .join('\n');
   assert.match(commentDeclarations, /grid-column:\s*1\s*\/\s*-1/);
   assert.match(commentDeclarations, /border-inline:\s*0/);
-  assert.match(cssRule(compact, `${selector} .last-reading-comment p`), /-webkit-line-clamp:\s*unset/);
-  assert.match(cssRule(compact, `${selector}.has-edit-capability > :first-child`), /padding-inline-end:\s*calc\(44px/);
-  assert.match(tabletCss.slice(0, tabletCss.indexOf('@container box-detail (width < 760px)')), /max-width:\s*1023px[\s\S]*pointer:\s*coarse/);
+  assert.match(
+    cssRule(compact, `${selector} .last-reading-comment p`),
+    /-webkit-line-clamp:\s*unset/,
+  );
+  assert.match(
+    cssRule(compact, `${selector}.has-edit-capability > :first-child`),
+    /padding-inline-end:\s*calc\(44px/,
+  );
+  assert.match(
+    tabletCss.slice(
+      0,
+      tabletCss.indexOf('@container box-detail (width < 760px)'),
+    ),
+    /max-width:\s*1023px[\s\S]*pointer:\s*coarse/,
+  );
   assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden/);
 });
 
 test('salinity summary reserves intrinsic space for separate create and correction actions', () => {
-  assert.match(cssRule(zonesSource, '.zone-salinity-summary-actions'), /display:\s*flex/);
-  assert.match(cssRule(zonesSource, '.zone-salinity-summary-actions'), /gap:\s*var\(--space-2\)/);
-  assert.match(cssRule(zonesSource, '.zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability'), /max-content/);
-  assert.match(zonesSource, /\.zone-salinity-summary-actions\s*\{\s*grid-column:\s*2;\s*grid-row:\s*1;/);
+  assert.match(
+    cssRule(zonesSource, '.zone-salinity-summary-actions'),
+    /display:\s*flex/,
+  );
+  assert.match(
+    cssRule(zonesSource, '.zone-salinity-summary-actions'),
+    /gap:\s*var\(--space-2\)/,
+  );
+  assert.match(
+    cssRule(
+      zonesSource,
+      '.zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability',
+    ),
+    /max-content/,
+  );
+  assert.match(
+    zonesSource,
+    /\.zone-salinity-summary-actions\s*\{\s*grid-column:\s*2;\s*grid-row:\s*1;/,
+  );
 });
 
 test('Box header adapts to available page width in the responsive layer', () => {
-  assert.match(cssRule(boxDetailCss, '.box-page'), /container:\s*box-detail\s*\/\s*inline-size/);
+  assert.match(
+    cssRule(boxDetailCss, '.box-page'),
+    /container:\s*box-detail\s*\/\s*inline-size/,
+  );
   // 878px of tracks + 60px gaps + 48px padding + 5px borders = 991px.
   const compact = containerBlock(tabletCss, 'box-detail', 991);
   const header = cssRule(compact, '.entity-header--box');
   assert.match(header, /--entity-columns:\s*minmax\(0,\s*1fr\)\s+92px/);
-  assert.match(header, /--entity-areas:\s*"identity tools"\s*"summary summary"\s*"actions actions"/);
-  assert.match(cssRule(compact, '.box-action-stack'), /repeat\(auto-fit,\s*minmax\(min\(100%,\s*156px\),\s*1fr\)\)/);
+  assert.match(
+    header,
+    /--entity-areas:\s*"identity tools"\s*"summary summary"\s*"actions actions"/,
+  );
+  assert.match(
+    cssRule(compact, '.box-action-stack'),
+    /repeat\(auto-fit,\s*minmax\(min\(100%,\s*156px\),\s*1fr\)\)/,
+  );
   assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden/);
   const phoneHeader = cssRule(phoneCss, '.entity-header--box.is-phone');
   assert.match(phoneHeader, /--entity-columns:\s*minmax\(0,\s*1fr\)\s+48px/);
-  assert.match(phoneHeader, /--entity-areas:\s*"identity tools"\s*"summary summary"/);
+  assert.match(
+    phoneHeader,
+    /--entity-areas:\s*"identity tools"\s*"summary summary"/,
+  );
   assert.doesNotMatch(phoneHeader, /"actions actions"/);
-  assert.match(cssRule(phoneCss, '.is-phone .box-header-tools'), /justify-self:\s*end/);
-  const phoneMenu = cssRule(phoneCss, '.is-phone .box-header-tools .row-action-menu-trigger');
+  assert.match(
+    cssRule(phoneCss, '.is-phone .box-header-tools'),
+    /justify-self:\s*end/,
+  );
+  const phoneMenu = cssRule(
+    phoneCss,
+    '.is-phone .box-header-tools .row-action-menu-trigger',
+  );
   assert.match(phoneMenu, /width:\s*48px/);
   assert.match(phoneMenu, /height:\s*48px/);
   const imports = readSource('src/styles/index.css');
-  assert.ok(imports.indexOf("'./responsive/tablet.css'") < imports.indexOf("'./responsive/phone.css'"));
+  assert.ok(
+    imports.indexOf("'./responsive/tablet.css'") <
+      imports.indexOf("'./responsive/phone.css'"),
+  );
   assert.match(imports, /responsive\/tablet\.css'\s+layer\(responsive\)/);
 });
 
@@ -537,67 +726,173 @@ test('compact Box header wraps identity and facts instead of clipping them', () 
   const compact = containerBlock(tabletCss, 'box-detail', 991);
   assert.match(cssRule(compact, '.box-code-line h2'), /white-space:\s*normal/);
   assert.match(cssRule(compact, '.box-code-line h2'), /overflow:\s*visible/);
-  assert.match(cssRule(compact, '.box-species-name'), /overflow-wrap:\s*anywhere/);
-  assert.match(cssRule(compact, '.box-zone-summary .info-pill'), /overflow-wrap:\s*anywhere/);
+  assert.match(
+    cssRule(compact, '.box-species-name'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    cssRule(compact, '.box-zone-summary .info-pill'),
+    /overflow-wrap:\s*anywhere/,
+  );
   assert.match(cssRule(compact, '.box-zone-summary'), /border-inline:\s*0/);
-  assert.match(cssRule(compact, '.box-action-stack > button'), /overflow-wrap:\s*anywhere/);
-  assert.match(readSource('src/styles/components/buttons.css'), /\.profile-sign-out\s*\{\s*min-height:\s*44px/);
+  assert.match(
+    cssRule(compact, '.box-action-stack > button'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    readSource('src/styles/components/buttons.css'),
+    /\.profile-sign-out\s*\{\s*min-height:\s*44px/,
+  );
 });
 
 test('Overview filters stack before their tracks exceed the container', () => {
-  assert.match(cssRule(overviewCss, '.overview-filters'), /container:\s*overview-filters\s*\/\s*inline-size/);
+  assert.match(
+    cssRule(overviewCss, '.overview-filters'),
+    /container:\s*overview-filters\s*\/\s*inline-size/,
+  );
   // 730px of tracks + 24px gaps + 24px padding = 778px.
   const compact = containerBlock(overviewCss, 'overview-filters', 778);
-  assert.match(cssRule(compact, '.overview-filter-fields'), /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  const trackRules = cssRules(overviewCss).filter(({ selector }) => selector === '.overview-filter-fields');
-  assert.equal(trackRules.length, 2, 'no viewport override may restore overflowing filter tracks');
-  assert.match(cssRule(overviewCss, '.overview-filters-header'), /flex-wrap:\s*wrap/);
-  assert.match(cssRule(overviewCss, '.overview-filters-header > div'), /flex-wrap:\s*wrap/);
-  assert.match(cssRule(overviewCss, '.overview-sort-buttons button'), /overflow-wrap:\s*anywhere/);
-  assert.equal((overviewViewSource.match(/className="overview-sort-buttons"/g) ?? []).length, 1);
+  assert.match(
+    cssRule(compact, '.overview-filter-fields'),
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+  );
+  const trackRules = cssRules(overviewCss).filter(
+    ({ selector }) => selector === '.overview-filter-fields',
+  );
+  assert.equal(
+    trackRules.length,
+    2,
+    'no viewport override may restore overflowing filter tracks',
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-filters-header'),
+    /flex-wrap:\s*wrap/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-filters-header > div'),
+    /flex-wrap:\s*wrap/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-sort-buttons button'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.equal(
+    (overviewViewSource.match(/className="overview-sort-buttons"/g) ?? [])
+      .length,
+    1,
+  );
 });
 
 test('narrow Overview result headers keep identity and location controls in flow', () => {
-  const resultRule = cssRules(overviewCss).find(({ selector }) => selector === '.overview-box-summary');
+  const resultRule = cssRules(overviewCss).find(
+    ({ selector }) => selector === '.overview-box-summary',
+  );
   assert.ok(resultRule);
-  assert.match(resultRule.declarations, /container:\s*overview-result\s*\/\s*inline-size/);
+  assert.match(
+    resultRule.declarations,
+    /container:\s*overview-result\s*\/\s*inline-size/,
+  );
   // Compact cards keep all three areas on one row without desktop track minima.
   const compact = containerBlock(overviewCss, 'overview-result', 326);
-  assert.match(cssRule(compact, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+fit-content\(35%\)/);
-  assert.doesNotMatch(compact, /grid-column|padding-inline|display:\s*none|overflow:\s*hidden|position:\s*absolute/);
-  assert.match(cssRule(overviewCss, '.overview-box-identity'), /min-width:\s*0/);
-  assert.match(cssRule(overviewCss, '.overview-box-identity span, .overview-zone-label'), /overflow-wrap:\s*anywhere/);
-  assert.match(cssRule(overviewCss, '.overview-zone-button'), /max-width:\s*100%/);
-  assert.match(cssRule(overviewCss, '.overview-reading-age strong'), /white-space:\s*nowrap/);
+  assert.match(
+    cssRule(compact, '.overview-box-summary > header'),
+    /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+fit-content\(35%\)/,
+  );
+  assert.doesNotMatch(
+    compact,
+    /grid-column|padding-inline|display:\s*none|overflow:\s*hidden|position:\s*absolute/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-box-identity'),
+    /min-width:\s*0/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-box-identity span, .overview-zone-label'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-zone-button'),
+    /max-width:\s*100%/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-reading-age strong'),
+    /white-space:\s*nowrap/,
+  );
   // Only genuinely narrow content boxes use a full-width zone row.
   const narrow = containerBlock(overviewCss, 'overview-result', 260);
-  assert.match(cssRule(narrow, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/);
-  assert.match(cssRule(narrow, '.overview-zone-context'), /grid-column:\s*1\s*\/\s*-1/);
-  assert.match(cssRule(narrow, '.overview-zone-context'), /padding-inline:\s*var\(--space-3\)/);
-  assert.ok(overviewCss.indexOf('@container overview-result (width < 260px)') > overviewCss.indexOf('@container overview-result (width < 326px)'));
-  assert.doesNotMatch(narrow, /display:\s*none|overflow:\s*hidden|position:\s*absolute/);
-  assert.match(cssRule(overviewCss, '.overview-box-summary > header'), /grid-template-columns:\s*minmax\(92px,\s*1fr\)\s+minmax\(150px,\s*1\.35fr\)\s+minmax\(92px,\s*1fr\)/);
-  assert.match(cssRule(overviewCss, '.overview-zone-button'), /overflow-wrap:\s*anywhere/);
-  assert.match(cssRule(overviewCss, '.overview-box-identity strong'), /overflow-wrap:\s*anywhere/);
-  assert.match(overviewViewSource, /className="overview-box-identity"[\s\S]*?onClick=\{\(\) => onSelectBox\(entry\.box\.id\)\}/);
-  assert.match(overviewViewSource, /className="overview-zone-button"[\s\S]*?onClick=\{\(\) => onOpenZone/);
+  assert.match(
+    cssRule(narrow, '.overview-box-summary > header'),
+    /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/,
+  );
+  assert.match(
+    cssRule(narrow, '.overview-zone-context'),
+    /grid-column:\s*1\s*\/\s*-1/,
+  );
+  assert.match(
+    cssRule(narrow, '.overview-zone-context'),
+    /padding-inline:\s*var\(--space-3\)/,
+  );
+  assert.ok(
+    overviewCss.indexOf('@container overview-result (width < 260px)') >
+      overviewCss.indexOf('@container overview-result (width < 326px)'),
+  );
+  assert.doesNotMatch(
+    narrow,
+    /display:\s*none|overflow:\s*hidden|position:\s*absolute/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-box-summary > header'),
+    /grid-template-columns:\s*minmax\(92px,\s*1fr\)\s+minmax\(150px,\s*1\.35fr\)\s+minmax\(92px,\s*1fr\)/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-zone-button'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    cssRule(overviewCss, '.overview-box-identity strong'),
+    /overflow-wrap:\s*anywhere/,
+  );
+  assert.match(
+    overviewViewSource,
+    /className="overview-box-identity"[\s\S]*?onClick=\{\(\) => onSelectBox\(entry\.box\.id\)\}/,
+  );
+  assert.match(
+    overviewViewSource,
+    /className="overview-zone-button"[\s\S]*?onClick=\{\(\) => \{\s*const zone = entry\.box\.thermal_zone;\s*if \(zone\) onOpenZone\(zone\.id\);/,
+  );
 });
 
 test('all Zone hero variants reserve only the identity track at every CSS layer', () => {
   for (const source of [zonesSource, tabletCss, phoneCss]) {
-    const rules = cssRules(source).filter(({ selector }) => /\.(?:zone-sheet-hero|zone-directory-hero)$/.test(selector));
+    const rules = cssRules(source).filter(({ selector }) =>
+      /\.(?:zone-sheet-hero|zone-directory-hero)$/.test(selector),
+    );
     assert.ok(rules.length > 0);
     for (const { selector, declarations } of rules) {
-      assert.match(declarations, /--entity-columns:\s*minmax\(0,\s*1fr\)/, selector);
+      assert.match(
+        declarations,
+        /--entity-columns:\s*minmax\(0,\s*1fr\)/,
+        selector,
+      );
       assert.match(declarations, /--entity-areas:\s*"identity"\s*;/, selector);
     }
   }
-  for (const source of [zonesViewSource, readSource('src/components/ZoneMovementHistory.tsx')]) {
-    const heroes = [...source.matchAll(/<header className="entity-header entity-header--zone[^"\n]*">([\s\S]*?)<\/header>/g)];
+  for (const source of [
+    zonesViewSource,
+    readSource('src/components/ZoneMovementHistory.tsx'),
+  ]) {
+    const heroes = [
+      ...source.matchAll(
+        /<header className="entity-header entity-header--zone[^"\n]*">([\s\S]*?)<\/header>/g,
+      ),
+    ];
     assert.ok(heroes.length > 0);
     for (const [, hero] of heroes) {
       assert.match(hero, /entity-header__identity/);
-      assert.doesNotMatch(hero, /entity-header__(?:summary|actions)|zone-hero-summary|zone-hero-actions/);
+      assert.doesNotMatch(
+        hero,
+        /entity-header__(?:summary|actions)|zone-hero-summary|zone-hero-actions/,
+      );
     }
   }
 });

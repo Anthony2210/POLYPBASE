@@ -133,10 +133,10 @@ export const auditHistory = {
     en: 'Box reactivated: {code}',
     ja: '容器を再有効化しました：{code}',
   },
-  auditDescriptionCcaEobV3Correction: {
-    fr: '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.',
-    en: '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.',
-    ja: 'CCA-EOBの測定記録72件を正しい容器に再割り当てしました。環境情報は割り当て先の容器に基づきます。設置場所と移動履歴は変更されていません。',
+  auditDescriptionHistoricalRecordReassignment: {
+    fr: 'Les relevés ont été réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.',
+    en: 'Records were reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.',
+    ja: '測定記録を正しい容器に再割り当てしました。環境情報は割り当て先の容器に基づきます。設置場所と移動履歴は変更されていません。',
   },
   auditDescriptionInventoryInitialized: {
     fr: 'Inventaire historique initialisé pour {organization}',
