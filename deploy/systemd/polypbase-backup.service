@@ -5,11 +5,9 @@ Wants=postgresql.service
 
 [Service]
 Type=oneshot
-User=polypbase
-Group=polypbase
-WorkingDirectory=/srv/polypbase/app/backend
-EnvironmentFile=/srv/polypbase/app/backend/.env
-ExecStart=/srv/polypbase/app/.venv/bin/python /srv/polypbase/app/deploy/scripts/backup_database.py --label polypbase --retention-days 14
+User=polypbase_backup
+Group=polypbase_backup
+ExecStart=/usr/local/libexec/polypbase-deployment-backup
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
