@@ -17,27 +17,53 @@ from .models import (
 
 @admin.register(ThermalZone)
 class ThermalZoneAdmin(admin.ModelAdmin):
-    list_display = ("name", "organization", "zone_type", "target_temperature_c", "is_active")
+    list_display = (
+        "name",
+        "organization",
+        "zone_type",
+        "target_temperature_c",
+        "is_active",
+    )
     list_filter = ("organization", "zone_type", "is_active")
     search_fields = ("name", "organization__name")
 
 
 @admin.register(Box)
 class BoxAdmin(admin.ModelAdmin):
-    list_display = ("global_code", "local_code", "box_number", "strain", "thermal_zone", "status", "entered_on")
+    list_display = (
+        "global_code",
+        "local_code",
+        "box_number",
+        "strain",
+        "thermal_zone",
+        "status",
+        "entered_on",
+    )
     list_filter = ("status", "organization", "thermal_zone")
-    search_fields = ("global_code", "local_code", "box_number", "strain__code", "strain__species__scientific_name")
+    search_fields = (
+        "global_code",
+        "local_code",
+        "box_number",
+        "strain__code",
+        "strain__species__scientific_name",
+    )
 
     def has_change_permission(self, request, obj=None):
-        return (obj is None or obj.merged_into_id is None) and super().has_change_permission(request, obj)
+        return (
+            obj is None or obj.merged_into_id is None
+        ) and super().has_change_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        return (obj is None or obj.merged_into_id is None) and super().has_delete_permission(request, obj)
+        return (
+            obj is None or obj.merged_into_id is None
+        ) and super().has_delete_permission(request, obj)
 
     def get_readonly_fields(self, request, obj=None):
         # The current location changes only through the movement services.
         readonly_fields = tuple(super().get_readonly_fields(request, obj))
-        return readonly_fields + ("thermal_zone",) if obj is not None else readonly_fields
+        return (
+            readonly_fields + ("thermal_zone",) if obj is not None else readonly_fields
+        )
 
 
 class LocationHistoryReadOnlyAdmin(admin.ModelAdmin):
@@ -68,7 +94,15 @@ class BoxLocationAdmin(LocationHistoryReadOnlyAdmin):
 
 @admin.register(BoxMovement)
 class BoxMovementAdmin(LocationHistoryReadOnlyAdmin):
-    list_display = ("box", "kind", "from_thermal_zone", "to_thermal_zone", "moved_at", "user", "revision")
+    list_display = (
+        "box",
+        "kind",
+        "from_thermal_zone",
+        "to_thermal_zone",
+        "moved_at",
+        "user",
+        "revision",
+    )
     list_filter = ("kind", "from_thermal_zone", "to_thermal_zone")
     search_fields = ("box__global_code", "notes")
 
@@ -126,10 +160,18 @@ class BoxLineageAdmin(admin.ModelAdmin):
     search_fields = ("parent_box__global_code", "child_box__global_code")
 
     def has_change_permission(self, request, obj=None):
-        return obj is None or obj.subculture_event is None or obj.subculture_event.occurred_at is None
+        return (
+            obj is None
+            or obj.subculture_event is None
+            or obj.subculture_event.occurred_at is None
+        )
 
     def has_delete_permission(self, request, obj=None):
-        return obj is None or obj.subculture_event is None or obj.subculture_event.occurred_at is None
+        return (
+            obj is None
+            or obj.subculture_event is None
+            or obj.subculture_event.occurred_at is None
+        )
 
 
 @admin.register(IdentificationTag)
@@ -141,12 +183,29 @@ class IdentificationTagAdmin(admin.ModelAdmin):
 
 @admin.register(BoxTransfer)
 class BoxTransferAdmin(admin.ModelAdmin):
-    list_display = ("box", "from_organization", "to_organization", "transfer_date", "status", "user")
+    list_display = (
+        "box",
+        "from_organization",
+        "to_organization",
+        "transfer_date",
+        "status",
+        "user",
+    )
     list_filter = ("status", "from_organization", "to_organization")
     search_fields = ("box__global_code", "notes")
 
 
 @admin.register(BoxTransferImport)
 class BoxTransferImportAdmin(admin.ModelAdmin):
-    list_display = ("source_global_code", "created_box", "destination_organization", "imported_by", "imported_at")
-    search_fields = ("source_global_code", "created_box__global_code", "source_organization_name")
+    list_display = (
+        "source_global_code",
+        "created_box",
+        "destination_organization",
+        "imported_by",
+        "imported_at",
+    )
+    search_fields = (
+        "source_global_code",
+        "created_box__global_code",
+        "source_organization_name",
+    )
