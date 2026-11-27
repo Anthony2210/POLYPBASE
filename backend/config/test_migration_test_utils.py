@@ -92,11 +92,12 @@ class HistoricalTargetsTests(SimpleTestCase):
             "0024_merge_donation_and_local_identity",
             "0024_local_id_guard_search_path",
             "0025_merge_local_id_hardening_and_donations",
+            "0026_box_planned_weekday",
         ):
             self.assertNotIn(("cultures", name), closure)
         self.assertEqual(
             self.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0025_merge_local_id_hardening_and_donations")],
+            [("cultures", "0026_box_planned_weekday")],
         )
         self.assertFalse(self.loader.detect_conflicts())
 
