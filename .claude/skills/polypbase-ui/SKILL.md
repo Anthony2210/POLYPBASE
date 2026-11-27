@@ -35,9 +35,9 @@ accuracy, and traceability come before decoration.
 - **Numbers.** An empty field stays empty and is never prefilled with `0`. A real
   `0` is accepted, saved, and displayed as `0`. Use `??`, not `||`, on numeric
   values; an empty input becomes `null`, never `0`.
-- **Text.** Every visible string is an i18n key in `frontend/src/i18n/fr.ts`,
-  `en.ts`, and `ja.ts`. Labels are short; one help sentence at most; details go to
-  the user guide. No middle dot. Never overwrite approved Japanese.
+- **Text.** Add FR, EN, and JA to the owning i18n section with matching review
+  status. Follow the [translation workflow](../../../docs/reference/terminology-i18n.md#frontend-review-workflow).
+  Keep labels short, avoid the middle dot, and never silently overwrite approved text.
 - **Styles.** Semantic tokens only: no hard-coded color, font size, radius, shadow,
   or breakpoint. Component styles go in a `*.module.css`; shared styles stay in the
   existing CSS layers; no unlayered global override; no new UI library.

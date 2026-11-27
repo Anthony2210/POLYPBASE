@@ -1,0 +1,204 @@
+{
+  "profile": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "e267d343821f264e61be7d66ef27acd640e0cdb4ef2df9b54ad6ebff0f3ab35f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "d696a35bdd1883da07a8d6c41bb7a3153381b23aa197629ee273479a6eaa5a9c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileActiveOrganization": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "41a99dd139587974efcbc6980051804f36e035da1b630ba091223941e0ce8e79"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "600eed305c746f58c6cf7d7e374dfb48dcb05b8430f56b77d7f340021a1668e9",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileAdminAction": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "3b6a77d224e3add91d15d73da7beb09ee45eab1b21767e6b157a55a99802afe0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "75475e99c6e2fd4d9a304f5fe9be4e7369ad8bce5feaeea7579b00cee21dbb7b",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileAllOrganizationsAccess": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8be13939dd4b64a06c1a36c83c18e38e545d038a547a91da1d02699960c77afd"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "3e287e563e75b7c09b90d5df6b87e1c402d17226e12350cd7980851dc9d8b0d8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileDefaultOrganization": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "92340695899bd2d86223e4a007620e0d6502fc0e08809773634c7e0743764a9c",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "92340695899bd2d86223e4a007620e0d6502fc0e08809773634c7e0743764a9c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileEmail": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "969ccbd3cf6300ecd5c880459d81ae9027df7517563184a1b8b15282db230621",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "969ccbd3cf6300ecd5c880459d81ae9027df7517563184a1b8b15282db230621",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileFullAccess": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "e18939b10088a6ce6acfd3fbc6ce3c0262d896911b9d41b56b21ffcf1dfa0abf",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "f19611c61ca5f369db615827ee6eab5ece095cc483c9abfd4f8b1a0cc77d7cf3",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileLanguage": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "3e91b633157d19fee2412890ada8c76d3daeb4f6ca0f0664c8bdd6428c3ffe92",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8027f432a7fb7c273a1a0fde87de4212b6738673e1d06213c02b5a191eaf8ab4",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileMemberships": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "120d0fe406de3d85d2aec8eb2970234894c93c44922c80ab1918f40070a5be4c",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "b5504d3068bef37494afd15e37985abcc5b1acc354ce684125ec65883d0bc52f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileNoEmail": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "cb6c1fb76c7c34e8dc3068cc2cec3ebab71412110937751810fd04645c50c8a0",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "d83b9ff3c07a8390e2ea0a2af45fba37595da25f31b85ba625363ee98c0c796f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileNoMembership": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "8518db1bd51270f05aba18316653246e2aad86bbc4442706a0d661ca4b2e3e7f",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "ea268538e2f9266877a1135fc5d1f8d7d52f8b886cfd185562861b04f8f4b9de",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profilePreferences": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "20326038710383aa4af8d96f737bb569b9b5d96979924818027508f8d18e0202",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "66962f72a08883733c35df6f82a049b929f9579f19c4bc083ac99bead602eab3",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "profileTitle": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "ab451c6b48a7958167046a78df963af128eaa6830dcfe31d2570c8d247514335",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "271c62fa2debe2d239cfed40bca3d49c597278684e7fe16618e863b7fc161c89",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "roleDescAdmin": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "2a1f2b75b44052a811094b4eed29ad2674b78e5196c28ce0b7acb08ec4161daf",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "65df16fd987eb73c26856039daa9f4ed9bc2f1f4366481a89e16366951759dbf",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "roleDescTechnician": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "81345eae4ae683ab6f99a733b12818dad9e58c6aff92546bc406d820cc383c39",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "00db8810efcdda9721e7983e622aa6d397b051a54c35d575196218be3a55137a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "roleDescViewer": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "35586b468196dde2dc56d1aab7f462c0b8a6448dfc817f5e2cc3c17eeff6656e",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "7ed72de0df8cd8b690607730d91242b85f51b39d4ec89e0636aec7cb1153964f",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "roleResponsable": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "62c1aec4ffc86fa0d3a7b25e87dacf84ef65048ffe93588106c8a91b67d523bc",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8b2085f74dfa9c78a23b7d573c23d27d6d0b0e50c82a9b13138b193325be3814",
+      "reviewer": "japanese-reviewer"
+    }
+  }
+}

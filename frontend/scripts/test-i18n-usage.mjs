@@ -4,14 +4,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  analyzeUsage, catalogKeys, checkRepository, collectUsage, isUsageSource, usageExceptions,
+  analyzeUsage,
+  catalogKeys,
+  checkRepository,
+  collectUsage,
+  isUsageSource,
+  usageExceptions,
 } from './i18n-usage.mjs';
 
+import { sha256 } from './i18n-sections.mjs';
 import { retainedPr2Copy } from './pr2-retained-copy.mjs';
 import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 
 const catalogs = (...keys) => ({ fr: new Set(keys), en: new Set(keys) });
-const analyze = (keys, source, exceptions = {}) => analyzeUsage(catalogs(...keys), new Map([['src/component.tsx', source]]), exceptions);
+const analyze = (keys, source, exceptions = {}) =>
+  analyzeUsage(
+    catalogs(...keys),
+    new Map([['src/component.tsx', source]]),
+    exceptions,
+  );
 
 for (const [label, source] of [
   ['translator call', "t('used')"],
@@ -19,49 +30,84 @@ for (const [label, source] of [
   ['template literal', 't(`used`)'],
   ['literal union', "type Key = 'used' | 'other';"],
   ['conditional', "t(flag ? 'used' : 'other')"],
-  ['dynamic literal map', "const keys = { code: 'used' } as const; t(keys[code]);"],
-  ['dynamic tuple', "const rules = [['Legacy prefix', 'used']] as const; t(rules[index][1]);"],
-  ['function return', "function key(code: string) { return code ? 'used' : 'other'; } t(key(code));"],
+  [
+    'dynamic literal map',
+    "const keys = { code: 'used' } as const; t(keys[code]);",
+  ],
+  [
+    'dynamic tuple',
+    "const rules = [['Legacy prefix', 'used']] as const; t(rules[index][1]);",
+  ],
+  [
+    'function return',
+    "function key(code: string) { return code ? 'used' : 'other'; } t(key(code));",
+  ],
   ['catalog property alias', 'const text = translations[language]; text.used;'],
   ['optional property access', 'text?.used;'],
   ['catalog indexed access', "translations[language]['used'];"],
 ]) {
-  test(`counts ${label}`, () => assert.deepEqual(analyze(['used'], source).errors, []));
+  test(`counts ${label}`, () =>
+    assert.deepEqual(analyze(['used'], source).errors, []));
 }
 
 test('source locations are actionable and stable', () => {
   const result = analyze(['used'], "\nt('used'); text.used;");
-  assert.deepEqual(result.references.get('used'), ['src/component.tsx:2:3', 'src/component.tsx:2:17']);
+  assert.deepEqual(result.references.get('used'), [
+    'src/component.tsx:2:3',
+    'src/component.tsx:2:17',
+  ]);
 });
 
 for (const [label, source] of [
   ['comment', "// t('missing')"],
-  ['block comment', "/* text.missing */"],
+  ['block comment', '/* text.missing */'],
   ['ordinary identifier', 'const missing = 1;'],
   ['partial literal', "t('missingSuffix')"],
   ['case mismatch', "t('Missing')"],
   ['string concatenation', "t('miss' + 'ing')"],
-  ['template construction', 't(`miss${suffix}`)'],
+  ['template construction', `t(\`miss\${suffix}\`)`],
 ]) {
   test(`does not infer use from ${label}`, () => {
     const result = analyze(['missing'], source);
     assert.deepEqual(result.orphans, ['missing']);
-    assert.match(result.errors.join('\n'), /missing: no exact literal or property-access reference/);
+    assert.match(
+      result.errors.join('\n'),
+      /missing: no exact literal or property-access reference/,
+    );
   });
 }
 
 for (const filename of [
-  'scripts/test-usage.mjs', 'src/i18n/fr.ts', 'src/i18n/en.ts', 'src/i18n/index.ts',
-  'src/__tests__/component.ts', 'src/components/__mocks__/component.ts', 'src/tests/component.ts',
-  'src/test/component.ts', 'src/fixtures/example.ts', 'src/__fixtures__/example.ts',
-  'src/components/a.test.tsx', 'src/components/a.spec.ts', 'src/test-component.ts',
-  'src/test.component.ts', 'src/keys.d.ts', 'docs/example.ts',
+  'scripts/test-usage.mjs',
+  'src/i18n/fr.ts',
+  'src/i18n/en.ts',
+  'src/i18n/index.ts',
+  'src/i18n/sections/labels.ts',
+  'src/i18n/sections/index.ts',
+  'src/i18n/status/labels.json',
+  'src/__tests__/component.ts',
+  'src/components/__mocks__/component.ts',
+  'src/tests/component.ts',
+  'src/test/component.ts',
+  'src/fixtures/example.ts',
+  'src/__fixtures__/example.ts',
+  'src/components/a.test.tsx',
+  'src/components/a.spec.ts',
+  'src/test-component.ts',
+  'src/test.component.ts',
+  'src/keys.d.ts',
+  'docs/example.ts',
 ]) {
   test(`excludes test/catalog/non-source evidence in ${filename}`, () => {
     assert.equal(isUsageSource(filename), false);
-    const result = analyzeUsage(catalogs('unused'), new Map([
-      ['src/production.ts', 'export {};'], [filename, "t('unused');"],
-    ]), {});
+    const result = analyzeUsage(
+      catalogs('unused'),
+      new Map([
+        ['src/production.ts', 'export {};'],
+        [filename, "t('unused');"],
+      ]),
+      {},
+    );
     assert.deepEqual(result.orphans, ['unused']);
   });
 }
@@ -72,69 +118,147 @@ test('includes unmounted source files, nested directories and Windows paths', ()
     ['src/utils/nested/key.ts', "type Key = 'union';"],
     ['src\\legacy\\panel.jsx', 'text.direct;'],
   ]);
-  assert.deepEqual(analyzeUsage(catalogs('retained', 'union', 'direct'), sources, {}).errors, []);
+  assert.deepEqual(
+    analyzeUsage(catalogs('retained', 'union', 'direct'), sources, {}).errors,
+    [],
+  );
 });
 
 test('catalog parser reads identifiers, quoted keys and wrappers without executing source', () => {
-  assert.deepEqual([...catalogKeys('fr.ts', "export const fr = ({ used: 'Value', 'quoted': dangerous() } as const) satisfies Catalog;", 'fr')], ['used', 'quoted']);
+  assert.deepEqual(
+    [
+      ...catalogKeys(
+        'fr.ts',
+        "export const fr = ({ used: 'Value', 'quoted': dangerous() } as const) satisfies Catalog;",
+        'fr',
+      ),
+    ],
+    ['used', 'quoted'],
+  );
 });
 for (const source of [
-  "export const fr = { ...other };", "export const fr = { ['key']: 'Value' };",
-  "export const fr = { key: 'One', key: 'Two' };", 'export const fr = {};',
-  'export const fr = values;', 'export const fr = { broken: ; };',
+  'export const fr = { ...other };',
+  "export const fr = { ['key']: 'Value' };",
+  "export const fr = { key: 'One', key: 'Two' };",
+  'export const fr = {};',
+  'export const fr = values;',
+  'export const fr = { broken: ; };',
 ]) {
-  test(`fails closed on unsupported catalog ${source}`, () => assert.throws(() => catalogKeys('fr.ts', source, 'fr'), /fr.ts:/));
+  test(`fails closed on unsupported catalog ${source}`, () =>
+    assert.throws(() => catalogKeys('fr.ts', source, 'fr'), /fr.ts:/));
 }
 
 test('fails on malformed production syntax but ignores malformed tests', () => {
-  assert.throws(() => analyze(['key'], 'const value = ;'), /src\/component.tsx:1:\d+: invalid source/);
-  assert.doesNotThrow(() => collectUsage(new Map([['src/a.test.ts', 'const value = ;']]), new Set()));
+  assert.throws(
+    () => analyze(['key'], 'const value = ;'),
+    /src\/component.tsx:1:\d+: invalid source/,
+  );
+  assert.doesNotThrow(() =>
+    collectUsage(new Map([['src/a.test.ts', 'const value = ;']]), new Set()),
+  );
 });
 
 test('fails closed on no scanned sources and mismatched catalogs', () => {
-  assert.match(analyzeUsage(catalogs('key'), new Map(), {}).errors.join('\n'), /No non-test src files/);
-  const result = analyzeUsage({ fr: new Set(['key']), en: new Set() }, new Map([['src/a.ts', "t('key')"]]), {});
+  assert.match(
+    analyzeUsage(catalogs('key'), new Map(), {}).errors.join('\n'),
+    /No non-test src files/,
+  );
+  const result = analyzeUsage(
+    { fr: new Set(['key']), en: new Set() },
+    new Map([['src/a.ts', "t('key')"]]),
+    {},
+  );
   assert.match(result.errors.join('\n'), /en.key: missing catalog key/);
 });
 
 test('accepts only exact, justified exceptions and still reports retained orphans', () => {
-  const result = analyze(['retained'], 'export {};', { retained: 'Explicitly deferred pending product review.' });
+  const result = analyze(['retained'], 'export {};', {
+    retained: 'Explicitly deferred pending product review.',
+  });
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.orphans, ['retained']);
-  assert.match(analyze(['retained'], 'export {};', { retained: ' ' }).errors.join('\n'), /requires a concrete retention reason/);
-  assert.match(analyze(['csvUnused'], 'export {};', { 'csv*': 'Not a supported pattern.' }).errors.join('\n'), /csvUnused: no exact literal/);
+  assert.match(
+    analyze(['retained'], 'export {};', { retained: ' ' }).errors.join('\n'),
+    /requires a concrete retention reason/,
+  );
+  assert.match(
+    analyze(['csvUnused'], 'export {};', {
+      'csv*': 'Not a supported pattern.',
+    }).errors.join('\n'),
+    /csvUnused: no exact literal/,
+  );
 });
 
 test('rejects stale exceptions after deletion or a new production reference', () => {
-  assert.match(analyze([], 'export {};', { old: 'Previously retained.' }).errors.join('\n'), /old: stale exception: key is absent/);
-  assert.match(analyze(['old'], "t('old')", { old: 'Previously retained.' }).errors.join('\n'), /old: stale exception: source reference at src\/component.tsx:1:3/);
+  assert.match(
+    analyze([], 'export {};', { old: 'Previously retained.' }).errors.join(
+      '\n',
+    ),
+    /old: stale exception: key is absent/,
+  );
+  assert.match(
+    analyze(['old'], "t('old')", { old: 'Previously retained.' }).errors.join(
+      '\n',
+    ),
+    /old: stale exception: source reference at src\/component.tsx:1:3/,
+  );
 });
 
 test('test-only references cannot make an exception stale or make an orphan used', () => {
-  const result = analyzeUsage(catalogs('retained', 'orphan'), new Map([
-    ['src/production.ts', 'export {};'], ['src/production.test.ts', "t('retained'); t('orphan');"],
-  ]), { retained: 'Explicit retention decision.' });
+  const result = analyzeUsage(
+    catalogs('retained', 'orphan'),
+    new Map([
+      ['src/production.ts', 'export {};'],
+      ['src/production.test.ts', "t('retained'); t('orphan');"],
+    ]),
+    { retained: 'Explicit retention decision.' },
+  );
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /^orphan: no exact literal/);
 });
 
 test('documented conservative limitation: unused maps and unrelated exact properties retain keys', () => {
-  assert.deepEqual(analyze(['key'], "const neverRead = { label: 'key' };" ).errors, []);
+  assert.deepEqual(
+    analyze(['key'], "const neverRead = { label: 'key' };").errors,
+    [],
+  );
   assert.deepEqual(analyze(['key'], 'unrelatedObject.key;').errors, []);
 });
 
 test('repository traversal includes unmounted components but not catalogs or tests', () => {
   const directory = mkdtempSync(join(tmpdir(), 'polypbase-i18n-usage-'));
   try {
-    mkdirSync(join(directory, 'src', 'i18n'), { recursive: true });
+    const sections = join(directory, 'src', 'i18n', 'sections');
+    const status = join(directory, 'src', 'i18n', 'status');
+    mkdirSync(sections, { recursive: true });
+    mkdirSync(status, { recursive: true });
     mkdirSync(join(directory, 'src', 'components'), { recursive: true });
     const keys = [...Object.keys(usageExceptions), 'live', 'testOnly'];
-    for (const language of ['fr', 'en']) {
-      writeFileSync(join(directory, 'src', 'i18n', `${language}.ts`),
-        `export const ${language} = ${JSON.stringify(Object.fromEntries(keys.map(key => [key, key])))};`);
-    }
-    writeFileSync(join(directory, 'src', 'components', 'Unmounted.tsx'), "t('live');");
-    writeFileSync(join(directory, 'src', 'components', 'Unmounted.test.tsx'), "t('testOnly');");
+    const values = Object.fromEntries(
+      keys.map((key) => [key, { fr: key, en: key }]),
+    );
+    const statuses = Object.fromEntries(
+      keys.map((key) => [
+        key,
+        {
+          en: { status: 'ai', source_sha256: sha256(key) },
+        },
+      ]),
+    );
+    writeFileSync(
+      join(sections, 'labels.ts'),
+      `export const labels = ${JSON.stringify(values)};`,
+    );
+    writeFileSync(join(status, 'labels.json'), JSON.stringify(statuses));
+    writeFileSync(join(sections, 'index.ts'), `throw new Error('Not read');`);
+    writeFileSync(
+      join(directory, 'src', 'components', 'Unmounted.tsx'),
+      "t('live');",
+    );
+    writeFileSync(
+      join(directory, 'src', 'components', 'Unmounted.test.tsx'),
+      "t('testOnly');",
+    );
     const result = checkRepository(directory);
     assert.deepEqual(result.files, ['src/components/Unmounted.tsx']);
     assert.equal(result.errors.length, 1);
@@ -145,82 +269,190 @@ test('repository traversal includes unmounted components but not catalogs or tes
 });
 
 test('B45 donation placeholder retention expires after removal or reuse', () => {
-  const retained = ['exchangePreviewBoxPlaceholder', 'exchangePreviewInstitutionPlaceholder'];
-  const exceptions = Object.fromEntries(retained.map(key => [key, usageExceptions[key]]));
-  const result = analyze([...retained, 'exchangePreviewUnreviewed'], 'export {};', exceptions);
+  const retained = [
+    'exchangePreviewBoxPlaceholder',
+    'exchangePreviewInstitutionPlaceholder',
+  ];
+  const exceptions = Object.fromEntries(
+    retained.map((key) => [key, usageExceptions[key]]),
+  );
+  const result = analyze(
+    [...retained, 'exchangePreviewUnreviewed'],
+    'export {};',
+    exceptions,
+  );
   assert.equal(result.errors.length, 1);
-  assert.match(result.errors[0], /^exchangePreviewUnreviewed: no exact literal/);
+  assert.match(
+    result.errors[0],
+    /^exchangePreviewUnreviewed: no exact literal/,
+  );
   for (const key of retained) {
     assert.match(exceptions[key], /^B45 form preview:.*registered FR\/EN key/);
-    assert.match(analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'), /stale exception: key is absent/);
-    assert.match(analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join('\n'), /stale exception: source reference/);
+    assert.match(
+      analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'),
+      /stale exception: key is absent/,
+    );
+    assert.match(
+      analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join(
+        '\n',
+      ),
+      /stale exception: source reference/,
+    );
   }
 });
 
 test('thermal retention is exact and does not exempt other unused temperature keys', () => {
-  const retained = ['temperatureGap', 'temperatureMeasurement', 'temperatureMissing'];
-  assert.equal(usageExceptions.temperatureAverage, undefined, 'The four-hour mean reuses this key');
-  const result = analyze([...retained, 'temperatureUnreviewed'], 'export {};',
-    Object.fromEntries(retained.map(key => [key, usageExceptions[key]])));
+  const retained = [
+    'temperatureGap',
+    'temperatureMeasurement',
+    'temperatureMissing',
+  ];
+  assert.equal(
+    usageExceptions.temperatureAverage,
+    undefined,
+    'The four-hour mean reuses this key',
+  );
+  const result = analyze(
+    [...retained, 'temperatureUnreviewed'],
+    'export {};',
+    Object.fromEntries(retained.map((key) => [key, usageExceptions[key]])),
+  );
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /^temperatureUnreviewed: no exact literal/);
   for (const key of retained) {
-    assert.match(usageExceptions[key], /cbc513f.*explicit i18n removal decision/);
-    assert.match(analyze([key], `t('${key}')`, { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
-    assert.match(analyze([], 'export {};', { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
+    assert.match(
+      usageExceptions[key],
+      /cbc513f.*explicit i18n removal decision/,
+    );
+    assert.match(
+      analyze([key], `t('${key}')`, {
+        [key]: usageExceptions[key],
+      }).errors.join('\n'),
+      /stale exception/,
+    );
+    assert.match(
+      analyze([], 'export {};', { [key]: usageExceptions[key] }).errors.join(
+        '\n',
+      ),
+      /stale exception/,
+    );
   }
 });
 
 test('four-hour monitoring retains only the superseded daily and latest-reading labels', () => {
-  const retained = ['temperatureDailyGap', 'temperatureDailyMean', 'temperatureDailyPeriod', 'temperatureRecentMean', 'temperatureRecentPeriod'];
-  const exceptions = Object.fromEntries(retained.map(key => [key, usageExceptions[key]]));
-  const result = analyze([...retained, 'temperatureUnreviewed'], 'export {};', exceptions);
+  const retained = [
+    'temperatureDailyGap',
+    'temperatureDailyMean',
+    'temperatureDailyPeriod',
+    'temperatureRecentMean',
+    'temperatureRecentPeriod',
+  ];
+  const exceptions = Object.fromEntries(
+    retained.map((key) => [key, usageExceptions[key]]),
+  );
+  const result = analyze(
+    [...retained, 'temperatureUnreviewed'],
+    'export {};',
+    exceptions,
+  );
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /^temperatureUnreviewed: no exact literal/);
   for (const key of retained) {
     assert.match(exceptions[key], /Four-hour monitoring.*Japanese provenance/);
-    assert.match(analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join('\n'), /stale exception/);
-    assert.match(analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'), /stale exception/);
+    assert.match(
+      analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join(
+        '\n',
+      ),
+      /stale exception/,
+    );
+    assert.match(
+      analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'),
+      /stale exception/,
+    );
   }
 });
 
 test('partial-history retention is exact and expires when the key is used or removed', () => {
   const exceptions = { historyPartial: usageExceptions.historyPartial };
-  assert.match(exceptions.historyPartial, /Historical movements \(5b1299b\).*undated-source notice and Japanese review provenance.*explicit i18n removal batch/);
-  const result = analyze(['historyPartial', 'historyUnreviewed'], 'export {};', exceptions);
+  assert.match(
+    exceptions.historyPartial,
+    /Historical movements \(5b1299b\).*undated-source notice and Japanese review provenance.*explicit i18n removal batch/,
+  );
+  const result = analyze(
+    ['historyPartial', 'historyUnreviewed'],
+    'export {};',
+    exceptions,
+  );
   assert.equal(result.errors.length, 1);
   assert.match(result.errors[0], /^historyUnreviewed: no exact literal/);
-  assert.match(analyze(['historyPartial'], "t('historyPartial')", exceptions).errors.join('\n'), /stale exception/);
-  assert.match(analyze([], 'export {};', exceptions).errors.join('\n'), /stale exception/);
+  assert.match(
+    analyze(['historyPartial'], "t('historyPartial')", exceptions).errors.join(
+      '\n',
+    ),
+    /stale exception/,
+  );
+  assert.match(
+    analyze([], 'export {};', exceptions).errors.join('\n'),
+    /stale exception/,
+  );
 });
 
 test('Species retention is exact, justified and expires when a consumer returns', () => {
   assert.equal(Object.keys(retainedSpeciesCopy).length, 64);
-  for (const key of ['taxonomyCreateSpeciesFirst', 'taxonomyGoToSharedReferences', 'taxonomyNewStrain', 'taxonomyStrainMissingAAA']) {
+  for (const key of [
+    'taxonomyCreateSpeciesFirst',
+    'taxonomyGoToSharedReferences',
+    'taxonomyNewStrain',
+    'taxonomyStrainMissingAAA',
+  ]) {
     assert.equal(Object.hasOwn(usageExceptions, key), false, key);
   }
   for (const [key, reason] of Object.entries(retainedSpeciesCopy)) {
     assert.match(reason, /Species integration \(2026-11-17\)/);
-    assert.match(analyze([key], `t('${key}')`, { [key]: reason }).errors.join('\n'), /stale exception/);
-    assert.match(analyze([], 'export {};', { [key]: reason }).errors.join('\n'), /stale exception/);
+    assert.match(
+      analyze([key], `t('${key}')`, { [key]: reason }).errors.join('\n'),
+      /stale exception/,
+    );
+    assert.match(
+      analyze([], 'export {};', { [key]: reason }).errors.join('\n'),
+      /stale exception/,
+    );
   }
-  assert.match(analyze(['speciesUnreviewed'], 'export {};', {}).errors.join('\n'), /no exact literal/);
+  assert.match(
+    analyze(['speciesUnreviewed'], 'export {};', {}).errors.join('\n'),
+    /no exact literal/,
+  );
 });
 
 test('real source has no unreviewed orphans or stale exceptions', () => {
   const result = checkRepository();
   assert.deepEqual(result.errors, [], result.errors.join('\n'));
   for (const filename of [
-    'src/utils/auditPresentation.ts', 'src/utils/biologicalTimeline.ts',
-    'src/components/AccountInvitationsPanel.tsx', 'src/components/AdminView.tsx',
-    'src/components/OverviewView.tsx', 'src/components/ZonesView.tsx',
-  ]) assert.ok(result.files.includes(filename), `Consumer must be scanned: ${filename}`);
+    'src/utils/auditPresentation.ts',
+    'src/utils/biologicalTimeline.ts',
+    'src/components/AccountInvitationsPanel.tsx',
+    'src/components/AdminView.tsx',
+    'src/components/OverviewView.tsx',
+    'src/components/ZonesView.tsx',
+  ])
+    assert.ok(
+      result.files.includes(filename),
+      `Consumer must be scanned: ${filename}`,
+    );
   for (const key of Object.keys(usageExceptions)) {
-    assert.ok(result.catalogs.fr.has(key) && result.catalogs.en.has(key), `Protected key missing: ${key}`);
+    assert.ok(
+      result.catalogs.fr.has(key) && result.catalogs.en.has(key),
+      `Protected key missing: ${key}`,
+    );
   }
-  const csvKeys = [...result.catalogs.fr].filter(key => key.startsWith('csv'));
+  const csvKeys = [...result.catalogs.fr].filter((key) =>
+    key.startsWith('csv'),
+  );
   assert.ok(csvKeys.length >= 132, 'Preserve the 132 baseline CSV keys.');
   for (const key of csvKeys) {
-    assert.ok(result.references.has(key) || Object.hasOwn(retainedPr2Copy, key), `CSV key requires source evidence or a specific PR2 retention decision: ${key}`);
+    assert.ok(
+      result.references.has(key) || Object.hasOwn(retainedPr2Copy, key),
+      `CSV key requires source evidence or a specific PR2 retention decision: ${key}`,
+    );
   }
 });

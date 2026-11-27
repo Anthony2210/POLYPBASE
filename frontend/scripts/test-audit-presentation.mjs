@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 import { createElement } from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
@@ -147,8 +148,7 @@ function readSource(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
 
-const fr = loadModule('../src/i18n/fr.ts').fr;
-const en = loadModule('../src/i18n/en.ts').en;
+const { fr, en } = loadI18n().translations;
 
 function translator(catalog) {
   return (key) => catalog[key] ?? key;
@@ -869,8 +869,8 @@ test('legacy account snapshots never expose arbitrary technical usernames', () =
   for (const raw of [
     'internal_0123456789abcdef',
     'legacy-tech',
-    'Camille DURAND',
-    'camille@example.org',
+    'Audit SUBJECT',
+    'audit-subject@example.org',
   ]) {
     const entry = {
       object_type: 'account',
@@ -890,33 +890,36 @@ test('administration account targets use normalized business details, never the 
     object_type: 'account',
     object_id: 'internal_0123456789abcdef',
     account_identity: {
-      first_name: 'Camille',
-      last_name: 'Durand',
-      email: 'camille@example.org',
+      first_name: 'Audit',
+      last_name: 'Subject',
+      email: 'audit-subject@example.org',
     },
     business_details: {
       type: 'account',
-      values: { nom: 'Camille DURAND', email: 'camille@example.org' },
+      values: { nom: 'Audit SUBJECT', email: 'audit-subject@example.org' },
     },
   };
-  assert.equal(audit.getAuditTargetLabel(entry), 'Camille DURAND');
+  assert.equal(audit.getAuditTargetLabel(entry), 'Audit SUBJECT');
 
   const emailOnly = {
     ...entry,
     account_identity: {
       first_name: '',
       last_name: '',
-      email: 'camille@example.org',
+      email: 'audit-subject@example.org',
     },
     business_details: {
       type: 'account',
       values: {
         nom: 'internal_0123456789abcdef',
-        email: 'camille@example.org',
+        email: 'audit-subject@example.org',
       },
     },
   };
-  assert.equal(audit.getAuditTargetLabel(emailOnly), 'camille@example.org');
+  assert.equal(
+    audit.getAuditTargetLabel(emailOnly),
+    'audit-subject@example.org',
+  );
 
   const noValues = {
     ...entry,
@@ -948,12 +951,12 @@ test('personal resource labels never expose an internal identifier', () => {
       identifier: 'internal_0123456789abcdef',
       label: 'untrusted-label',
       account_identity: {
-        first_name: 'Camille',
-        last_name: 'Durand',
+        first_name: 'Audit',
+        last_name: 'Subject',
         email: '',
       },
     }),
-    'Camille DURAND',
+    'Audit SUBJECT',
   );
   assert.equal(
     audit.getPersonalResourceLabel({
@@ -1874,7 +1877,7 @@ test('account changes and export counts remain visible without expansion', () =>
   const account = audit.getAuditInlineBusinessItems(
     {
       type: 'account',
-      values: { nom: 'Alice', role: 'admin', acces_actif: true },
+      values: { nom: 'Test Administrator', role: 'admin', acces_actif: true },
       changes: { acces_actif: { before: false, after: true } },
     },
     tFr,
@@ -1899,15 +1902,15 @@ test('account creation uses current structured identity and the recorded role', 
     object_type: 'account',
     object_id: 'internal_123',
     account_identity: {
-      first_name: 'Sophie',
-      last_name: 'Lèbre',
-      email: 'sophie@example.org',
+      first_name: 'Admin',
+      last_name: 'Témoin',
+      email: 'admin@example.org',
     },
     business_details: {
       type: 'account',
       values: {
-        nom: 'Sophie LÈBRE',
-        email: 'sophie@example.org',
+        nom: 'Admin TÉMOIN',
+        email: 'admin@example.org',
         role: 'admin',
         acces_actif: true,
         is_responsable: false,
@@ -1920,11 +1923,11 @@ test('account creation uses current structured identity and the recorded role', 
   );
   assert.equal(
     audit.getAuditTargetLabel(entry, tFr),
-    'Sophie LÈBRE <sophie@example.org> rôle : Administrateur',
+    'Admin TÉMOIN <admin@example.org> rôle : Administrateur',
   );
   assert.equal(
     audit.getAuditTargetLabel(entry, tEn),
-    'Sophie LÈBRE <sophie@example.org> role: Administrator',
+    'Admin TÉMOIN <admin@example.org> role: Administrator',
   );
   assert.equal(
     audit.getAuditInlineBusinessItems(entry.business_details, tFr).length,
@@ -1934,11 +1937,11 @@ test('account creation uses current structured identity and the recorded role', 
     audit.getAuditTargetLabel(
       {
         ...entry,
-        business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } },
+        business_details: { type: 'account', values: { nom: 'Admin TÉMOIN' } },
       },
       tFr,
     ),
-    'Sophie LÈBRE <sophie@example.org>',
+    'Admin TÉMOIN <admin@example.org>',
   );
 });
 
@@ -1987,7 +1990,7 @@ test('account transitions have factual titles without redundant fields', () => {
       business_details: {
         type: 'account',
         values: {
-          nom: 'Ayoub AKKOUH',
+          nom: 'Lab TECHNICIAN',
           role: 'lab_technician',
           acces_actif: true,
           is_responsable: false,
@@ -2020,7 +2023,7 @@ test('multi-field account changes remain compact and do not invent a role hierar
     business_details: {
       type: 'account',
       values: {
-        nom: 'Ayoub AKKOUH',
+        nom: 'Lab TECHNICIAN',
         role: 'lab_technician',
         acces_actif: false,
       },
@@ -2940,8 +2943,6 @@ test('administration header stacks the date filter below the family filters', ()
   const administrationCss = readSource(
     '../src/styles/pages/administration.css',
   );
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
   const headingStart = sectionSource.indexOf(
     '<header className="box-inventory-heading">',
   );
@@ -3017,7 +3018,11 @@ test('administration header stacks the date filter below the family filters', ()
   );
   assert.match(sectionSource, /onSelect=\{\(\) => selectFamily\(''\)\}/);
   assert.match(sectionSource, /setDateFilter\(event\.target\.value\)/);
-  for (const source of [sectionSource, administrationCss, frSource, enSource]) {
+  for (const source of [
+    sectionSource,
+    administrationCss,
+    ...[fr, en].map((catalog) => Object.keys(catalog).join('\n')),
+  ]) {
     assert.equal(source.includes('adminAuditText'), false);
     assert.equal(source.includes('adminAuditClearFilters'), false);
     assert.equal(source.includes('admin-audit-clear'), false);
@@ -3089,8 +3094,6 @@ test('history headings omit filler text and action counts while using the applic
   const adminCss = readSource('../src/styles/pages/administration.css');
   const profileCss = readSource('../src/styles/pages/profile.css');
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
 
   assert.doesNotMatch(adminSource, /adminAuditCount|admin-audit-result-count/);
   assert.doesNotMatch(
@@ -3109,9 +3112,9 @@ test('history headings omit filler text and action counts while using the applic
     timelineCss,
     /\.audit-day-heading \{[^}]*font-family: var\(--font-body\);/s,
   );
-  for (const source of [frSource, enSource]) {
+  for (const catalog of [fr, en]) {
     assert.doesNotMatch(
-      source,
+      Object.keys(catalog).join('\n'),
       /adminAuditCount|profileActionsText|profileActionsCount/,
     );
   }
@@ -3676,8 +3679,6 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
     '../src/components/AuditLinkedActionsPopover.tsx',
   );
   const presentationSource = readSource('../src/utils/auditPresentation.ts');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
   const adminCss = readSource('../src/styles/pages/administration.css');
   const timelineCss = readSource('../src/styles/components/audit-timeline.css');
   const middleDot = String.fromCodePoint(0xb7);
@@ -3688,8 +3689,7 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
     timelineSource,
     linkedSource,
     presentationSource,
-    frSource,
-    enSource,
+    ...[fr, en].map((catalog) => Object.entries(catalog).flat().join('\n')),
   ]) {
     assert.equal(source.includes(middleDot), false);
     assert.equal(source.includes('auditDetailTechnical'), false);

@@ -151,5 +151,5 @@ all B13/laboratory/movement-correction freezes.
 
 See `integration-2026-11-09-validation.md` for the combined frontend/backend
 validation, independently reproduced prior failures and remaining limitations.
-The index remains Anthony's responsibility; resolving worktree content does not
+The index remains the maintainer's responsibility; resolving worktree content does not
 mark an unmerged index entry resolved.

@@ -1,4 +1,4 @@
-import type { TranslationKey } from '../i18n/fr';
+import type { TranslationKey } from '../i18n';
 
 // A completed member mutation keeps a highlight on the affected row for this
 // long, then the highlight clears itself. Long enough to be noticed, short
@@ -29,16 +29,25 @@ export const MEMBER_MUTATION_FEEDBACK: Record<
   promote: { key: 'manageMemberPromoted', tone: 'positive' },
   demote: { key: 'manageMemberDemoted', tone: 'negative' },
   promote_to_admin: { key: 'manageMemberPromotedToAdmin', tone: 'positive' },
-  demote_to_technician: { key: 'manageMemberDemotedToTechnician', tone: 'negative' },
+  demote_to_technician: {
+    key: 'manageMemberDemotedToTechnician',
+    tone: 'negative',
+  },
   deactivate: { key: 'manageMemberDeactivated', tone: 'negative' },
   reactivate: { key: 'manageMemberReactivated', tone: 'positive' },
-  relinquish_responsable: { key: 'manageResponsableRelinquished', tone: 'negative' },
+  relinquish_responsable: {
+    key: 'manageResponsableRelinquished',
+    tone: 'negative',
+  },
   resend_invitation: { key: 'manageInvitationResent', tone: 'positive' },
 };
 
 // Row classes: an inactive membership stays dimmed, and a just-updated one keeps
 // a temporary highlight that wins over the hover and inactive states.
-export function getMemberRowClassName(isActive: boolean, tone: MemberFeedbackTone | null): string {
+export function getMemberRowClassName(
+  isActive: boolean,
+  tone: MemberFeedbackTone | null,
+): string {
   const classes: string[] = [];
   if (!isActive) classes.push('is-inactive');
   if (tone === 'positive') classes.push('is-updated-positive');

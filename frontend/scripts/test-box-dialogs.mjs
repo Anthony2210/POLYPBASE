@@ -7,6 +7,7 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 const read = (path) =>
   readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -87,21 +88,8 @@ const common = {
     }),
   },
 };
-const catalogues = Object.fromEntries(
-  ['fr', 'en'].map((language) => [
-    language,
-    load(`i18n/${language}.ts`)[language],
-  ]),
-);
-const i18n = load('i18n/index.ts', {
-  ...Object.fromEntries(
-    ['fr', 'en'].map((language) => [
-      `./${language}`,
-      { [language]: catalogues[language] },
-    ]),
-  ),
-  './ja': load('i18n/ja.ts'),
-});
+const i18n = loadI18n();
+const catalogues = i18n.translations;
 const components = {
   qr: load('components/QrLabelModal.tsx', {
     ...common,

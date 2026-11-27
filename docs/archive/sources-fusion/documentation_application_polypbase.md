@@ -583,7 +583,7 @@ La page contient :
 - un lien vers les étiquettes sur mobile ;
 - l'espace administrateur si l'utilisateur est administrateur sur ordinateur.
 
-Les noms sont formatés pour être plus lisibles. Le prénom est affiché avec une majuscule et le nom en majuscules, par exemple `Anthony COMBES--AGUÉRA`.
+Les noms sont formatés pour être plus lisibles. Le prénom est affiché avec une majuscule et le nom en majuscules.
 
 La langue est stockée dans les préférences utilisateur. L'interface prévoit actuellement le français et l'anglais, avec la possibilité d'ajouter d'autres langues ensuite.
 

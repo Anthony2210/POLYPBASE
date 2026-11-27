@@ -32,6 +32,12 @@ The tablet layout uses a permanent 88px side rail, not top navigation: it applie
 
 Administration is desktop-only. `frontend/src/hooks/useIsDesktopApp.ts` centralizes detection: a minimum width of 1024px **and** `hover: hover` **and** `pointer: fine`; width alone is not enough. On non-desktop devices, the Administration navigation entry is absent and any `/administration...` route is replaced with `/` before the view renders. There must be no intermediate admin screen, no message asking users to switch to a computer, and no attempt to make these pages responsive without a new product decision. This display rule never replaces backend permissions. The active sections are Équipe, Inventaire, Espèces, Emplacements, Envois et réceptions, and Historique. The former sections Référentiels partagés and Institutions are no longer routed; their old URLs on desktop return to Pilotage.
 
+## Internationalization
+
+Keep React copy in the feature-based `frontend/src/i18n/sections/` files. Each key has required FR and EN values and an optional JA value. Consumers use the existing typed i18n API; do not import a section into a component or hard-code a second copy in JSX. The interface defaults to FR. A missing JA entry displays EN; review statuses and stale-source warnings are not runtime fallback switches. Interface languages are separate from content languages (`CONTENT_LANGUAGES`).
+
+Use `npm run i18n:find -- <key or text>` from `frontend/` to find the owning section. See [terminology and review workflow](terminology-i18n.md#frontend-review-workflow) for editing text and its status sidecar. Django messages have a separate [PO/MO workflow](../operations/development-qa.md#i18n-checks).
+
 ## Interface principles
 
 - Design for repeated use: dense but readable, with predictable controls and concise text.

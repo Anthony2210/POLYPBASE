@@ -1,0 +1,331 @@
+{
+  "adminEnvironmentCapacityCount": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "b06c261d0786a13e01f1cacc6dc2ca0bfdfbf6e40ec7b52940bdaa84404198a8",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "56c4674ae3c499c22217f57648152e21c4ed39b0cdc88a1546df8ca9f676e6c3",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentNoProbe": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "9cf5297fd7cee0cbbae3bb0696139c0aced43e4c842015fdf7d2cf4ee242a837",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "dbbd9ec03ed0b14afa8c0d03bb3caa6cb1a6c9de2d326754a99052b74f1abcb3",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentNoZoneResults": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "c7e1c741e81ad188fc2efd7a9d280fc243cc683c2c6a92f1600026f82b4c744d",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "cf4646cc1da411d0f54867310b88ae0bba161b5b0a1e059f121cd3cf1aac323c",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentProbePanel": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "58a4ceeeb79638ddb18ace6a297bce7bdf1fbb65990981ca8507e28bb92d1e58",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "227baba4003a490cdc71f0ef51f8ec58bdc325d94e28cd6721f9f143569f7e43",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentProbesCount": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "085c6854c4a4a8bcbcf0c7ae70edd7024f67fb7b627a4633ade899d5f0221565",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "bdbb0b378326641f2b107b00d1a7ff48df7838b1cba9963feb3730b794941c52",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentSearchPlaceholder": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "67f70bd846a6febb6df22358577e482aa8333d9eff50dcb44f377b5f36d929c6",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "82e47717fee03a9c2cc98b9a3fd45cd4c20eb4f6adc20d1e0e0d52d15be5da6d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentSettingsPanel": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "4ed117e09c53c08acb70f70d7652db0cc3ed1022d5522af186876c736dce3a35",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "74a883a037bc227f91891ab654a753d3a99f31ab06ae5b5d2b6e594a692b41f8",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentZonePanel": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "0a521abd47fc58b5d9b9e6a8c6d58335c9737699bdce03a95b5103e0ece02554",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9a234df4269ae19523bf1a1cae73cbcc70fdf5734c051c078dfd0f2068930766",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminEnvironmentZonesCount": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "d23ee95012c46097bb8cd43779178fedf65240da9004ec1c362d1ae970ad513b",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "9d0826e11761935fecd22eeede510b069390752165a816442c1891a162aeb5ec",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminLabActiveBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2bf38f1ed03eb6c31d26e322c370bc409aed0488ba063309c0b0c52ce409296e"
+    }
+  },
+  "adminLabAddLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8d3b4e733451226393f3f671eb639ce33cf1a0540dab6c29652877334051c69a"
+    }
+  },
+  "adminLabCapacityInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1ae8537b9d69d4338b8f1c765c0857b430e8cd7ccb2d442b7860161cb46662e8"
+    }
+  },
+  "adminLabDeleteBoxCount": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2659cc7278deafae6ca9fdc050991f6b4f15971ac1a37a5c35b9061e70534327"
+    }
+  },
+  "adminLabDeleteChanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4990ffcc3aa55d999edef8b54a22994e6db4f85cf3798c2ab018b1e712106a70"
+    }
+  },
+  "adminLabDeleteCheckError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0407c7bc769e419247c22abeebb529c7991f38be0f763b3951f93f0f41769968"
+    }
+  },
+  "adminLabDeleteChecking": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b186f6a4197c9d955f28268b68de313a0f6e5c48b71532c2eecb91e7b47f25a4"
+    }
+  },
+  "adminLabDeleteHistory": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5cac7a35b1633f137db516f225d4bfe19037177e52881e0850c074dadf251fc4"
+    }
+  },
+  "adminLabDeleteLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5e5d0216ce0b5b9ef8c015800730294a0ae3fb3f153f3015423b908dbe579d63"
+    }
+  },
+  "adminLabDeleteNeverUsed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "658032ed6604af2dde3a01d6a9f9e2f4d4cd30d57d0e7fb799b3a9e2997a497c"
+    }
+  },
+  "adminLabDeleteNoBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bd7191ac35e60be09102b72e3bf607dcbc0c8bfb981c949cf25ae84310073a12"
+    }
+  },
+  "adminLabDeleteOccupied": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c01853b9ebb60d0fe6dd4b1cdd68c03b0ada1d1bb229e36f1dbf4f4f668710b5"
+    }
+  },
+  "adminLabDeleteOneBox": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "34e67f5f7f6d2da47b9f1b7d9ea4d5538de3b817829a074f0ace39303be70cde"
+    }
+  },
+  "adminLabDeleteTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b7b9abc1db104855fb0cc2935ea9cc1233c2117fee1bd77ebb86f467fdd74337"
+    }
+  },
+  "adminLabDeleted": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2e2246f90648cb68d18179d8a2f162a0a82aa5db667816f311dcb7e7f28afe52"
+    }
+  },
+  "adminLabDeleting": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8bc870d6c98fce8c8214441859f64641be559686dc7912fc326045c6de1d742e"
+    }
+  },
+  "adminLabEditLocation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "42e37604b638b62790fde6210fe9af90567961220206ec36e2739e075c85a7ae"
+    }
+  },
+  "adminLabEditTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f057991053160779c6c2583e6bb35bf41910d76455bd44b6ebfe87e5976d77d4"
+    }
+  },
+  "adminLabInactive": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cdcf2ea348f7875813e276d3b9d1e076573a5e3d0e679e5cc9fe83df1750e8d0"
+    }
+  },
+  "adminLabLocationsTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "692cf7711c400f157be6932c3638065790f71a979b819cd39048e3840849b504"
+    }
+  },
+  "adminLabMaxCapacity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "582910bb826f1fa5f9872423d63ca287fee9ab2de578854f43ce20b370e97542"
+    }
+  },
+  "adminLabNoLocations": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "55500c3b15181eb565d676f21bde4ba336da0c22d0aea60203ac568d30cdde8d"
+    }
+  },
+  "adminLabReferenceSalinity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d9a61b211664342a04f95c93e76e8b1b91cc631f99f089718466b2f80a504387"
+    }
+  },
+  "adminLabSalinityInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "12b3953dd90c575a1537f2f41b40551f0ed9f5fe919e77d49f2245f2dcf6ef23"
+    }
+  },
+  "adminLabSaved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e59801dfa1144250f1002b7684acb3a7db969c47a5ae478cbad65d5e13dda7ee"
+    }
+  },
+  "adminLabTargetTemperatureField": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "402b89a6af9d7776e2c05743ac3ad89315b7f0fb41256fb1c98b5d631a6ca98d"
+    }
+  },
+  "adminLabTemperatureInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bf3ea0f4f0f101bb6f9ade10f3f0507cda023323956b5c7a641a1b3e001cfb7a"
+    }
+  },
+  "adminProbeNoZone": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "35c705c41e3476dd61000e639e030f0f041b6360f964031cf0cf027a4b833772",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "801918a849c4cf9fbe6f0682188b45c1d6fe3dbeba74ba084901d6b6a1f1412d",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminTabLocations": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "f0a4b4b904ceed5652f714776376311f105dfe0ff4ca3b43eb79619cbfcc0cd6",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "d9f4f5ecca12601b8bd64c0216ff2e69d97ee093ff1ea8c9c8839bb502ec5a11",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminZoneNoOrganization": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "f493c0ae26da51d1db9d5ce5467f6d04460a41006439b8dea9b5050112530c80",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "df9ad5c1093ad47e48299f468d996a28f9cf8be114719d806313a816c9cf829a",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminZoneProbes": {
+    "en": {
+      "status": "validated",
+      "source_sha256": "dd97b5da106a7f346f59241a8d3ba7ace42bb07208d2b4d061c0e9fac9fba76c",
+      "reviewer": "english-reviewer"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "8f6e567898b38d75b64b45d5be9be1dca7291eb6c66ee7305d7bc2b27751ac70",
+      "reviewer": "japanese-reviewer"
+    }
+  },
+  "adminZonesProbesTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "54b28ee1c0841863f68f012e05c0651f7e5e1ea95f937dd935cab7ed9dde6bb3"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "c246f929400fa5642b9076ecd697e79aad3172859c6a2e0cbb50afee84c95144",
+      "reviewer": "japanese-reviewer"
+    }
+  }
+}

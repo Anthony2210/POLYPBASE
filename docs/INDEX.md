@@ -27,7 +27,7 @@ straight to the canonical page rather than through a compatibility stub.
 | CSV, planner, exports, or institutional donations | [Imports, exports, and transfers](reference/imports-exports-transfers.md) |
 | Species, strains, AAA/BBB codes, and WoRMS | [Taxonomy and species](reference/taxonomy-species.md) |
 | React, routing, usability, or CSS | [Frontend](reference/frontend.md) · [Style organization](../frontend/src/styles/README.md) |
-| User-facing text, FR/EN/JA catalogs, and usage checks | [Terminology and i18n](reference/terminology-i18n.md) · [Application translation register](translation-review/application/README.md) |
+| User-facing text, FR/EN/JA sections, review statuses, and usage checks | [Terminology and i18n](reference/terminology-i18n.md) |
 | Django models, constraints, and traceability | [Data model](reference/data-model.md) |
 | Set up a development environment | [Getting started](../README.md) |
 | Windows worktrees, draft PRs, merges, Dependabot, and cleanup | [Local pull request workflow](operations/local-pr-workflow.md) |

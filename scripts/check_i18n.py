@@ -7,6 +7,7 @@ Only literal gettext/gettext_lazy calls through actual Django imports, and liter
 template trans/translate tags (optionally `as name`), are supported. Dynamic calls,
 indirection, shadowed callables, plural/context APIs and block tags fail closed.
 """
+
 from __future__ import annotations
 
 import ast
@@ -22,6 +23,7 @@ except ImportError:
     import compile_django_messages as compiler
 
 ROOT = Path(__file__).resolve().parents[1]
+EXCEPTION_EVIDENCE = Path("backend/locale/coverage-exception-evidence.csv")
 LANGUAGES = ("fr", "en")
 # Partial catalogs hold only validated translations, so no coverage is required.
 # Their MO is the compiler's effective catalog: a missing msgid shows the approved
@@ -57,25 +59,34 @@ class CoverageException:
 
     @property
     def decision_identity(self) -> tuple[str, str, str, str]:
-        return ("django", self.msgid, self.language.upper(),
-                f"backend/locale/{self.language}/LC_MESSAGES/django.po")
+        return (
+            "django",
+            self.msgid,
+            self.language.upper(),
+            f"backend/locale/{self.language}/LC_MESSAGES/django.po",
+        )
 
 
 @dataclass(frozen=True)
-class RegisterEvent:
+class DecisionEvent:
     status: str
     decision_ref: str
 
 
 def _deferred(language, msgid, *sources):
-    if msgid in ("A merged identity is read-only.",
-                 "The culture identity changed. Reload the culture.",
-                 "This code is reserved by a historical culture identity."):
+    if msgid in (
+        "A merged identity is read-only.",
+        "The culture identity changed. Reload the culture.",
+        "This code is reserved by a historical culture identity.",
+    ):
         reason = IDENTITY_GUARD
     elif msgid.startswith("Duplicate measurement evidence"):
         reason = EVIDENCE_GUARD
-    elif msgid in ("Use YYYY-MM-DD format.", "End must be on or after start.",
-                   "The date range must not exceed 366 days, inclusive."):
+    elif msgid in (
+        "Use YYYY-MM-DD format.",
+        "End must be on or after start.",
+        "The date range must not exceed 366 days, inclusive.",
+    ):
         reason = DATE_FR
     elif msgid == "Lecture seule":
         reason = ROLE
@@ -96,7 +107,9 @@ def _deferred(language, msgid, *sources):
     return CoverageException(language, msgid, tuple(sources), reason)
 
 
-LEGACY_CHOICE = "Legacy model choice label; no new FR/EN wording or identity entry approved in B02."
+LEGACY_CHOICE = (
+    "Legacy model choice label; no new FR/EN wording or identity entry approved in B02."
+)
 LEGACY_FORM = "Legacy measurement form label; no runtime importer found in B01; wording remains deferred."
 IDENTITY_GUARD = "Culture identity integrity guard; localized wording is unapproved; retain source fallback."
 EVIDENCE_GUARD = "Duplicate record evidence integrity guard; localized wording is unapproved; retain source fallback."
@@ -168,8 +181,9 @@ def extract_python(text: str, filename: str) -> list[str]:
     def bind(name, target):
         previous = aliases.get(name, target)
         if previous != target and any(
-                value == "django" or value.startswith("django.utils")
-                for value in (previous, target)):
+            value == "django" or value.startswith("django.utils")
+            for value in (previous, target)
+        ):
             raise ExtractionError(f"{filename}: conflicting translation import {name}")
         aliases[name] = target
 
@@ -181,8 +195,10 @@ def extract_python(text: str, filename: str) -> list[str]:
                 bind(alias.asname or alias.name, f"{node.module}.{alias.name}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                bind(alias.asname or alias.name.split('.')[0],
-                     alias.name if alias.asname else alias.name.split('.')[0])
+                bind(
+                    alias.asname or alias.name.split(".")[0],
+                    alias.name if alias.asname else alias.name.split(".")[0],
+                )
 
     def resolve(node):
         if isinstance(node, ast.Name):
@@ -194,17 +210,33 @@ def extract_python(text: str, filename: str) -> list[str]:
     def translation_function(node):
         name = resolve(node)
         return name.startswith("django.utils.translation.") and (
-            "gettext" in name.rsplit('.', 1)[-1])
+            "gettext" in name.rsplit(".", 1)[-1]
+        )
 
-    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    protected = {name for name, target in aliases.items()
-                 if target == "django" or target.startswith("django.utils")}
+    parents = {
+        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+    }
+    protected = {
+        name
+        for name, target in aliases.items()
+        if target == "django" or target.startswith("django.utils")
+    }
 
     def scope(node):
         while node in parents:
             node = parents[node]
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda,
-                                 ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            if isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.Lambda,
+                    ast.ListComp,
+                    ast.SetComp,
+                    ast.DictComp,
+                    ast.GeneratorExp,
+                ),
+            ):
                 return node
         return tree
 
@@ -232,40 +264,70 @@ def extract_python(text: str, filename: str) -> list[str]:
 
     messages = []
     for node in ast.walk(tree):
-        if ((isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-             and node.id in protected and scope(node) is tree)
-                or (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
-                    and resolve(node).startswith("django.utils.translation"))):
-            raise ExtractionError(f"{filename}:{node.lineno}: rebound translation import")
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id in protected
+            and scope(node) is tree
+        ) or (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Store)
+            and resolve(node).startswith("django.utils.translation")
+        ):
+            raise ExtractionError(
+                f"{filename}:{node.lineno}: rebound translation import"
+            )
         if not isinstance(node, (ast.Name, ast.Attribute)):
             continue
         parent = parents.get(node)
         if resolve(node) == "django.utils.translation" and not shadowed(node):
             if not isinstance(parent, ast.Attribute) or parent.value is not node:
-                raise ExtractionError(f"{filename}:{node.lineno}: indirect translation namespace")
+                raise ExtractionError(
+                    f"{filename}:{node.lineno}: indirect translation namespace"
+                )
             if parent.attr.startswith("__"):
-                raise ExtractionError(f"{filename}:{node.lineno}: dynamic translation namespace")
+                raise ExtractionError(
+                    f"{filename}:{node.lineno}: dynamic translation namespace"
+                )
         if not translation_function(node):
             continue
         if shadowed(node):
             if isinstance(parent, ast.Call) and parent.func is node:
-                raise ExtractionError(f"{filename}:{node.lineno}: shadowed translation callable")
+                raise ExtractionError(
+                    f"{filename}:{node.lineno}: shadowed translation callable"
+                )
             continue
         if not isinstance(parent, ast.Call) or parent.func is not node:
-            raise ExtractionError(f"{filename}:{node.lineno}: indirect translation reference")
-        if resolve(node) not in ("django.utils.translation.gettext", "django.utils.translation.gettext_lazy"):
-            raise ExtractionError(f"{filename}:{node.lineno}: unsupported gettext function {resolve(node)}")
-        if (len(parent.args) != 1 or parent.keywords
-                or not isinstance(parent.args[0], ast.Constant)
-                or not isinstance(parent.args[0].value, str)):
-            raise ExtractionError(f"{filename}:{node.lineno}: gettext requires one literal string")
+            raise ExtractionError(
+                f"{filename}:{node.lineno}: indirect translation reference"
+            )
+        if resolve(node) not in (
+            "django.utils.translation.gettext",
+            "django.utils.translation.gettext_lazy",
+        ):
+            raise ExtractionError(
+                f"{filename}:{node.lineno}: unsupported gettext function {resolve(node)}"
+            )
+        if (
+            len(parent.args) != 1
+            or parent.keywords
+            or not isinstance(parent.args[0], ast.Constant)
+            or not isinstance(parent.args[0].value, str)
+        ):
+            raise ExtractionError(
+                f"{filename}:{node.lineno}: gettext requires one literal string"
+            )
         messages.append(parent.args[0].value)
     return messages
 
 
 def extract_template(text: str, filename: str) -> list[str]:
-    blank = lambda match: "\n" * match.group().count("\n")
-    text = re.sub(r"{#.*?#}|{%\s*comment\s*%}.*?{%\s*endcomment\s*%}", blank, text, flags=re.S)
+    def blank(match):
+        return "\n" * match.group().count("\n")
+
+    text = re.sub(
+        r"{#.*?#}|{%\s*comment\s*%}.*?{%\s*endcomment\s*%}", blank, text, flags=re.S
+    )
     messages = []
     for match in re.finditer(r"{%\s*(.*?)\s*%}|{{(.*?)}}", text, re.S):
         tag = match.group(1)
@@ -280,15 +342,23 @@ def extract_template(text: str, filename: str) -> list[str]:
             raise ExtractionError(f"{location}: unsupported {command}")
         if command not in ("trans", "translate"):
             continue
-        literal = re.fullmatch(r'''(?:trans|translate)\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')(?:\s+as\s+[A-Za-z_]\w*)?''', tag, re.S)
+        literal = re.fullmatch(
+            r"""(?:trans|translate)\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')(?:\s+as\s+[A-Za-z_]\w*)?""",
+            tag,
+            re.S,
+        )
         if not literal:
             raise ExtractionError(f"{location}: unsupported translation tag: {tag}")
         quoted = literal.group(1)
         # Django template literals only unescape the matching quote and backslash.
-        messages.append(quoted[1:-1].replace("\\" + quoted[0], quoted[0]).replace("\\\\", "\\"))
+        messages.append(
+            quoted[1:-1].replace("\\" + quoted[0], quoted[0]).replace("\\\\", "\\")
+        )
     # A malformed/unclosed translation tag must not disappear from discovery.
     remainder = re.sub(r"{%.*?%}|{{.*?}}", blank, text, flags=re.S)
-    unclosed = re.search(r"{%\s*(?:trans|translate|blocktrans|blocktranslate)\b", remainder)
+    unclosed = re.search(
+        r"{%\s*(?:trans|translate|blocktrans|blocktranslate)\b", remainder
+    )
     if unclosed:
         line = remainder.count("\n", 0, unclosed.start()) + 1
         raise ExtractionError(f"{filename}:{line}: unclosed translation tag")
@@ -299,9 +369,16 @@ def discover_sources(root: Path) -> dict[str, tuple[str, ...]]:
     found = defaultdict(list)
     for path in sorted((root / "backend").rglob("*")):
         relative = path.relative_to(root)
-        if (not path.is_file() or path.suffix not in (".py", ".html")
-                or any(part in ("migrations", "tests", "__pycache__") for part in relative.parts)
-                or path.stem == "tests" or path.stem.startswith(("test_", "tests_"))):
+        if (
+            not path.is_file()
+            or path.suffix not in (".py", ".html")
+            or any(
+                part in ("migrations", "tests", "__pycache__")
+                for part in relative.parts
+            )
+            or path.stem == "tests"
+            or path.stem.startswith(("test_", "tests_"))
+        ):
             continue
         extract = extract_python if path.suffix == ".py" else extract_template
         for msgid in extract(path.read_text(encoding="utf-8-sig"), relative.as_posix()):
@@ -318,9 +395,15 @@ class Report:
     partial: dict[str, int] = field(default_factory=dict)
 
 
-def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
-                   permission_msgids=PERMISSION_MSGIDS) -> Report:
-    """decision_events maps exact register identities to their latest RegisterEvent."""
+def check_catalogs(
+    sources,
+    catalogs,
+    *,
+    exceptions=(),
+    decision_events=None,
+    permission_msgids=PERMISSION_MSGIDS,
+) -> Report:
+    """decision_events maps exact Django identities to their latest DecisionEvent."""
     if decision_events is None:
         decision_events = {}
     report = Report(total=len(sources))
@@ -335,11 +418,20 @@ def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
         if not exception.reason.strip():
             problems.append("missing exception reason")
         event = decision_events.get(exception.decision_identity)
-        if (event is None or event.status != "DEFERRED" or not exception.decision_ref
-                or event.decision_ref != exception.decision_ref):
-            problems.append("latest exact register event must be DEFERRED with matching decision_ref")
-        if (not exception.sources or exception.msgid not in sources
-                or Counter(exception.sources) != Counter(sources.get(exception.msgid, ()))):
+        if (
+            event is None
+            or event.status != "DEFERRED"
+            or not exception.decision_ref
+            or event.decision_ref != exception.decision_ref
+        ):
+            problems.append(
+                "latest exact evidence event must be DEFERRED with matching decision_ref"
+            )
+        if (
+            not exception.sources
+            or exception.msgid not in sources
+            or Counter(exception.sources) != Counter(sources.get(exception.msgid, ()))
+        ):
             problems.append("source occurrence scope drift")
         if exception.msgid in catalogs.get(exception.language, {}):
             problems.append("stale exception: catalog entry now exists")
@@ -352,30 +444,48 @@ def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
         messages = catalogs.get(language, {})
         missing = [msgid for msgid in sources if msgid not in messages]
         report.raw_missing[language] = missing
-        report.exempted[language] = [msgid for msgid in missing if (language, msgid) in valid_exceptions]
+        report.exempted[language] = [
+            msgid for msgid in missing if (language, msgid) in valid_exceptions
+        ]
         for msgid in missing:
             if (language, msgid) not in valid_exceptions:
-                report.errors.append(f"{language}: missing translation {msgid!r}: {sources[msgid]}")
+                report.errors.append(
+                    f"{language}: missing translation {msgid!r}: {sources[msgid]}"
+                )
         for msgid, value in messages.items():
             if not msgid:  # PO metadata, not a user-facing translation.
                 continue
             for label, text in (("msgid", msgid), ("msgstr", value)):
                 if not text.strip() or text != text.strip():
-                    report.errors.append(f"{language}: empty/edge whitespace {label} for {msgid!r}")
+                    report.errors.append(
+                        f"{language}: empty/edge whitespace {label} for {msgid!r}"
+                    )
                 if "·" in text:
-                    report.errors.append(f"{language}: middle dot in {label} for {msgid!r}")
+                    report.errors.append(
+                        f"{language}: middle dot in {label} for {msgid!r}"
+                    )
             try:
-                if compiler.placeholder_signature(msgid) != compiler.placeholder_signature(value):
-                    report.errors.append(f"{language}: placeholder mismatch for {msgid!r}")
+                if compiler.placeholder_signature(
+                    msgid
+                ) != compiler.placeholder_signature(value):
+                    report.errors.append(
+                        f"{language}: placeholder mismatch for {msgid!r}"
+                    )
             except ValueError as error:
-                report.errors.append(f"{language}: invalid placeholders for {msgid!r}: {error}")
+                report.errors.append(
+                    f"{language}: invalid placeholders for {msgid!r}: {error}"
+                )
         for msgid in permission_msgids:
             if messages.get(msgid, "").count(ADMIN_INVITATIONS[language]) != 1:
-                report.errors.append(f"{language}: permission invitation must occur once for {msgid!r}")
+                report.errors.append(
+                    f"{language}: permission invitation must occur once for {msgid!r}"
+                )
     # Validate source strings even where coverage is explicitly deferred.
     for msgid in sources:
         if not msgid.strip() or msgid != msgid.strip() or "·" in msgid:
-            report.errors.append(f"source: empty/edge whitespace/middle dot in {msgid!r}")
+            report.errors.append(
+                f"source: empty/edge whitespace/middle dot in {msgid!r}"
+            )
         try:
             compiler.placeholder_signature(msgid)
         except ValueError as error:
@@ -383,49 +493,75 @@ def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
     return report
 
 
-def check_partial_catalog(language, sources, messages, *, permission_msgids=PERMISSION_MSGIDS) -> list[str]:
+def check_partial_catalog(
+    language, sources, messages, *, permission_msgids=PERMISSION_MSGIDS
+) -> list[str]:
     """Validate a partial catalog: active msgids only, never empty, same placeholders."""
     errors = []
     for msgid, value in messages.items():
         if not msgid:  # PO metadata, not a user-facing translation.
             continue
         if msgid not in sources:
-            errors.append(f"{language}: obsolete msgid {msgid!r} is not an active source")
+            errors.append(
+                f"{language}: obsolete msgid {msgid!r} is not an active source"
+            )
         if not value.strip() or value != value.strip():
             errors.append(f"{language}: empty/edge whitespace msgstr for {msgid!r}")
         if "·" in value:
             errors.append(f"{language}: middle dot in msgstr for {msgid!r}")
         if value == msgid:
-            errors.append(f"{language}: msgstr copies the msgid for {msgid!r}; leave it to the English fallback")
+            errors.append(
+                f"{language}: msgstr copies the msgid for {msgid!r}; leave it to the English fallback"
+            )
         try:
-            if compiler.placeholder_signature(msgid) != compiler.placeholder_signature(value):
+            if compiler.placeholder_signature(msgid) != compiler.placeholder_signature(
+                value
+            ):
                 errors.append(f"{language}: placeholder mismatch for {msgid!r}")
         except ValueError as error:
             errors.append(f"{language}: invalid placeholders for {msgid!r}: {error}")
-        if msgid in permission_msgids and not PARTIAL_ADMIN_INVITATIONS[language].search(value):
-            errors.append(f"{language}: permission refusal without administrator invitation for {msgid!r}")
+        if msgid in permission_msgids and not PARTIAL_ADMIN_INVITATIONS[
+            language
+        ].search(value):
+            errors.append(
+                f"{language}: permission refusal without administrator invitation for {msgid!r}"
+            )
     return errors
 
 
-def load_register_events(root: Path) -> dict[tuple[str, str, str, str], RegisterEvent]:
-    """Read append-only register events; the last row for each exact identity wins.
+def load_decision_events(root: Path) -> dict[tuple[str, str, str, str], DecisionEvent]:
+    """Read catalog-local evidence; the last row for each exact identity wins.
 
     Keep all statuses until after latest-event selection: filtering DEFERRED first
     would incorrectly resurrect decisions superseded by APPLIED or other statuses.
     Language case, catalog path and surface are matched exactly, without aliases.
     """
-    path = root / "docs/translation-review/application/register.csv"
+    path = root / EXCEPTION_EVIDENCE
     events = {}
     with path.open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
-        required = {"surface", "key_or_msgid", "language", "source_file", "status", "decision_ref"}
+        required = {
+            "surface",
+            "key_or_msgid",
+            "language",
+            "source_file",
+            "status",
+            "decision_ref",
+        }
         if not required.issubset(reader.fieldnames or ()):
-            raise ValueError("register is missing required identity/event columns")
+            raise ValueError("missing required identity/event columns")
         for row in reader:
             if any(row[column] is None for column in required):
-                raise ValueError(f"register:{reader.line_num}: incomplete identity/event row")
-            identity = (row["surface"], row["key_or_msgid"], row["language"], row["source_file"])
-            events[identity] = RegisterEvent(row["status"], row["decision_ref"])
+                raise ValueError(
+                    f"line {reader.line_num}: incomplete identity/event row"
+                )
+            identity = (
+                row["surface"],
+                row["key_or_msgid"],
+                row["language"],
+                row["source_file"],
+            )
+            events[identity] = DecisionEvent(row["status"], row["decision_ref"])
     return events
 
 
@@ -441,26 +577,35 @@ def check_tree(root: Path = ROOT) -> Report:
         try:
             messages = compiler.parse_po_file(po)
             catalogs[language] = messages
-            if po.with_suffix(".mo").read_bytes() != compiler.compile_messages(messages):
+            if po.with_suffix(".mo").read_bytes() != compiler.compile_messages(
+                messages
+            ):
                 errors.append(f"{language}: MO bytes differ from strict PO compilation")
         except (ValueError, OSError) as error:
             errors.append(f"{language}: catalog error: {error}")
     try:
-        events = load_register_events(root)
+        events = load_decision_events(root)
     except (OSError, ValueError, KeyError, csv.Error) as error:
         events = {}
-        errors.append(f"decision register: {error}")
-    report = check_catalogs(sources, catalogs, exceptions=COVERAGE_EXCEPTIONS,
-                            decision_events=events)
+        errors.append(f"coverage exception evidence: {error}")
+    report = check_catalogs(
+        sources, catalogs, exceptions=COVERAGE_EXCEPTIONS, decision_events=events
+    )
     for language in PARTIAL_LANGUAGES:
         po = root / "backend/locale" / language / "LC_MESSAGES/django.po"
         if not po.exists():
             continue
         try:
             messages = compiler.parse_po_file(po)
-            effective = compiler.effective_catalog(messages, catalogs.get("en", {}), sources)
-            if po.with_suffix(".mo").read_bytes() != compiler.compile_messages(effective):
-                errors.append(f"{language}: MO bytes differ from the effective catalog compilation")
+            effective = compiler.effective_catalog(
+                messages, catalogs.get("en", {}), sources
+            )
+            if po.with_suffix(".mo").read_bytes() != compiler.compile_messages(
+                effective
+            ):
+                errors.append(
+                    f"{language}: MO bytes differ from the effective catalog compilation"
+                )
         except (ValueError, OSError) as error:
             errors.append(f"{language}: catalog error: {error}")
             continue
@@ -476,12 +621,16 @@ def main() -> int:
     for language in LANGUAGES:
         missing = report.raw_missing.get(language, [])
         exempted = report.exempted.get(language, [])
-        print(f"{language}: raw coverage {report.total - len(missing)}/{report.total}; "
-              f"raw gaps {len(missing)}; exempted {len(exempted)}; "
-              f"blocking coverage gaps {len(missing) - len(exempted)}")
+        print(
+            f"{language}: raw coverage {report.total - len(missing)}/{report.total}; "
+            f"raw gaps {len(missing)}; exempted {len(exempted)}; "
+            f"blocking coverage gaps {len(missing) - len(exempted)}"
+        )
     for language, count in report.partial.items():
-        print(f"{language}: partial catalog {count}/{report.total}; "
-              f"{report.total - count} msgids use the English fallback")
+        print(
+            f"{language}: partial catalog {count}/{report.total}; "
+            f"{report.total - count} msgids use the English fallback"
+        )
     for error in report.errors:
         print(f"ERROR: {error}")
     print(f"Blocking errors: {len(report.errors)}")

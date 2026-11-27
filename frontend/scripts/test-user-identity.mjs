@@ -6,48 +6,100 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
-const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 function compile(source, globals = {}, dependencies = {}) {
   const exports = {};
   const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
   });
-  vm.runInNewContext(outputText, { exports, ...globals, require(name) {
-    if (name === 'react/jsx-runtime') return jsxRuntime;
-    assert.ok(Object.hasOwn(dependencies, name), `Unexpected dependency: ${name}`);
-    return dependencies[name];
-  } });
+  vm.runInNewContext(outputText, {
+    exports,
+    ...globals,
+    require(name) {
+      if (name === 'react/jsx-runtime') return jsxRuntime;
+      assert.ok(
+        Object.hasOwn(dependencies, name),
+        `Unexpected dependency: ${name}`,
+      );
+      return dependencies[name];
+    },
+  });
   return exports;
 }
 function functions(path, names, globals) {
   const source = read(path);
-  const ast = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const selected = names.map(name => {
-    const node = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  const ast = ts.createSourceFile(
+    path,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const selected = names.map((name) => {
+    const node = ast.statements.find(
+      (node) => ts.isFunctionDeclaration(node) && node.name?.text === name,
+    );
     assert.ok(node, `Missing function ${name} in ${path}`);
     return node.getText(ast);
   });
-  return compile(`${selected.join('\n')}\nexport { ${names.join(', ')} };`, globals);
+  return compile(
+    `${selected.join('\n')}\nexport { ${names.join(', ')} };`,
+    globals,
+  );
 }
 const identity = compile(read('../src/utils/userIdentity.ts'));
 const dateFormat = compile(read('../src/utils/dateFormat.ts'));
-const catalogs = {
-  fr: compile(read('../src/i18n/fr.ts')).fr,
-  en: compile(read('../src/i18n/en.ts')).en,
-};
-const createTranslator = language => key => catalogs[language][key] ?? key;
-const audit = compile(read('../src/utils/auditPresentation.ts'), {}, { './dateFormat': dateFormat, './userIdentity': identity });
+const catalogs = loadI18n().translations;
+const createTranslator = (language) => (key) => catalogs[language][key] ?? key;
+const audit = compile(
+  read('../src/utils/auditPresentation.ts'),
+  {},
+  { './dateFormat': dateFormat, './userIdentity': identity },
+);
 const timeline = compile(read('../src/utils/biologicalTimeline.ts'));
-const current = Object.freeze({ first_name: '  ÉLISE-ANNE ', last_name: ' du  Pont-Müller ', email: 'elise@example.org' });
-const readable = 'Élise-Anne DU PONT-MÜLLER';
+const current = Object.freeze({
+  first_name: '  ÉQUIPE-TEST ',
+  last_name: ' du  Groupe-Témoin ',
+  email: 'team-fixture@example.org',
+});
+const readable = 'Équipe-Test DU GROUPE-TÉMOIN';
 const raw = 'legacy.tech-42';
 
 const cases = [
-  [{ first_name: '  JEAN  LUC ', last_name: '', email: 'fallback@example.org' }, 'Jean Luc'],
-  [{ first_name: '', last_name: ' du pont-müller ', email: 'fallback@example.org' }, 'DU PONT-MÜLLER'],
-  [{ first_name: '', last_name: '', email: '  Person.Name@example.org ' }, 'Person.Name@example.org'],
-  [{ first_name: "jean-pIERRE d’ÉTÉ", last_name: "de l’hôpital", email: '' }, 'Jean-Pierre D’Été DE L’HÔPITAL'],
+  [
+    {
+      first_name: '  LAB  TECH ',
+      last_name: '',
+      email: 'fallback@example.org',
+    },
+    'Lab Tech',
+  ],
+  [
+    {
+      first_name: '',
+      last_name: ' du groupe-témoin ',
+      email: 'fallback@example.org',
+    },
+    'DU GROUPE-TÉMOIN',
+  ],
+  [
+    { first_name: '', last_name: '', email: '  Person.Name@example.org ' },
+    'Person.Name@example.org',
+  ],
+  [
+    {
+      first_name: 'test-éQUIPE d’ÉTÉ',
+      last_name: 'de l’équipe test',
+      email: '',
+    },
+    'Test-Équipe D’Été DE L’ÉQUIPE TEST',
+  ],
   [current, readable],
   [{ first_name: '  ', last_name: '\t', email: ' ' }, ''],
   [null, ''],
@@ -61,45 +113,98 @@ for (const [value, expected] of cases) {
   });
 }
 test('unknown raw compatibility fields cannot supply a readable identity', () => {
-  assert.equal(identity.formatReadableUserIdentity({ first_name: '', last_name: '', email: '', username: raw, full_name: 'Untrusted Name' }), '');
+  assert.equal(
+    identity.formatReadableUserIdentity({
+      first_name: '',
+      last_name: '',
+      email: '',
+      username: raw,
+      full_name: 'Untrusted Name',
+    }),
+    '',
+  );
 });
 
-const members = functions('../src/components/AdminView.tsx', ['getMemberDisplayName'], identity);
-const profile = functions('../src/components/ProfileView.tsx', ['formatProfileName'], identity);
+const members = functions(
+  '../src/components/AdminView.tsx',
+  ['getMemberDisplayName'],
+  identity,
+);
+const profile = functions(
+  '../src/components/ProfileView.tsx',
+  ['formatProfileName'],
+  identity,
+);
 test('member and profile display share the structured formatter, never full_name guessing', () => {
   for (const [value, expected] of cases.filter(([value]) => value)) {
     const account = { ...value, full_name: raw, username: raw };
     assert.equal(members.getMemberDisplayName(account), expected);
     assert.equal(profile.formatProfileName(account), expected || '—');
   }
-  assert.doesNotMatch(read('../src/components/AdminView.tsx'), /\.full_name|displayName\.split/);
+  assert.doesNotMatch(
+    read('../src/components/AdminView.tsx'),
+    /\.full_name|displayName\.split/,
+  );
 });
-const chart = functions('../src/components/BiologicalTrendChart.tsx', ['buildMeasurementDetailLines'], {
-  ...identity,
-  findChartLocationAtDate: () => null,
-  chartBiologicalValues: point => [{ kind: 'polyps', label: 'Polyps', value: String(point.polypCount) }],
-});
+const chart = functions(
+  '../src/components/BiologicalTrendChart.tsx',
+  ['buildMeasurementDetailLines'],
+  {
+    ...identity,
+    findChartLocationAtDate: () => null,
+    chartBiologicalValues: (point) => [
+      { kind: 'polyps', label: 'Polyps', value: String(point.polypCount) },
+    ],
+  },
+);
 const nullComponent = () => null;
-const auditTimeline = compile(read('../src/components/AuditTimeline.tsx'), {}, {
-  '../utils/auditPresentation': audit,
-  './BoxTrackingPreview': { default: nullComponent },
-  './DnaEvidenceLink': { DnaEvidenceLink: nullComponent },
-});
+const auditTimeline = compile(
+  read('../src/components/AuditTimeline.tsx'),
+  {},
+  {
+    '../utils/auditPresentation': audit,
+    './BoxTrackingPreview': { default: nullComponent },
+    './DnaEvidenceLink': { DnaEvidenceLink: nullComponent },
+  },
+);
 const rowGlobals = {
-  ...identity, ...audit, ...auditTimeline,
-  AuditLinkedActionsPopover: nullComponent, BoxTrackingPreview: nullComponent,
+  ...identity,
+  ...audit,
+  ...auditTimeline,
+  AuditLinkedActionsPopover: nullComponent,
+  BoxTrackingPreview: nullComponent,
 };
-const admin = functions('../src/components/AdminAuditSection.tsx', ['AdminAuditRow'], rowGlobals);
-const personal = functions('../src/components/ProfileActionsSection.tsx', ['ProfileActionRow'], rowGlobals);
+const admin = functions(
+  '../src/components/AdminAuditSection.tsx',
+  ['AdminAuditRow'],
+  rowGlobals,
+);
+const personal = functions(
+  '../src/components/ProfileActionsSection.tsx',
+  ['ProfileActionRow'],
+  rowGlobals,
+);
 for (const language of ['fr', 'en']) {
   const t = createTranslator(language);
   test(`${language}: measurement and subculture chart details ignore raw enteredBy and preserve zero`, () => {
     for (const user_identity of [current, null, undefined]) {
-      for (const point of [{ polypCount: 0 }, { kind: 'subculture', polypCount: 0 }]) {
-        const lines = chart.buildMeasurementDetailLines({ ...point, enteredBy: raw, user_identity }, {
-          polyps: t('polyps'), enteredBy: t('historyEnteredBy'), historicalUser: t('historicalUser'),
-        }, []);
-        assert.equal(lines.find(line => line.kind === 'user').value, user_identity ? readable : t('historicalUser'));
+      for (const point of [
+        { polypCount: 0 },
+        { kind: 'subculture', polypCount: 0 },
+      ]) {
+        const lines = chart.buildMeasurementDetailLines(
+          { ...point, enteredBy: raw, user_identity },
+          {
+            polyps: t('polyps'),
+            enteredBy: t('historyEnteredBy'),
+            historicalUser: t('historicalUser'),
+          },
+          [],
+        );
+        assert.equal(
+          lines.find((line) => line.kind === 'user').value,
+          user_identity ? readable : t('historicalUser'),
+        );
         assert.equal(lines[0].value, '0');
         assert.equal(JSON.stringify(lines).includes(raw), false);
       }
@@ -107,66 +212,198 @@ for (const language of ['fr', 'en']) {
   });
   test(`${language}: only the explicit Box-creation measurement relabels its observer line`, () => {
     const labels = {
-      polyps: t('polyps'), ephyrae: t('ephyraeFull'), enteredBy: t('historyEnteredBy'),
-      initialObservedBy: t('historyInitialObservedBy'), historicalUser: t('historicalUser'),
+      polyps: t('polyps'),
+      ephyrae: t('ephyraeFull'),
+      enteredBy: t('historyEnteredBy'),
+      initialObservedBy: t('historyInitialObservedBy'),
+      historicalUser: t('historicalUser'),
     };
     const readings = [
-      { id: 1, measured_on: '2026-10-01', polyp_count: 0, ephyrae_count: 0, user_identity: current, origin: 'box_creation' },
-      { id: 2, measured_on: '2026-10-08', polyp_count: 4, ephyrae_count: 0, user_identity: current, origin: 'direct_entry' },
+      {
+        id: 1,
+        measured_on: '2026-10-01',
+        polyp_count: 0,
+        ephyrae_count: 0,
+        user_identity: current,
+        origin: 'box_creation',
+      },
+      {
+        id: 2,
+        measured_on: '2026-10-08',
+        polyp_count: 4,
+        ephyrae_count: 0,
+        user_identity: current,
+        origin: 'direct_entry',
+      },
       // The earliest legacy record is never treated as an initial measurement.
-      { id: 3, measured_on: '2026-01-01', polyp_count: 9, ephyrae_count: 0, user_identity: current, origin: 'legacy_unclassified' },
+      {
+        id: 3,
+        measured_on: '2026-01-01',
+        polyp_count: 9,
+        ephyrae_count: 0,
+        user_identity: current,
+        origin: 'legacy_unclassified',
+      },
     ];
-    const data = timeline.prepareBiologicalChartData(readings, [], timeline.getBiologicalTimelineLabels(t));
-    const byId = new Map(data.measurements.map(point => [point.id, point]));
-    assert.deepEqual([1, 2, 3].map(id => byId.get(id).isInitial), [true, false, false]);
-    const userLine = point => chart.buildMeasurementDetailLines(point, labels, []).find(line => line.kind === 'user');
+    const data = timeline.prepareBiologicalChartData(
+      readings,
+      [],
+      timeline.getBiologicalTimelineLabels(t),
+    );
+    const byId = new Map(data.measurements.map((point) => [point.id, point]));
+    assert.deepEqual(
+      [1, 2, 3].map((id) => byId.get(id).isInitial),
+      [true, false, false],
+    );
+    const userLine = (point) =>
+      chart
+        .buildMeasurementDetailLines(point, labels, [])
+        .find((line) => line.kind === 'user');
     assert.equal(userLine(byId.get(1)).label, t('historyInitialObservedBy'));
-    assert.equal(userLine(byId.get(1)).value, readable, 'the real observer stays displayed');
-    for (const id of [2, 3]) assert.equal(userLine(byId.get(id)).label, t('historyEnteredBy'));
+    assert.equal(
+      userLine(byId.get(1)).value,
+      readable,
+      'the real observer stays displayed',
+    );
+    for (const id of [2, 3])
+      assert.equal(userLine(byId.get(id)).label, t('historyEnteredBy'));
     const values = chart.buildMeasurementDetailLines(byId.get(1), labels, []);
     assert.equal(values[0].value, '0', 'an initial count of 0 stays a real 0');
     // A subculture state never takes the initial label.
-    assert.equal(userLine({ kind: 'subculture', polypCount: 3, user_identity: current, isInitial: true }).label, t('historyEnteredBy'));
+    assert.equal(
+      userLine({
+        kind: 'subculture',
+        polypCount: 3,
+        user_identity: current,
+        isInitial: true,
+      }).label,
+      t('historyEnteredBy'),
+    );
   });
   test(`${language}: timeline and export preview carry structured authors, not legacy labels`, () => {
-    const measurement = { id: 1, measured_on: '2026-10-01', polyp_count: 0, ephyrae_count: 0, user: raw, user_identity: current };
-    const data = timeline.prepareBiologicalChartData([measurement], [{
-      kind: 'subculture', id: 2, effective_date: '2026-10-02', polyp_count_after: 0,
-      user_identity: current, author: { username: raw },
-    }], timeline.getBiologicalTimelineLabels(t));
+    const measurement = {
+      id: 1,
+      measured_on: '2026-10-01',
+      polyp_count: 0,
+      ephyrae_count: 0,
+      user: raw,
+      user_identity: current,
+    };
+    const data = timeline.prepareBiologicalChartData(
+      [measurement],
+      [
+        {
+          kind: 'subculture',
+          id: 2,
+          effective_date: '2026-10-02',
+          polyp_count_after: 0,
+          user_identity: current,
+          author: { username: raw },
+        },
+      ],
+      timeline.getBiologicalTimelineLabels(t),
+    );
     assert.equal(data.measurements[0].user_identity, current);
     assert.equal(data.polypStates[0].user_identity, current);
     assert.equal(JSON.stringify(data).includes(raw), false);
     const source = read('../src/components/ExportsView.tsx');
     assert.match(source, /user_identity: measurement\.user_identity/);
-    assert.match(source, /historicalUser: translations\[language\]\.historicalUser/);
+    assert.match(
+      source,
+      /historicalUser: translations\[language\]\.historicalUser/,
+    );
     assert.doesNotMatch(source, /enteredBy: measurement\.user/);
   });
   test(`${language}: account targets use live identity; deleted and legacy targets stay neutral`, () => {
-    const entry = { action: 'update', object_type: 'account', object_id: raw, description: 'Member access updated',
-      account_identity: current, business_details: { type: 'account',
+    const entry = {
+      action: 'update',
+      object_type: 'account',
+      object_id: raw,
+      description: 'Member access updated',
+      account_identity: current,
+      business_details: {
+        type: 'account',
         values: { nom: raw, email: 'legacy@example.org', username: raw },
-        changes: { nom: { before: raw, after: 'another-tech' }, role: { before: 'viewer', after: 'lab_technician' } },
-      } };
+        changes: {
+          nom: { before: raw, after: 'another-tech' },
+          role: { before: 'viewer', after: 'lab_technician' },
+        },
+      },
+    };
     assert.equal(audit.getAuditTargetLabel(entry, t), readable);
-    assert.equal(audit.getAuditTargetLabel({ ...entry, account_identity: null }, t), t('historicalUser'));
-    assert.equal(audit.getAuditTargetLabel({ ...entry, account_identity: undefined }, t), t('historicalUser'));
-    assert.equal(audit.getPersonalResourceLabel({ type: 'account', identifier: raw, label: raw, account_identity: null }), '');
-    assert.equal(audit.getPersonalResourceLabel({ type: 'account', identifier: raw, label: raw, account_identity: current }), readable);
-    assert.equal(JSON.stringify(audit.getAuditInlineBusinessItems(entry.business_details, t)).includes(raw), false);
-    assert.equal(JSON.stringify(audit.getAuditBusinessDetailContent(entry.business_details)).includes(raw), false);
+    assert.equal(
+      audit.getAuditTargetLabel({ ...entry, account_identity: null }, t),
+      t('historicalUser'),
+    );
+    assert.equal(
+      audit.getAuditTargetLabel({ ...entry, account_identity: undefined }, t),
+      t('historicalUser'),
+    );
+    assert.equal(
+      audit.getPersonalResourceLabel({
+        type: 'account',
+        identifier: raw,
+        label: raw,
+        account_identity: null,
+      }),
+      '',
+    );
+    assert.equal(
+      audit.getPersonalResourceLabel({
+        type: 'account',
+        identifier: raw,
+        label: raw,
+        account_identity: current,
+      }),
+      readable,
+    );
+    assert.equal(
+      JSON.stringify(
+        audit.getAuditInlineBusinessItems(entry.business_details, t),
+      ).includes(raw),
+      false,
+    );
+    assert.equal(
+      JSON.stringify(
+        audit.getAuditBusinessDetailContent(entry.business_details),
+      ).includes(raw),
+      false,
+    );
   });
   test(`${language}: rendered admin actors and personal account targets never expose raw compatibility fields`, () => {
     for (const user_identity of [current, null, undefined]) {
-      const entry = { id: 1, action: 'update', family: 'accounts', object_type: 'account', description: 'Member access updated',
-        effective_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z',
-        user: raw, user_display: raw, edited_by: raw, edited_by_display: raw,
-        user_identity, account_identity: user_identity, business_details: { type: 'account', values: { nom: raw } },
-        resource: { type: 'account', identifier: raw, label: raw, account_identity: user_identity },
+      const entry = {
+        id: 1,
+        action: 'update',
+        family: 'accounts',
+        object_type: 'account',
+        description: 'Member access updated',
+        effective_at: '2026-10-01T10:00:00Z',
+        created_at: '2026-10-01T10:00:00Z',
+        user: raw,
+        user_display: raw,
+        edited_by: raw,
+        edited_by_display: raw,
+        user_identity,
+        account_identity: user_identity,
+        business_details: { type: 'account', values: { nom: raw } },
+        resource: {
+          type: 'account',
+          identifier: raw,
+          label: raw,
+          account_identity: user_identity,
+        },
       };
-      for (const component of [admin.AdminAuditRow, personal.ProfileActionRow]) {
-        const html = renderToStaticMarkup(React.createElement(component, { entry, t, language }));
-        assert.ok(html.includes(user_identity ? readable : t('historicalUser')));
+      for (const component of [
+        admin.AdminAuditRow,
+        personal.ProfileActionRow,
+      ]) {
+        const html = renderToStaticMarkup(
+          React.createElement(component, { entry, t, language }),
+        );
+        assert.ok(
+          html.includes(user_identity ? readable : t('historicalUser')),
+        );
         assert.equal(html.includes(raw), false);
       }
     }
@@ -177,13 +414,36 @@ for (const language of ['fr', 'en']) {
         for (const user_identity of [current, null]) {
           const description = `Historical ${technicalName} description`;
           const entry = {
-            id: 1, action: 'update', action_label: technicalName, family: 'accounts', object_type: 'account', object_id: technicalName,
-            description, effective_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z',
-            user: technicalName, user_display: technicalName, user_identity, account_identity,
-            edited_by: technicalName, edited_by_display: technicalName, edited_by_identity: null,
-            resource: { type: 'account', identifier: technicalName, label: technicalName, account_identity },
-            business_details: { type: 'account',
-              values: { nom: technicalName, username: technicalName, email: technicalName, note: technicalName },
+            id: 1,
+            action: 'update',
+            action_label: technicalName,
+            family: 'accounts',
+            object_type: 'account',
+            object_id: technicalName,
+            description,
+            effective_at: '2026-10-01T10:00:00Z',
+            created_at: '2026-10-01T10:00:00Z',
+            user: technicalName,
+            user_display: technicalName,
+            user_identity,
+            account_identity,
+            edited_by: technicalName,
+            edited_by_display: technicalName,
+            edited_by_identity: null,
+            resource: {
+              type: 'account',
+              identifier: technicalName,
+              label: technicalName,
+              account_identity,
+            },
+            business_details: {
+              type: 'account',
+              values: {
+                nom: technicalName,
+                username: technicalName,
+                email: technicalName,
+                note: technicalName,
+              },
               changes: {
                 nom: { before: technicalName, after: technicalName },
                 username: { before: technicalName, after: technicalName },
@@ -193,84 +453,249 @@ for (const language of ['fr', 'en']) {
             },
           };
           const before = JSON.stringify(entry);
-          for (const component of [admin.AdminAuditRow, personal.ProfileActionRow]) {
-            const html = renderToStaticMarkup(React.createElement(component, { entry, t, language }));
-            assert.ok(html.includes(t('auditActionUpdate')), 'real primary summary renders a localized action');
-            assert.ok(html.includes(account_identity ? readable : t('historicalUser')));
-            assert.ok(html.includes(t('auditValueViewer')), 'real details retain the previous role');
-            assert.ok(html.includes(t('auditValueLabTechnician')), 'real details retain the new role');
+          for (const component of [
+            admin.AdminAuditRow,
+            personal.ProfileActionRow,
+          ]) {
+            const html = renderToStaticMarkup(
+              React.createElement(component, { entry, t, language }),
+            );
+            assert.ok(
+              html.includes(t('auditActionUpdate')),
+              'real primary summary renders a localized action',
+            );
+            assert.ok(
+              html.includes(account_identity ? readable : t('historicalUser')),
+            );
+            assert.ok(
+              html.includes(t('auditValueViewer')),
+              'real details retain the previous role',
+            );
+            assert.ok(
+              html.includes(t('auditValueLabTechnician')),
+              'real details retain the new role',
+            );
             assert.equal(html.includes(technicalName), false, html);
             assert.equal(html.includes(description), false);
           }
-          assert.equal(JSON.stringify(entry), before, 'stored descriptions and details are unchanged');
+          assert.equal(
+            JSON.stringify(entry),
+            before,
+            'stored descriptions and details are unchanged',
+          );
         }
       }
     }
   });
   test(`${language}: legacy account inline changes suppress identity fields across event markers`, () => {
-    const changes = Object.fromEntries(['username', 'nom', 'name', 'email', 'first_name', 'last_name', 'full_name', 'display_name']
-      .map(key => [key, { before: 'tech', after: `legacy-${key}@example.org` }]));
-    const details = { type: 'reference', changes: { ...changes,
-      role: { before: 'viewer', after: 'lab_technician' },
-      acces_actif: { before: false, after: true },
-    } };
-    for (const marker of [{ family: 'accounts' }, { object_type: 'account' }, { object_type: 'user' },
-      { resource: { type: 'account' } }, { resource: { type: 'user' } }]) {
-      const entry = { action: 'update', description: 'Member access updated', business_details: details, ...marker };
+    const changes = Object.fromEntries(
+      [
+        'username',
+        'nom',
+        'name',
+        'email',
+        'first_name',
+        'last_name',
+        'full_name',
+        'display_name',
+      ].map((key) => [
+        key,
+        { before: 'tech', after: `legacy-${key}@example.org` },
+      ]),
+    );
+    const details = {
+      type: 'reference',
+      changes: {
+        ...changes,
+        role: { before: 'viewer', after: 'lab_technician' },
+        acces_actif: { before: false, after: true },
+      },
+    };
+    for (const marker of [
+      { family: 'accounts' },
+      { object_type: 'account' },
+      { object_type: 'user' },
+      { resource: { type: 'account' } },
+      { resource: { type: 'user' } },
+    ]) {
+      const entry = {
+        action: 'update',
+        description: 'Member access updated',
+        business_details: details,
+        ...marker,
+      };
       const before = JSON.stringify(entry);
-      const items = audit.getAuditInlineBusinessItems(details, t, entry.description, entry);
-      assert.deepEqual(Array.from(items, item => item.key), ['role', 'acces_actif']);
+      const items = audit.getAuditInlineBusinessItems(
+        details,
+        t,
+        entry.description,
+        entry,
+      );
+      assert.deepEqual(
+        Array.from(items, (item) => item.key),
+        ['role', 'acces_actif'],
+      );
       assert.equal(JSON.stringify(items).includes('tech"'), false);
       for (const value of Object.values(changes)) {
         assert.equal(JSON.stringify(items).includes(value.after), false);
       }
-      assert.ok(items.some(item => item.before === t('auditValueViewer') && item.after === t('auditValueLabTechnician')));
-      assert.ok(items.some(item => item.before === t('auditValueNo') && item.after === t('auditValueYes')));
+      assert.ok(
+        items.some(
+          (item) =>
+            item.before === t('auditValueViewer') &&
+            item.after === t('auditValueLabTechnician'),
+        ),
+      );
+      assert.ok(
+        items.some(
+          (item) =>
+            item.before === t('auditValueNo') &&
+            item.after === t('auditValueYes'),
+        ),
+      );
       assert.equal(JSON.stringify(entry), before);
     }
-    const accountItems = audit.getAuditInlineBusinessItems({ ...details, type: 'account' }, t);
-    assert.deepEqual(Array.from(accountItems, item => item.key), ['role', 'acces_actif']);
-    assert.equal(accountItems.some(item => item.before === 'tech'), false);
-    const unrelated = audit.getAuditInlineBusinessItems({ type: 'reference', changes: { name: changes.name, email: changes.email } }, t,
-      'Reference updated', { object_type: 'species', family: 'references' });
-    assert.deepEqual(Array.from(unrelated, item => item.key), ['name', 'email']);
-    assert.ok(unrelated.some(item => item.before === 'tech'), 'unrelated reference changes remain visible');
+    const accountItems = audit.getAuditInlineBusinessItems(
+      { ...details, type: 'account' },
+      t,
+    );
+    assert.deepEqual(
+      Array.from(accountItems, (item) => item.key),
+      ['role', 'acces_actif'],
+    );
+    assert.equal(
+      accountItems.some((item) => item.before === 'tech'),
+      false,
+    );
+    const unrelated = audit.getAuditInlineBusinessItems(
+      {
+        type: 'reference',
+        changes: { name: changes.name, email: changes.email },
+      },
+      t,
+      'Reference updated',
+      { object_type: 'species', family: 'references' },
+    );
+    assert.deepEqual(
+      Array.from(unrelated, (item) => item.key),
+      ['name', 'email'],
+    );
+    assert.ok(
+      unrelated.some((item) => item.before === 'tech'),
+      'unrelated reference changes remain visible',
+    );
   });
   test(`${language}: actual admin/profile inline renderers suppress legacy account reference identities`, () => {
-    const changes = Object.fromEntries(['username', 'nom', 'name', 'email', 'first_name', 'last_name', 'full_name']
-      .map(key => [key, { before: 'tech', after: `legacy-${key}@example.org` }]));
+    const changes = Object.fromEntries(
+      [
+        'username',
+        'nom',
+        'name',
+        'email',
+        'first_name',
+        'last_name',
+        'full_name',
+      ].map((key) => [
+        key,
+        { before: 'tech', after: `legacy-${key}@example.org` },
+      ]),
+    );
     for (const object_type of ['account', 'user']) {
-      const entry = { id: 1, action: 'update', family: 'accounts', object_type,
-        description: 'Member access updated', created_at: '2026-10-01T10:00:00Z', effective_at: '2026-10-01T10:00:00Z',
-        user_identity: current, account_identity: null, resource: { type: object_type, account_identity: null },
-        business_details: { type: 'reference', changes: { ...changes,
-          role: { before: 'viewer', after: 'lab_technician' }, acces_actif: { before: false, after: true },
-        } },
+      const entry = {
+        id: 1,
+        action: 'update',
+        family: 'accounts',
+        object_type,
+        description: 'Member access updated',
+        created_at: '2026-10-01T10:00:00Z',
+        effective_at: '2026-10-01T10:00:00Z',
+        user_identity: current,
+        account_identity: null,
+        resource: { type: object_type, account_identity: null },
+        business_details: {
+          type: 'reference',
+          changes: {
+            ...changes,
+            role: { before: 'viewer', after: 'lab_technician' },
+            acces_actif: { before: false, after: true },
+          },
+        },
       };
-      for (const component of [admin.AdminAuditRow, personal.ProfileActionRow]) {
-        const html = renderToStaticMarkup(React.createElement(component, { entry, t, language }));
+      for (const component of [
+        admin.AdminAuditRow,
+        personal.ProfileActionRow,
+      ]) {
+        const html = renderToStaticMarkup(
+          React.createElement(component, { entry, t, language }),
+        );
         assert.ok(html.includes(t('auditDescriptionMemberUpdated')));
-        assert.ok(html.includes(t('auditValueViewer')) && html.includes(t('auditValueLabTechnician')));
-        assert.ok(html.includes(t('auditValueNo')) && html.includes(t('auditValueYes')));
+        assert.ok(
+          html.includes(t('auditValueViewer')) &&
+            html.includes(t('auditValueLabTechnician')),
+        );
+        assert.ok(
+          html.includes(t('auditValueNo')) && html.includes(t('auditValueYes')),
+        );
         assert.doesNotMatch(html, />tech</);
-        for (const value of Object.values(changes)) assert.equal(html.includes(value.after), false, html);
+        for (const value of Object.values(changes))
+          assert.equal(html.includes(value.after), false, html);
       }
     }
   });
   test(`${language}: account summary guards cover family, legacy users and personal resources`, () => {
-    for (const accountShape of [{ family: 'accounts' }, { object_type: 'account' }, { object_type: 'user' },
-      { resource: { type: 'account' } }, { resource: { type: 'user' } }, { business_details: { type: 'account' } }]) {
-      for (const description of ['Historical legacy-tech description', 'Historical internal_opaque description', 'Box created manually: legacy-tech']) {
-        const entry = { ...accountShape, action: 'update', action_label: 'legacy-tech', description };
-        assert.equal(audit.getAuditBusinessSummary(entry, t), t('auditActionUpdate'));
-        assert.equal(audit.getAuditDescriptionLabel(entry, t), t('auditActionUpdate'));
-        assert.equal(audit.getAuditBusinessSummary({ ...entry, action: 'legacy-tech' }, t), t('auditObjectAccount'));
+    for (const accountShape of [
+      { family: 'accounts' },
+      { object_type: 'account' },
+      { object_type: 'user' },
+      { resource: { type: 'account' } },
+      { resource: { type: 'user' } },
+      { business_details: { type: 'account' } },
+    ]) {
+      for (const description of [
+        'Historical legacy-tech description',
+        'Historical internal_opaque description',
+        'Box created manually: legacy-tech',
+      ]) {
+        const entry = {
+          ...accountShape,
+          action: 'update',
+          action_label: 'legacy-tech',
+          description,
+        };
+        assert.equal(
+          audit.getAuditBusinessSummary(entry, t),
+          t('auditActionUpdate'),
+        );
+        assert.equal(
+          audit.getAuditDescriptionLabel(entry, t),
+          t('auditActionUpdate'),
+        );
+        assert.equal(
+          audit.getAuditBusinessSummary({ ...entry, action: 'legacy-tech' }, t),
+          t('auditObjectAccount'),
+        );
       }
     }
-    const nonAccount = { family: 'boxes', action: 'update', description: 'Historical legacy-tech description' };
-    assert.equal(audit.getAuditBusinessSummary(nonAccount, t), nonAccount.description);
-    assert.equal(audit.getAuditDescriptionLabel(nonAccount, t), nonAccount.description);
-    assert.equal(audit.getAuditBusinessNote({ type: 'box', values: { note: 'Preserved note' } }), 'Preserved note');
+    const nonAccount = {
+      family: 'boxes',
+      action: 'update',
+      description: 'Historical legacy-tech description',
+    };
+    assert.equal(
+      audit.getAuditBusinessSummary(nonAccount, t),
+      nonAccount.description,
+    );
+    assert.equal(
+      audit.getAuditDescriptionLabel(nonAccount, t),
+      nonAccount.description,
+    );
+    assert.equal(
+      audit.getAuditBusinessNote({
+        type: 'box',
+        values: { note: 'Preserved note' },
+      }),
+      'Preserved note',
+    );
   });
 }
 
@@ -278,25 +703,64 @@ for (const language of ['fr', 'en']) {
   test(`${language}: linked audit actions render structured and historical actors only`, () => {
     for (const user_identity of [current, null, undefined]) {
       let stateIndex = 0;
-      const entries = [{ id: 1, effective_at: '2026-10-01T10:00:00Z', user_identity, user: raw, user_display: raw }];
-      const linked = functions('../src/components/AuditLinkedActionsPopover.tsx', ['LinkedAuditContent'], {
-        ...rowGlobals,
-        useState: initial => [stateIndex++ === 0 ? entries : initial, () => {}],
-        useEffect() {},
-      });
-      const html = renderToStaticMarkup(React.createElement(linked.LinkedAuditContent, { language, t: createTranslator(language) }));
-      assert.ok(html.includes(user_identity ? readable : catalogs[language].historicalUser));
+      const entries = [
+        {
+          id: 1,
+          effective_at: '2026-10-01T10:00:00Z',
+          user_identity,
+          user: raw,
+          user_display: raw,
+        },
+      ];
+      const linked = functions(
+        '../src/components/AuditLinkedActionsPopover.tsx',
+        ['LinkedAuditContent'],
+        {
+          ...rowGlobals,
+          useState: (initial) => [
+            stateIndex++ === 0 ? entries : initial,
+            () => {},
+          ],
+          useEffect() {},
+        },
+      );
+      const html = renderToStaticMarkup(
+        React.createElement(linked.LinkedAuditContent, {
+          language,
+          t: createTranslator(language),
+        }),
+      );
+      assert.ok(
+        html.includes(
+          user_identity ? readable : catalogs[language].historicalUser,
+        ),
+      );
       assert.equal(html.includes(raw), false);
     }
   });
 }
 
 test('all confirmed author consumers use structured identities without directory resolution', () => {
-  for (const path of ['BoxInsights', 'BiologicalTrendChart', 'ExportsView', 'AdminAuditSection', 'AuditLinkedActionsPopover']) {
+  for (const path of [
+    'BoxInsights',
+    'BiologicalTrendChart',
+    'ExportsView',
+    'AdminAuditSection',
+    'AuditLinkedActionsPopover',
+  ]) {
     const source = read(`../src/components/${path}.tsx`);
     assert.match(source, /user_identity/);
-    assert.doesNotMatch(source, /(?:measurement|movement|event|linkedEntry|entry)\??\.(?:user|user_display)\b|author\?\.username/);
+    assert.doesNotMatch(
+      source,
+      /(?:measurement|movement|event|linkedEntry|entry)\??\.(?:user|user_display)\b|author\?\.username/,
+    );
   }
-  assert.doesNotMatch(read('../src/utils/biologicalTimeline.ts'), /enteredBy:|author\?\.username/);
-  assert.doesNotMatch(read('../src/components/ProfileActionsSection.tsx'), /getAuditTargetLabel[^\n]*\|\| getPersonalResourceLabel/);
+  assert.doesNotMatch(
+    read('../src/utils/biologicalTimeline.ts'),
+    /enteredBy:|author\?\.username/,
+  );
+  assert.doesNotMatch(
+    read('../src/components/ProfileActionsSection.tsx'),
+    /getAuditTargetLabel[^\n]*\|\| getPersonalResourceLabel/,
+  );
 });

@@ -158,7 +158,7 @@ catalog fail parity. A deleted protected key also fails the real-source regressi
 There is no automatic catalog, register, gettext or Japanese translation rewrite.
 
 These retention reasons follow the preservation record in
-[`translation-review/application/README.md`](../../translation-review/application/README.md),
+[the archived application register](https://github.com/Anthony2210/POLYPBASE/blob/archive/i18n-legacy-2026-11/docs/translation-review/application/README.md),
 not a new wording or deletion approval. Any later authorized catalog change must
 follow that append-only register workflow and
 [`context/terminology-i18n.md`](context/terminology-i18n.md).

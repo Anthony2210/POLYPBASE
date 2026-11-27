@@ -22,7 +22,7 @@ Les deux CSV joints sont conservés octet pour octet dans ce dossier. Le rapport
 | `POLYPBASE_JA_65_double_revue_pour_Zed.md` (externe) | `9c1b64595fdc33e6cc248f29be8560b400eb30d77de2e59b219619dfa01f73d3` |
 | `Traduction Polypbase(4).xlsx` (externe, lecture seule) | `e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307` |
 
-Les propositions initiales viennent de Gemini ; la revue indépendante d'un autre modèle a rendu 52 ACCEPT, 7 REVISE et 6 BLOCK. Il ne s'agit pas d'une approbation humaine. Le propriétaire produit a demandé leur intégration locale, pas leur publication ni leur attribution à Takeru.
+Les propositions initiales viennent de Gemini ; la revue indépendante d'un autre modèle a rendu 52 ACCEPT, 7 REVISE et 6 BLOCK. Il ne s'agit pas d'une approbation humaine. Le propriétaire produit a demandé leur intégration locale, pas leur publication ni leur attribution au réviseur japonais.
 
 Le plus petit prolongement du générateur existant a été retenu : classement historique inchangé depuis le classeur figé, puis couche IA React validée intégralement avant toute écriture. Pas de nouvelle dépendance de production, de second catalogue runtime ou de changement du repli anglais.
 
@@ -40,7 +40,7 @@ Les tests figent par empreinte l'intégralité des champs historiques du manifes
 Depuis la racine, avec le classeur externe portant l'empreinte ci-dessus :
 
 ```sh
-python -I -X utf8 docs/translation-review/japanese/build_ja_catalogs.py "C:/Users/antoc/Downloads/Traduction Polypbase(4).xlsx" --check
+python -I -X utf8 docs/translation-review/japanese/build_ja_catalogs.py "C:/Users/REDACTED/Downloads/Traduction Polypbase(4).xlsx" --check
 python -B -X utf8 -m unittest discover -s docs/translation-review/japanese -p 'test_*.py'
 ```
 

@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
-const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-const historySource = readFileSync(new URL('../src/components/ZoneMovementHistory.tsx', import.meta.url), 'utf8');
-const previewSource = readFileSync(new URL('../src/components/BoxTrackingPreview.tsx', import.meta.url), 'utf8');
-const stylesSource = readFileSync(new URL('../src/styles/pages/zones.css', import.meta.url), 'utf8');
-const frSource = readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8');
-const enSource = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'utf8');
+const appSource = readFileSync(
+  new URL('../src/App.tsx', import.meta.url),
+  'utf8',
+);
+const historySource = readFileSync(
+  new URL('../src/components/ZoneMovementHistory.tsx', import.meta.url),
+  'utf8',
+);
+const previewSource = readFileSync(
+  new URL('../src/components/BoxTrackingPreview.tsx', import.meta.url),
+  'utf8',
+);
+const stylesSource = readFileSync(
+  new URL('../src/styles/pages/zones.css', import.meta.url),
+  'utf8',
+);
+const { fr, en } = loadI18n().translations;
 
 const historyKeys = [
   'zoneRecentMovementsTitle',
@@ -33,18 +45,33 @@ const historyKeys = [
 
 test('historical sides show observation intervals and stay out of dated weekly buckets', () => {
   assert.match(historySource, /zoneHistoricalIntervalLabel/);
-  assert.match(historySource, /movement\.transition_id \?\? movement\.location_id/);
+  assert.match(
+    historySource,
+    /movement\.transition_id \?\? movement\.location_id/,
+  );
   assert.match(historySource, /zoneMovementHistoricalEntry/);
   assert.match(historySource, /zoneMovementHistoricalExit/);
   assert.doesNotMatch(historySource, /zoneMovementHistoricalTotals/);
-  assert.doesNotMatch(historySource, /historical_counts[^\n]*week\.entry_count/);
+  assert.doesNotMatch(
+    historySource,
+    /historical_counts[^\n]*week\.entry_count/,
+  );
 });
 
 test('zone movement history route carries an explicit direction filter', () => {
   assert.match(appSource, /zoneHistoryDirection\?: 'arrival' \| 'departure'/);
-  assert.match(appSource, /`\/zones\/\$\{zoneId\}\/history\?direction=\$\{direction\}`/);
-  assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('direction'\)/);
-  assert.match(appSource, /onChangeDirection=\{\(direction\) => openZoneHistory/);
+  assert.match(
+    appSource,
+    /`\/zones\/\$\{zoneId\}\/history\?direction=\$\{direction\}`/,
+  );
+  assert.match(
+    appSource,
+    /new URLSearchParams\(window\.location\.search\)\.get\('direction'\)/,
+  );
+  assert.match(
+    appSource,
+    /onChangeDirection=\{\(direction\) => openZoneHistory/,
+  );
 });
 
 test('recent movements use the bounded summary endpoint with independent columns', () => {
@@ -64,45 +91,114 @@ test('weekly movement chart is factual, discrete, distinctly styled, and accessi
   assert.match(historySource, /<rect/);
   assert.match(historySource, /role="img"/);
   assert.match(historySource, /className="sr-only"/);
-  assert.match(stylesSource, /\.zone-movement-flow-entry\s*\{[^}]*var\(--color-success\)/s);
-  assert.match(stylesSource, /\.zone-movement-flow-exit\s*\{[^}]*var\(--color-danger\)/s);
-  assert.match(stylesSource, /\.zone-movement-flow-legend \.is-exit::before\s*\{[^}]*background: transparent;[^}]*border-color: var\(--color-danger\)/s);
-  assert.match(stylesSource, /\.zone-movement-flow-exit\s*\{\s*fill: none;[^}]*stroke: var\(--color-danger\);[^}]*stroke-width: 1\.5;[^}]*vector-effect: non-scaling-stroke;/s);
-  assert.doesNotMatch(stylesSource, /\.zone-movement-flow-(?:entry|exit)\s*\{[^}]*opacity:/s);
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-entry\s*\{[^}]*var\(--color-success\)/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-exit\s*\{[^}]*var\(--color-danger\)/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-legend \.is-exit::before\s*\{[^}]*background: transparent;[^}]*border-color: var\(--color-danger\)/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-exit\s*\{\s*fill: none;[^}]*stroke: var\(--color-danger\);[^}]*stroke-width: 1\.5;[^}]*vector-effect: non-scaling-stroke;/s,
+  );
+  assert.doesNotMatch(
+    stylesSource,
+    /\.zone-movement-flow-(?:entry|exit)\s*\{[^}]*opacity:/s,
+  );
   assert.match(historySource, /groupWidth \* index \+ groupWidth \/ 2/);
-  assert.match(historySource, /className="zone-movement-week-slot" key=\{week\.week_start\}/);
-  assert.match(historySource, /hasBoth \? center \+ 2 : center - barWidth \/ 2/);
-  assert.doesNotMatch(historySource, /Date\.parse\(week\.week_start\)|new Date\(week\.week_start\)/);
+  assert.match(
+    historySource,
+    /className="zone-movement-week-slot" key=\{week\.week_start\}/,
+  );
+  assert.match(
+    historySource,
+    /hasBoth \? center \+ 2 : center - barWidth \/ 2/,
+  );
+  assert.doesNotMatch(
+    historySource,
+    /Date\.parse\(week\.week_start\)|new Date\(week\.week_start\)/,
+  );
   assert.doesNotMatch(historySource, /forecast|smooth|danger|warning/i);
   assert.match(historySource, /FLOW_CHART_HEIGHT = 130/);
   assert.match(stylesSource, /\.zone-movement-flow-chart \{[^}]*width: 100%/s);
-  assert.match(stylesSource, /\.zone-recent-movement-columns \{[^}]*min-width: 0/s);
-  assert.match(stylesSource, /\.zone-movement-flow-grid text,\s*\.zone-movement-flow-week \{[^}]*font-size: 11px;[^}]*font-weight: 650/s);
-  assert.match(stylesSource, /\.zone-movement-flow-legend \{[^}]*font-size: \.78rem;[^}]*font-weight: 700/s);
-  assert.match(stylesSource, /\.zone-movement-flow-grid line \{[^}]*stroke-dasharray: 4 6/s);
-  assert.doesNotMatch(stylesSource, /\.zone-movement-flow-chart \{[^}]*border:/s);
+  assert.match(
+    stylesSource,
+    /\.zone-recent-movement-columns \{[^}]*min-width: 0/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-grid text,\s*\.zone-movement-flow-week \{[^}]*font-size: 11px;[^}]*font-weight: 650/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-legend \{[^}]*font-size: \.78rem;[^}]*font-weight: 700/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-flow-grid line \{[^}]*stroke-dasharray: 4 6/s,
+  );
+  assert.doesNotMatch(
+    stylesSource,
+    /\.zone-movement-flow-chart \{[^}]*border:/s,
+  );
 });
 
 test('history and summary hide stale contexts before effects and clear data on failures', () => {
-  assert.equal((historySource.match(/state\.requestKey === requestKey/g) ?? []).length, 2);
-  assert.equal((historySource.match(/getStoredActiveOrganizationId\(\)/g) ?? []).length, 3);
-  assert.match(historySource, /setState\(\{ requestKey, response: null, error: requestError, isLoading: false \}\)/);
-  assert.match(historySource, /setState\(\{ requestKey, summary: null, error: requestError, isLoading: false \}\)/);
-  assert.doesNotMatch(historySource, /\.\.\.current\b|isLoading && !summary|isLoading && !response/);
+  assert.equal(
+    (historySource.match(/state\.requestKey === requestKey/g) ?? []).length,
+    2,
+  );
+  assert.equal(
+    (historySource.match(/getStoredActiveOrganizationId\(\)/g) ?? []).length,
+    3,
+  );
+  assert.match(
+    historySource,
+    /setState\(\{ requestKey, response: null, error: requestError, isLoading: false \}\)/,
+  );
+  assert.match(
+    historySource,
+    /setState\(\{ requestKey, summary: null, error: requestError, isLoading: false \}\)/,
+  );
+  assert.doesNotMatch(
+    historySource,
+    /\.\.\.current\b|isLoading && !summary|isLoading && !response/,
+  );
 });
 
 test('loading and errors stay local with translated text and native retry controls', () => {
   assert.equal((historySource.match(/role="status"/g) ?? []).length, 4);
   assert.doesNotMatch(historySource, /role="alert"/);
-  assert.match(historySource, /getErrorMessage\(error, t\('auditValueUnavailable'\)\)/);
-  assert.match(historySource, /getErrorMessage\(history\.error, t\('auditValueUnavailable'\)\)/);
-  assert.equal((historySource.match(/t\('zoneMovementRetry'\)/g) ?? []).length, 2);
+  assert.match(
+    historySource,
+    /getErrorMessage\(error, t\('auditValueUnavailable'\)\)/,
+  );
+  assert.match(
+    historySource,
+    /getErrorMessage\(history\.error, t\('auditValueUnavailable'\)\)/,
+  );
+  assert.equal(
+    (historySource.match(/t\('zoneMovementRetry'\)/g) ?? []).length,
+    2,
+  );
   assert.equal((historySource.match(/t\('loading'\)/g) ?? []).length, 2);
 });
 
 test('pagination resets with context while recorded zero weeks remain chart data', () => {
-  assert.match(historySource, /pagination\.contextKey === contextKey \? pagination\.offset : 0/);
-  assert.match(historySource, /pagination\.contextKey !== contextKey\) setPagination\(\{ contextKey, offset: 0 \}\)/);
+  assert.match(
+    historySource,
+    /pagination\.contextKey === contextKey \? pagination\.offset : 0/,
+  );
+  assert.match(
+    historySource,
+    /pagination\.contextKey !== contextKey\) setPagination\(\{ contextKey, offset: 0 \}\)/,
+  );
   assert.match(historySource, /summary\.weeks\.length > 0/);
   assert.match(historySource, /week\.exit_count > 0 \? \(/);
 });
@@ -118,18 +214,27 @@ test('all movement rows reuse the lazy rich Inventory preview without actor data
   assert.match(historySource, /movement\.box_code/);
   assert.match(historySource, /<BoxTrackingPreview/);
   assert.match(historySource, /boxId=\{movement\.box_id\}/);
-  assert.match(historySource, /className="box-inventory-identity zone-movement-identity"/);
+  assert.match(
+    historySource,
+    /className="box-inventory-identity zone-movement-identity"/,
+  );
   assert.match(historySource, /language=\{language\}/);
   assert.match(previewSource, /onPointerEnter=\{\(event\) =>/);
   assert.match(previewSource, /onFocus=\{\(\) =>/);
   assert.match(previewSource, /onClick=\{\(event\) =>/);
   assert.match(previewSource, /BoxTrackingChart/);
-  assert.match(previewSource, /onSpeciesLoaded\(result\.species\.scientific_name\)/);
+  assert.match(
+    previewSource,
+    /onSpeciesLoaded\(result\.species\.scientific_name\)/,
+  );
   assert.match(historySource, /ArrowDownToLine/);
   assert.match(historySource, /ArrowUpFromLine/);
   assert.match(historySource, /movement\.occurred_at/);
   assert.match(historySource, /movement\.related_zone_name/);
-  assert.doesNotMatch(historySource, /movement\.(user|actor)|historyEnteredBy|avatar/i);
+  assert.doesNotMatch(
+    historySource,
+    /movement\.(user|actor)|historyEnteredBy|avatar/i,
+  );
 });
 
 test('movement columns remain neutral with directional icons while the chart uses green and red', () => {
@@ -137,54 +242,101 @@ test('movement columns remain neutral with directional icons while the chart use
   assert.match(historySource, /zone-recent-movement-column is-\$\{direction\}/);
   assert.match(historySource, /ArrowDownToLine/);
   assert.match(historySource, /ArrowUpFromLine/);
-  assert.doesNotMatch(stylesSource, /\.zone-recent-movement-column\.is-(?:arrival|departure) h3/);
-  assert.match(stylesSource, /\.zone-movement-row\.is-arrival > \.zone-movement-direction-icon \{ color: var\(--color-success\); \}/);
-  assert.match(stylesSource, /\.zone-movement-row\.is-departure > \.zone-movement-direction-icon \{ color: var\(--color-danger\); \}/);
-  assert.doesNotMatch(stylesSource, /\.zone-movement-row\.is-(?:arrival|departure)\s*\{[^}]*\b(?:color|background):/);
-  assert.match(stylesSource, /\.zone-recent-movements \.zone-movement-row \{[^}]*min-height: 50px;[^}]*padding: var\(--space-1\) 0/s);
-  assert.match(stylesSource, /\.zone-movement-history-action \{[^}]*min-height: var\(--control-height\)/s);
+  assert.doesNotMatch(
+    stylesSource,
+    /\.zone-recent-movement-column\.is-(?:arrival|departure) h3/,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-row\.is-arrival > \.zone-movement-direction-icon \{ color: var\(--color-success\); \}/,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-row\.is-departure > \.zone-movement-direction-icon \{ color: var\(--color-danger\); \}/,
+  );
+  assert.doesNotMatch(
+    stylesSource,
+    /\.zone-movement-row\.is-(?:arrival|departure)\s*\{[^}]*\b(?:color|background):/,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-recent-movements \.zone-movement-row \{[^}]*min-height: 50px;[^}]*padding: var\(--space-1\) 0/s,
+  );
+  assert.match(
+    stylesSource,
+    /\.zone-movement-history-action \{[^}]*min-height: var\(--control-height\)/s,
+  );
 });
 
 test('entry and exit copy exists in French and English', () => {
   for (const key of historyKeys) {
-    assert.match(frSource, new RegExp(`\\b${key}:`), `missing French key ${key}`);
-    assert.match(enSource, new RegExp(`\\b${key}:`), `missing English key ${key}`);
+    assert.ok(Object.hasOwn(fr, key), `missing French key ${key}`);
+    assert.ok(Object.hasOwn(en, key), `missing English key ${key}`);
   }
-  assert.match(frSource, /zoneMovementEntries: 'Entrées'/);
-  assert.match(frSource, /zoneMovementExits: 'Sorties'/);
-  assert.match(enSource, /zoneMovementEntries: 'Entries'/);
-  assert.match(enSource, /zoneMovementExits: 'Exits'/);
+  assert.equal(fr.zoneMovementEntries, 'Entrées');
+  assert.equal(fr.zoneMovementExits, 'Sorties');
+  assert.equal(en.zoneMovementEntries, 'Entries');
+  assert.equal(en.zoneMovementExits, 'Exits');
 });
 
 test('movement catalogs have matching keys and omit the removed source note in both languages', () => {
-  const keys = (source) => [...source.matchAll(/^ {2}(zone(?:Movement|RecentMovements)\w+):/gm)].map((match) => match[1]).sort();
-  assert.deepEqual(keys(frSource), keys(enSource));
+  const keys = (catalog) =>
+    Object.keys(catalog)
+      .filter((key) => /^zone(?:Movement|RecentMovements)\w+$/.test(key))
+      .sort();
+  assert.deepEqual(keys(fr), keys(en));
   const removedTexts = [
     'Début et fin des périodes d’emplacement enregistrées. Ce ne sont pas toujours des déplacements saisis.',
     'Start and end of recorded location periods. These are not always recorded moves.',
   ];
-  for (const source of [frSource, enSource, historySource]) {
+  for (const source of [
+    ...[fr, en].map((catalog) => Object.entries(catalog).flat().join('\n')),
+    historySource,
+  ]) {
     assert.doesNotMatch(source, /\bzoneMovementSourceNote\b/);
-    for (const text of removedTexts) assert.ok(!source.includes(text), `removed source note: ${text}`);
+    for (const text of removedTexts)
+      assert.ok(!source.includes(text), `removed source note: ${text}`);
   }
 });
 
 test('zone history wording describes location period starts and ends, not recorded moves', () => {
   const expected = {
-    fr: { zoneRecentMovementsTitle: 'Entrées et sorties', zoneMovementHistoryTitle: 'Historique des entrées et sorties', zoneMovementEmpty: 'Aucune entrée ou sortie enregistrée.', zoneMovementWeekSummary: /périodes d’emplacement/ },
-    en: { zoneRecentMovementsTitle: 'Entries and exits', zoneMovementHistoryTitle: 'Entry and exit history', zoneMovementEmpty: 'No entry or exit recorded.', zoneMovementWeekSummary: /location periods/ },
+    fr: {
+      zoneRecentMovementsTitle: 'Entrées et sorties',
+      zoneMovementHistoryTitle: 'Historique des entrées et sorties',
+      zoneMovementEmpty: 'Aucune entrée ou sortie enregistrée.',
+      zoneMovementWeekSummary: /périodes d’emplacement/,
+    },
+    en: {
+      zoneRecentMovementsTitle: 'Entries and exits',
+      zoneMovementHistoryTitle: 'Entry and exit history',
+      zoneMovementEmpty: 'No entry or exit recorded.',
+      zoneMovementWeekSummary: /location periods/,
+    },
   };
-  for (const [language, source] of [['fr', frSource], ['en', enSource]]) {
+  for (const [language, catalog] of Object.entries({ fr, en })) {
     for (const [key, value] of Object.entries(expected[language])) {
-      const match = source.match(new RegExp(`^  ${key}: '(.*)',$`, 'm'));
-      assert.ok(match, `${language}.${key}`);
-      if (value instanceof RegExp) assert.match(match[1], value); else assert.equal(match[1], value);
+      if (value instanceof RegExp) assert.match(catalog[key], value);
+      else assert.equal(catalog[key], value);
     }
-    for (const key of ['zoneRecentMovementsTitle', 'zoneMovementHistoryTitle', 'zoneMovementDirectionFilter', 'zoneMovementEmpty']) {
-      const text = source.match(new RegExp(`^  ${key}: '(.*)',$`, 'm'))[1];
-      assert.doesNotMatch(text, /mouvement|movement|moves?/i, `${language}.${key} must not call period boundaries movements`);
+    for (const key of [
+      'zoneRecentMovementsTitle',
+      'zoneMovementHistoryTitle',
+      'zoneMovementDirectionFilter',
+      'zoneMovementEmpty',
+    ]) {
+      const text = catalog[key];
+      assert.doesNotMatch(
+        text,
+        /mouvement|movement|\bmoves?\b/i,
+        `${language}.${key} must not call period boundaries movements`,
+      );
     }
   }
-  assert.doesNotMatch(historySource, /zoneMovementSourceNote|zone-movement-source-note/, 'neither summary nor full history renders the removed source note');
+  assert.doesNotMatch(
+    historySource,
+    /zoneMovementSourceNote|zone-movement-source-note/,
+    'neither summary nor full history renders the removed source note',
+  );
   assert.doesNotMatch(historySource, /movement\.(user|actor)/);
 });

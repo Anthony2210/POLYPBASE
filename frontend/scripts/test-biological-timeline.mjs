@@ -7,47 +7,117 @@ import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as scales from 'd3-scale';
 import * as shapes from 'd3-shape';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 function load(path, dependencies = {}) {
-  const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  });
+  const { outputText } = ts.transpileModule(
+    readFileSync(new URL(path, import.meta.url), 'utf8'),
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
+      },
+    },
+  );
   const exports = {};
-  vm.runInNewContext(outputText, { exports, Date, require(name) {
-    assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
-    return dependencies[name];
-  } });
+  vm.runInNewContext(outputText, {
+    exports,
+    Date,
+    require(name) {
+      assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
+      return dependencies[name];
+    },
+  });
   return exports;
 }
 const timeline = load('../src/utils/biologicalTimeline.ts');
 const utility = (name) => load(`../src/utils/${name}.ts`);
 const historyDependencies = {
-  '../hooks/useBoxHistory': { useBoxHistory: () => ({ events: [], candidates: [], assessments: [], loading: false, failed: false, retry() {} }) },
+  '../hooks/useBoxHistory': {
+    useBoxHistory: () => ({
+      events: [],
+      candidates: [],
+      assessments: [],
+      loading: false,
+      failed: false,
+      retry() {},
+    }),
+  },
   '../utils/boxHistory': utility('boxHistory'),
   './BoxHistoryStatus': { default: () => null },
 };
-const fr = load('../src/i18n/fr.ts').fr;
-const en = load('../src/i18n/en.ts').en;
-const reading = (id, date, polyps, ephyrae = 0) => ({ id, measured_on: date, polyp_count: polyps, ephyrae_count: ephyrae, salinity_psu: null, notes: '', user: 'Scientist' });
+const { fr, en } = loadI18n().translations;
+const TrackingChart = () => null;
+const EmptyPreviewSkeleton = () => null;
+const reading = (id, date, polyps, ephyrae = 0) => ({
+  id,
+  measured_on: date,
+  polyp_count: polyps,
+  ephyrae_count: ephyrae,
+  salinity_psu: null,
+  notes: '',
+  user: 'Scientist',
+});
 const measurement = reading(1, '2026-09-15', 100);
 const parentEntry = {
-  kind: 'subculture', id: 1, identity: 'subculture:1', effective_date: '2026-09-15', state_sequence: 2,
-  polyp_count_before: 100, polyp_count_after: 0, allocated_polyps: 100, author: { username: 'Scientist' },
+  kind: 'subculture',
+  id: 1,
+  identity: 'subculture:1',
+  effective_date: '2026-09-15',
+  state_sequence: 2,
+  polyp_count_before: 100,
+  polyp_count_after: 0,
+  allocated_polyps: 100,
+  author: { username: 'Scientist' },
   allocations: [
-    { child_box_id: 3, child_global_code: 'SF.003', allocated_polyps: 60, position: 2 },
-    { child_box_id: 2, child_global_code: 'SF.002', allocated_polyps: 40, position: 1 },
+    {
+      child_box_id: 3,
+      child_global_code: 'SF.003',
+      allocated_polyps: 60,
+      position: 2,
+    },
+    {
+      child_box_id: 2,
+      child_global_code: 'SF.002',
+      allocated_polyps: 40,
+      position: 1,
+    },
   ],
 };
-const measurementEntry = { kind: 'measurement', id: 1, identity: 'measurement:1', effective_date: measurement.measured_on, state_sequence: 1, measurement };
-const childEntry = { kind: 'subculture_initialization', id: 1, identity: 'subculture_initialization:1', event_id: 1, effective_date: '2026-09-15', state_sequence: 1, polyp_count_after: 0, allocated_polyps: 0, parent: { id: 99, global_code: 'SF.001' } };
-const translator = (catalog, language) => (key) => key === 'subcultureAllocatedPolyps' ? (language === 'fr' ? 'Polypes alloués' : 'Allocated polyps') : catalog[key] ?? key;
-const labelsFor = (catalog, language) => timeline.getBiologicalTimelineLabels(translator(catalog, language));
+const measurementEntry = {
+  kind: 'measurement',
+  id: 1,
+  identity: 'measurement:1',
+  effective_date: measurement.measured_on,
+  state_sequence: 1,
+  measurement,
+};
+const childEntry = {
+  kind: 'subculture_initialization',
+  id: 1,
+  identity: 'subculture_initialization:1',
+  event_id: 1,
+  effective_date: '2026-09-15',
+  state_sequence: 1,
+  polyp_count_after: 0,
+  allocated_polyps: 0,
+  parent: { id: 99, global_code: 'SF.001' },
+};
+const translator = (catalog, language) => (key) =>
+  key === 'subcultureAllocatedPolyps'
+    ? language === 'fr'
+      ? 'Polypes alloués'
+      : 'Allocated polyps'
+    : (catalog[key] ?? key);
+const labelsFor = (catalog, language) =>
+  timeline.getBiologicalTimelineLabels(translator(catalog, language));
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 test('timeline labels use catalog keys and preserve legacy allocated-label fallbacks', () => {
   for (const catalog of [fr, en]) {
     const t = (key) => {
-      assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${key}`);
+      assert.ok(Object.hasOwn(catalog, key), `Unknown translation key: ${key}`);
       return catalog[key];
     };
     const expected = {
@@ -60,10 +130,15 @@ test('timeline labels use catalog keys and preserve legacy allocated-label fallb
     };
     assert.deepEqual(plain(timeline.getBiologicalTimelineLabels(t)), expected);
     for (const missingLabel of ['', 'subcultureAllocatedPolyps']) {
-      const legacyTranslator = (key) => key === 'subcultureAllocatedPolyps' ? missingLabel : t(key);
-      assert.deepEqual(plain(timeline.getBiologicalTimelineLabels(legacyTranslator)), {
-        ...expected, allocatedPolyps: catalog.polyps,
-      });
+      const legacyTranslator = (key) =>
+        key === 'subcultureAllocatedPolyps' ? missingLabel : t(key);
+      assert.deepEqual(
+        plain(timeline.getBiologicalTimelineLabels(legacyTranslator)),
+        {
+          ...expected,
+          allocatedPolyps: catalog.polyps,
+        },
+      );
     }
   }
 });
@@ -72,29 +147,62 @@ function chartHarness() {
   const states = [];
   let stateIndex = 0;
   const hooks = {
-    useMemo: (fn) => fn(), useRef: () => ({ current: null }), useId: () => 'chart-test',
-    useEffect() {}, useLayoutEffect() {},
+    useMemo: (fn) => fn(),
+    useRef: () => ({ current: null }),
+    useId: () => 'chart-test',
+    useEffect() {},
+    useLayoutEffect() {},
     useState(initial) {
       const index = stateIndex++;
       if (!(index in states)) states[index] = initial;
-      return [states[index], (next) => { states[index] = typeof next === 'function' ? next(states[index]) : next; }];
+      return [
+        states[index],
+        (next) => {
+          states[index] =
+            typeof next === 'function' ? next(states[index]) : next;
+        },
+      ];
     },
   };
   const chart = load('../src/components/BiologicalTrendChart.tsx', {
-    react: hooks, 'react/jsx-runtime': jsxRuntime, 'd3-scale': scales, 'd3-shape': shapes,
+    react: hooks,
+    'react/jsx-runtime': jsxRuntime,
+    'd3-scale': scales,
+    'd3-shape': shapes,
     '../utils/userIdentity': utility('userIdentity'),
-    '../utils/dateFormat': utility('dateFormat'), '../utils/chartBiology': utility('chartBiology'), '../utils/chartLocations': utility('chartLocations'),
+    '../utils/dateFormat': utility('dateFormat'),
+    '../utils/chartBiology': utility('chartBiology'),
+    '../utils/chartLocations': utility('chartLocations'),
   });
-  return { chart, render(props) { stateIndex = 0; return chart.default(props); } };
+  return {
+    chart,
+    render(props) {
+      stateIndex = 0;
+      return chart.default(props);
+    },
+  };
 }
 function allNodes(node) {
   if (!node || typeof node !== 'object') return [];
   return [node, ...[node.props?.children].flat(Infinity).flatMap(allNodes)];
 }
-const chartLabels = (catalog) => ({ chartTitle: catalog.chartTitle, empty: catalog.chartEmpty, polyps: catalog.polyps, ephyrae: catalog.ephyraeFull, location: catalog.confirmDetailCurrentLocation, missingReading: catalog.chartMissingReading, salinity: catalog.salinityFull, subculture: catalog.subcultureEvent });
+const chartLabels = (catalog) => ({
+  chartTitle: catalog.chartTitle,
+  empty: catalog.chartEmpty,
+  polyps: catalog.polyps,
+  ephyrae: catalog.ephyraeFull,
+  location: catalog.confirmDetailCurrentLocation,
+  missingReading: catalog.chartMissingReading,
+  salinity: catalog.salinityFull,
+  subculture: catalog.subcultureEvent,
+});
 
 test('ordinary consumers retain their measurements without a new timeline', () => {
-  const data = timeline.prepareBiologicalChartData([measurement], undefined, labelsFor(fr, 'fr'));
+  const data = timeline.prepareBiologicalChartData(
+    [measurement],
+    undefined,
+    labelsFor(fr, 'fr'),
+  );
   assert.equal(data.measurements.length, 1);
   assert.equal(data.measurements[0].ephyraeCount, 0);
   assert.equal(data.polypStates.length, 0);
@@ -102,36 +210,86 @@ test('ordinary consumers retain their measurements without a new timeline', () =
 });
 
 test('imported zero measurements with unknown metadata remain chart readings without invented notes', () => {
-  const imported = { ...reading(12, '2026-09-15', 0), culture_status: null, needs_attention: null, notes: null };
-  const data = timeline.prepareBiologicalChartData([imported], undefined, labelsFor(en, 'en'));
+  const imported = {
+    ...reading(12, '2026-09-15', 0),
+    culture_status: null,
+    needs_attention: null,
+    notes: null,
+  };
+  const data = timeline.prepareBiologicalChartData(
+    [imported],
+    undefined,
+    labelsFor(en, 'en'),
+  );
   assert.equal(data.measurements[0].polypCount, 0);
   assert.equal(data.measurements[0].ephyraeCount, 0);
   assert.equal(data.measurements[0].note, null);
   const { render } = chartHarness();
-  const markup = renderToStaticMarkup(render({ ...data, startDate: '2026-09-01', endDate: '2026-09-30', labels: chartLabels(en) }));
+  const markup = renderToStaticMarkup(
+    render({
+      ...data,
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      labels: chartLabels(en),
+    }),
+  );
   assert.doesNotMatch(markup, /NaN|undefined/);
 });
 
 test('retained duplicate archive stays separate while canonical zero and null metadata remain intact', () => {
-  const zero = Object.freeze({ ...reading(10, '2026-09-15', 0), duplicate_of: null,
-    environment_source_box: 2141, strobila_count: null, culture_status: null, needs_attention: null, notes: null });
-  const ordinary = Object.freeze({ ...reading(11, '2026-09-22', 0), salinity_psu: '0' });
-  const archive = Object.freeze(Array.from({ length: 18 }, (_, index) => Object.freeze({
-    ...reading(100 + index, '2026-09-15', index), duplicate_of: zero.id, environment_source_box: 2141,
-    strobila_count: null, notes: 'Retained source evidence', can_edit: false,
-    edit_restriction: 'measurement_duplicate_read_only',
-  })));
-  const detail = Object.freeze({ biological_measurements: Object.freeze([zero, ordinary]),
+  const zero = Object.freeze({
+    ...reading(10, '2026-09-15', 0),
+    duplicate_of: null,
+    environment_source_box: 2141,
+    strobila_count: null,
+    culture_status: null,
+    needs_attention: null,
+    notes: null,
+  });
+  const ordinary = Object.freeze({
+    ...reading(11, '2026-09-22', 0),
+    salinity_psu: '0',
+  });
+  const archive = Object.freeze(
+    Array.from({ length: 18 }, (_, index) =>
+      Object.freeze({
+        ...reading(100 + index, '2026-09-15', index),
+        duplicate_of: zero.id,
+        environment_source_box: 2141,
+        strobila_count: null,
+        notes: 'Retained source evidence',
+        can_edit: false,
+        edit_restriction: 'measurement_duplicate_read_only',
+      }),
+    ),
+  );
+  const detail = Object.freeze({
+    biological_measurements: Object.freeze([zero, ordinary]),
     duplicate_measurements: archive,
-    identity_history: Object.freeze([{ id: 2141, global_code: 'RETIRED-PCA', merged_into: 2135, locations: [] }]),
+    identity_history: Object.freeze([
+      {
+        id: 2141,
+        global_code: 'RETIRED-PCA',
+        merged_into: 2135,
+        locations: [],
+      },
+    ]),
   });
   const before = JSON.stringify(detail);
-  const data = timeline.prepareBiologicalChartData([
-    ...detail.biological_measurements, ...detail.duplicate_measurements,
-  ], undefined, labelsFor(en, 'en'));
-  assert.deepEqual(plain(data.measurements.map(item => item.id)), [10, 11]);
-  assert.deepEqual(plain(data.measurements.map(item => item.polypCount)), [0, 0]);
-  assert.deepEqual(plain(data.measurements.map(item => item.ephyraeCount)), [0, 0]);
+  const data = timeline.prepareBiologicalChartData(
+    [...detail.biological_measurements, ...detail.duplicate_measurements],
+    undefined,
+    labelsFor(en, 'en'),
+  );
+  assert.deepEqual(plain(data.measurements.map((item) => item.id)), [10, 11]);
+  assert.deepEqual(
+    plain(data.measurements.map((item) => item.polypCount)),
+    [0, 0],
+  );
+  assert.deepEqual(
+    plain(data.measurements.map((item) => item.ephyraeCount)),
+    [0, 0],
+  );
   assert.equal(data.measurements[0].salinity, null);
   assert.equal(data.measurements[0].note, null);
   assert.equal(data.measurements[1].salinity, '0');
@@ -139,23 +297,59 @@ test('retained duplicate archive stays separate while canonical zero and null me
   assert.equal(data.events.length, 0);
   assert.equal(detail.duplicate_measurements.length, 18);
   assert.equal(detail.biological_measurements[0].strobila_count, null);
-  assert.equal(JSON.stringify(detail), before, 'chart preparation must not rewrite archived evidence');
+  assert.equal(
+    JSON.stringify(detail),
+    before,
+    'chart preparation must not rewrite archived evidence',
+  );
   const { chart } = chartHarness();
-  const geometry = chart.buildGeometry(data.measurements, [], [], '2026-09-01', '2026-09-30', false);
-  assert.deepEqual(plain(geometry.plottedMeasurements.map(point => point.polypCount)), [0, 0]);
+  const geometry = chart.buildGeometry(
+    data.measurements,
+    [],
+    [],
+    '2026-09-01',
+    '2026-09-30',
+    false,
+  );
+  assert.deepEqual(
+    plain(geometry.plottedMeasurements.map((point) => point.polypCount)),
+    [0, 0],
+  );
 });
 
 for (const duplicateOf of [10, 0]) {
   test(`nested timeline duplicate_of=${duplicateOf} never becomes a plotted measurement`, () => {
-    const zero = { ...reading(10, '2026-09-15', 0), duplicate_of: null, notes: null, environment_source_box: 2141 };
-    const duplicate = { ...reading(12, '2026-09-15', 999), duplicate_of: duplicateOf };
+    const zero = {
+      ...reading(10, '2026-09-15', 0),
+      duplicate_of: null,
+      notes: null,
+      environment_source_box: 2141,
+    };
+    const duplicate = {
+      ...reading(12, '2026-09-15', 999),
+      duplicate_of: duplicateOf,
+    };
     const entries = Object.freeze([
-      Object.freeze({ kind: 'measurement', id: duplicate.id, effective_date: duplicate.measured_on, measurement: duplicate }),
-      Object.freeze({ kind: 'measurement', id: zero.id, effective_date: zero.measured_on, measurement: zero }),
+      Object.freeze({
+        kind: 'measurement',
+        id: duplicate.id,
+        effective_date: duplicate.measured_on,
+        measurement: duplicate,
+      }),
+      Object.freeze({
+        kind: 'measurement',
+        id: zero.id,
+        effective_date: zero.measured_on,
+        measurement: zero,
+      }),
     ]);
     const before = JSON.stringify(entries);
-    const data = timeline.prepareBiologicalChartData([], entries, labelsFor(fr, 'fr'));
-    assert.deepEqual(plain(data.measurements.map(item => item.id)), [10]);
+    const data = timeline.prepareBiologicalChartData(
+      [],
+      entries,
+      labelsFor(fr, 'fr'),
+    );
+    assert.deepEqual(plain(data.measurements.map((item) => item.id)), [10]);
     assert.equal(data.measurements[0].polypCount, 0);
     assert.equal(data.measurements[0].ephyraeCount, 0);
     assert.equal(data.measurements[0].salinity, null);
@@ -171,157 +365,401 @@ for (const markedInput of ['measurements', 'timeline', 'laterTimelineCopy']) {
     const unmarkedCopy = reading(12, '2026-09-15', 999);
     const duplicate = { ...unmarkedCopy, duplicate_of: canonical.id };
     const entry = (measurement, date = measurement.measured_on) => ({
-      kind: 'measurement', id: measurement.id, effective_date: date, measurement,
+      kind: 'measurement',
+      id: measurement.id,
+      effective_date: date,
+      measurement,
     });
-    const measurements = [canonical, markedInput === 'measurements' ? duplicate : unmarkedCopy];
-    const entries = markedInput === 'measurements' ? [entry(unmarkedCopy)]
-      : markedInput === 'timeline' ? [entry(duplicate)]
-        : [entry(unmarkedCopy), entry(duplicate, '2026-09-22')];
+    const measurements = [
+      canonical,
+      markedInput === 'measurements' ? duplicate : unmarkedCopy,
+    ];
+    const entries =
+      markedInput === 'measurements'
+        ? [entry(unmarkedCopy)]
+        : markedInput === 'timeline'
+          ? [entry(duplicate)]
+          : [entry(unmarkedCopy), entry(duplicate, '2026-09-22')];
     const before = JSON.stringify({ measurements, entries });
-    const data = timeline.prepareBiologicalChartData(measurements, entries, labelsFor(en, 'en'));
-    assert.deepEqual(plain(data.measurements.map(item => item.id)), [canonical.id]);
+    const data = timeline.prepareBiologicalChartData(
+      measurements,
+      entries,
+      labelsFor(en, 'en'),
+    );
+    assert.deepEqual(plain(data.measurements.map((item) => item.id)), [
+      canonical.id,
+    ]);
     assert.equal(data.measurements[0].polypCount, 0);
     assert.equal(data.measurements[0].salinity, null);
     assert.equal(JSON.stringify({ measurements, entries }), before);
   });
 }
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   test(`${language}: actual chart uses source environments and keeps canonical temperatures independent`, () => {
     const location = (id, name, start, end = null, unknown = false) => ({
-      id, thermal_zone: { id, name }, starts_at: start, ends_at: end, end_date_unknown: unknown,
+      id,
+      thermal_zone: { id, name },
+      starts_at: start,
+      ends_at: end,
+      end_date_unknown: unknown,
     });
     const canonicalLocations = [
       location(100, 'CHO 15 C', '2025-12-01', '2026-10-08'),
       location(101, 'CHO 10 C', '2026-10-09'),
     ];
-    const sourceLocations = [location(200, 'JKA zone 2', '2026-01-12', null, true)];
+    const sourceLocations = [
+      location(200, 'JKA zone 2', '2026-01-12', null, true),
+    ];
     const raw = [
-      { ...reading(41, '2025-12-29', 0), environment_source_box: 2141, environment_locations: [] },
-      { ...reading(42, '2026-01-12', 1), environment_source_box: 2141, environment_locations: sourceLocations },
-      { ...reading(43, '2026-01-19', 2), environment_source_box: 2141, environment_locations: sourceLocations },
+      {
+        ...reading(41, '2025-12-29', 0),
+        environment_source_box: 2141,
+        environment_locations: [],
+      },
+      {
+        ...reading(42, '2026-01-12', 1),
+        environment_source_box: 2141,
+        environment_locations: sourceLocations,
+      },
+      {
+        ...reading(43, '2026-01-19', 2),
+        environment_source_box: 2141,
+        environment_locations: sourceLocations,
+      },
       { ...reading(44, '2026-10-05', 3), environment_locations: null },
       { ...reading(45, '2026-10-12', 4), environment_locations: null },
     ];
     const before = JSON.stringify({ raw, canonicalLocations, sourceLocations });
-    const temperatures = raw.map(point => ({ date: point.measured_on,
+    const temperatures = raw.map((point) => ({
+      date: point.measured_on,
       average_temperature_c: point.id === 45 ? 10 : 15,
-      zone_name: point.id === 45 ? 'CHO 10 C' : 'CHO 15 C', zone_id: point.id === 45 ? 101 : 100 }));
+      zone_name: point.id === 45 ? 'CHO 10 C' : 'CHO 15 C',
+      zone_id: point.id === 45 ? 101 : 100,
+    }));
     const tracking = load('../src/components/BoxTrackingChart.tsx', {
       ...historyDependencies,
-      react: { useMemo: fn => fn(), useState: initial => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
-      '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
-      './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
-      '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+      react: {
+        useMemo: (fn) => fn(),
+        useState: (initial) => [initial, () => {}],
+      },
+      'react/jsx-runtime': jsxRuntime,
+      '../utils/chartWindow': utility('chartWindow'),
+      '../utils/biologicalTimeline': timeline,
+      './BiologicalTrendChart': {
+        ...chartHarness().chart,
+        default: () => null,
+      },
+      './ChartWindowControls': { default: () => null },
+      '../hooks/useTemperatureHistory': {
+        useTemperatureHistory: () => ({
+          points: [],
+          loading: false,
+          failed: false,
+          retry() {},
+        }),
+      },
       './TemperatureHistoryStatus': { default: () => null },
       './HistoricalTemperatureStatus': { default: () => null },
-      '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+      '../hooks/useHistoricalTemperatures': {
+        useHistoricalTemperatures: () => ({
+          points: [],
+          loading: false,
+          failed: false,
+          retry() {},
+        }),
+      },
       '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
-      '../i18n': { createTranslator: lang => translator(lang === 'fr' ? fr : en, lang) },
+      '../i18n': {
+        createTranslator: (lang) => translator(lang === 'fr' ? fr : en, lang),
+      },
     });
-    const partialHistory = { events: [{ id: 'undated', temporal_precision: 'unresolved', kind: 'location_evidence', evidence: {} }],
-      candidates: [], assessments: [{ classification: 'insufficient_evidence' }], loading: false, failed: false, retry() {} };
-    const renderTracking = (history, boxId) => tracking.default({ history, boxId, measurements: raw.filter(point => point.id !== 42),
-      biologicalTimeline: [{ kind: 'measurement', id: 42, effective_date: raw[1].measured_on, measurement: raw[1] }],
-      locations: canonicalLocations, temperatures, events: [], language,
-      labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty },
-    });
+    const partialHistory = {
+      events: [
+        {
+          id: 'undated',
+          temporal_precision: 'unresolved',
+          kind: 'location_evidence',
+          evidence: {},
+        },
+      ],
+      candidates: [],
+      assessments: [{ classification: 'insufficient_evidence' }],
+      loading: false,
+      failed: false,
+      retry() {},
+    };
+    const renderTracking = (history, boxId) =>
+      tracking.default({
+        history,
+        boxId,
+        measurements: raw.filter((point) => point.id !== 42),
+        biologicalTimeline: [
+          {
+            kind: 'measurement',
+            id: 42,
+            effective_date: raw[1].measured_on,
+            measurement: raw[1],
+          },
+        ],
+        locations: canonicalLocations,
+        temperatures,
+        events: [],
+        language,
+        labels: {
+          polyps: catalog.polyps,
+          ephyraeFull: catalog.ephyraeFull,
+          chartTitle: catalog.chartTitle,
+          chartEmpty: catalog.chartEmpty,
+        },
+      });
     const tree = renderTracking(partialHistory);
-    const status = allNodes(tree).find(node => node.props?.history === partialHistory);
+    const status = allNodes(tree).find(
+      (node) => node.props?.history === partialHistory,
+    );
     assert.equal(status.props.showPartial, false);
     assert.equal(status.props.showLoading, false);
     const Status = load('../src/components/BoxHistoryStatus.tsx', {
       'react/jsx-runtime': jsxRuntime,
-      '../i18n': { createTranslator: () => key => catalog[key] },
+      '../i18n': { createTranslator: () => (key) => catalog[key] },
     }).default;
-    assert.equal(Status(status.props), null, 'no panel, partial message or spacer before the chart');
+    assert.equal(
+      Status(status.props),
+      null,
+      'no panel, partial message or spacer before the chart',
+    );
     for (const [phase, boxId, loading] of [
-      ['initial load', 17, true], ['initial success', 17, false],
-      ['box change', 18, true], ['box success', 18, false],
-      ['data reload', 18, true], ['reload success', 18, false],
+      ['initial load', 17, true],
+      ['initial success', 17, false],
+      ['box change', 18, true],
+      ['box success', 18, false],
+      ['data reload', 18, true],
+      ['reload success', 18, false],
     ]) {
       const history = { ...partialHistory, events: [], loading };
       const currentTree = renderTracking(history, boxId);
-      const feedback = allNodes(currentTree).find(node => node.props?.history === history);
-      assert.equal(Status(feedback.props), null, `${phase}: no loading text, container or spacer above the chart`);
-      const currentTrend = allNodes(currentTree).find(node => node.props?.polypStates);
-      assert.deepEqual(plain(currentTrend.props.measurements), plain(allNodes(tree).find(node => node.props?.polypStates).props.measurements),
-        `${phase}: existing biological readings are neither replaced nor fabricated`);
+      const feedback = allNodes(currentTree).find(
+        (node) => node.props?.history === history,
+      );
+      assert.equal(
+        Status(feedback.props),
+        null,
+        `${phase}: no loading text, container or spacer above the chart`,
+      );
+      const currentTrend = allNodes(currentTree).find(
+        (node) => node.props?.polypStates,
+      );
+      assert.deepEqual(
+        plain(currentTrend.props.measurements),
+        plain(
+          allNodes(tree).find((node) => node.props?.polypStates).props
+            .measurements,
+        ),
+        `${phase}: existing biological readings are neither replaced nor fabricated`,
+      );
     }
     let retries = 0;
-    const failedHistory = { ...partialHistory, events: [], loading: false, failed: true, retry() { retries++; } };
+    const failedHistory = {
+      ...partialHistory,
+      events: [],
+      loading: false,
+      failed: true,
+      retry() {
+        retries++;
+      },
+    };
     const failedTree = renderTracking(failedHistory, 18);
-    const failedFeedback = allNodes(failedTree).find(node => node.props?.history === failedHistory);
+    const failedFeedback = allNodes(failedTree).find(
+      (node) => node.props?.history === failedHistory,
+    );
     const error = Status(failedFeedback.props);
     assert.ok(error, 'genuine history failure still renders above the graph');
     const errorMarkup = renderToStaticMarkup(error);
     assert.ok(errorMarkup.includes(catalog.historyFailed));
     assert.equal(errorMarkup.includes(catalog.historyLoading), false);
-    const retry = allNodes(error).find(node => node.type === 'button');
+    const retry = allNodes(error).find((node) => node.type === 'button');
     assert.equal(retry.props.children, catalog.reloadAction);
     retry.props.onClick();
     assert.equal(retries, 1);
-    assert.equal(Status({ ...failedFeedback.props, history: { ...failedHistory, failed: false, loading: true } }), null,
-      'retry removes the error panel without replacing it with a loading banner');
-    const trend = allNodes(tree).find(node => node.props?.polypStates);
+    assert.equal(
+      Status({
+        ...failedFeedback.props,
+        history: { ...failedHistory, failed: false, loading: true },
+      }),
+      null,
+      'retry removes the error panel without replacing it with a loading banner',
+    );
+    const trend = allNodes(tree).find((node) => node.props?.polypStates);
     assert.equal(trend.props.labels.temperature, catalog.temperature);
-    assert.equal(trend.props.labels.sourceLocation, catalog.recordedOriginalLocation);
-    for (const key of ['canonicalBoxTemperature', 'locationConflictNotice', 'locationConflictUnknownEnd', 'historicalTemperatureEmpty']) assert.equal(catalog[key], undefined, `${key} is removed`);
-    assert.equal(allNodes(tree).find(node => node.props?.role === 'note'), undefined, 'no location notice without a conflict');
-    const conflict = { basis: 'end_unknown', locations: [
-      { location_id: 5945, box_id: 2141, box_code: 'PCA-JKA-1.005', zone_id: 2, zone_name: 'Zone 2', end_unknown: true },
-      { location_id: 5979, box_id: 2135, box_code: 'PCA-CHO-1.005', zone_id: 1, zone_name: 'Zone 1', end_unknown: false },
-    ] };
-    const noticeTree = tracking.default({ measurements: raw, locations: canonicalLocations, temperatures, events: [], language,
+    assert.equal(
+      trend.props.labels.sourceLocation,
+      catalog.recordedOriginalLocation,
+    );
+    for (const key of [
+      'canonicalBoxTemperature',
+      'locationConflictNotice',
+      'locationConflictUnknownEnd',
+      'historicalTemperatureEmpty',
+    ])
+      assert.equal(catalog[key], undefined, `${key} is removed`);
+    assert.equal(
+      allNodes(tree).find((node) => node.props?.role === 'note'),
+      undefined,
+      'no location notice without a conflict',
+    );
+    const conflict = {
+      basis: 'end_unknown',
+      locations: [
+        {
+          location_id: 5945,
+          box_id: 2141,
+          box_code: 'PCA-JKA-1.005',
+          zone_id: 2,
+          zone_name: 'Zone 2',
+          end_unknown: true,
+        },
+        {
+          location_id: 5979,
+          box_id: 2135,
+          box_code: 'PCA-CHO-1.005',
+          zone_id: 1,
+          zone_name: 'Zone 1',
+          end_unknown: false,
+        },
+      ],
+    };
+    const noticeTree = tracking.default({
+      measurements: raw,
+      locations: canonicalLocations,
+      temperatures,
+      events: [],
+      language,
       locationConflicts: [conflict],
-      labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty } });
-    assert.equal(allNodes(noticeTree).find(node => node.props?.role === 'note'), undefined, 'a merged box shows no location conflict notice');
-    assert.deepEqual(plain(trend.props.locations.map(item => item.id)), [100, 101], 'never concatenate source and canonical periods');
-    assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 41).environmentLocations), []);
-    assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 42).environmentLocations), [{
-      id: 200, name: 'JKA zone 2', startsAt: '2026-01-12', endsAt: null, endDateUnknown: true,
-    }], 'nested timeline measurements retain the source period exactly');
-    const props = { ...trend.props, startDate: '2025-12-01', endDate: '2026-10-31' };
+      labels: {
+        polyps: catalog.polyps,
+        ephyraeFull: catalog.ephyraeFull,
+        chartTitle: catalog.chartTitle,
+        chartEmpty: catalog.chartEmpty,
+      },
+    });
+    assert.equal(
+      allNodes(noticeTree).find((node) => node.props?.role === 'note'),
+      undefined,
+      'a merged box shows no location conflict notice',
+    );
+    assert.deepEqual(
+      plain(trend.props.locations.map((item) => item.id)),
+      [100, 101],
+      'never concatenate source and canonical periods',
+    );
+    assert.deepEqual(
+      plain(
+        trend.props.measurements.find((point) => point.id === 41)
+          .environmentLocations,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      plain(
+        trend.props.measurements.find((point) => point.id === 42)
+          .environmentLocations,
+      ),
+      [
+        {
+          id: 200,
+          name: 'JKA zone 2',
+          startsAt: '2026-01-12',
+          endsAt: null,
+          endDateUnknown: true,
+        },
+      ],
+      'nested timeline measurements retain the source period exactly',
+    );
+    const props = {
+      ...trend.props,
+      startDate: '2025-12-01',
+      endDate: '2026-10-31',
+    };
     const harness = chartHarness();
-    const expectedLocations = new Map([[41, null], [42, 'JKA zone 2'], [43, null], [44, 'CHO 15 C'], [45, 'CHO 10 C']]);
+    const expectedLocations = new Map([
+      [41, null],
+      [42, 'JKA zone 2'],
+      [43, null],
+      [44, 'CHO 15 C'],
+      [45, 'CHO 10 C'],
+    ]);
     for (const [id, expected] of expectedLocations) {
-      const point = allNodes(harness.render(props)).find(node => node.key === `measurement-${id}`);
+      const point = allNodes(harness.render(props)).find(
+        (node) => node.key === `measurement-${id}`,
+      );
       assert.ok(point, `missing rendered point ${id}`);
       if (expected) assert.ok(point.props['aria-label'].includes(expected));
-      else assert.doesNotMatch(point.props['aria-label'], /CHO 15 C|CHO 10 C|JKA zone 2/);
+      else
+        assert.doesNotMatch(
+          point.props['aria-label'],
+          /CHO 15 C|CHO 10 C|JKA zone 2/,
+        );
       point.props.onFocus();
-      const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
+      const tooltip = allNodes(harness.render(props)).find((node) =>
+        node.props?.className?.startsWith('bio-trend-tooltip'),
+      );
       const markup = renderToStaticMarkup(tooltip);
       if (expected) assert.ok(markup.includes(expected));
       else assert.doesNotMatch(markup, /CHO 15 C|CHO 10 C|JKA zone 2/);
-      assert.doesNotMatch(markup, /°C|Temperature|Température/, 'no canonical or nearest temperature is attached to a biological point');
+      assert.doesNotMatch(
+        markup,
+        /°C|Temperature|Température/,
+        'no canonical or nearest temperature is attached to a biological point',
+      );
     }
-    const temperaturePoints = allNodes(harness.render(props)).filter(node => node.props?.className === 'bio-trend-temperature-point');
+    const temperaturePoints = allNodes(harness.render(props)).filter(
+      (node) => node.props?.className === 'bio-trend-temperature-point',
+    );
     assert.equal(temperaturePoints.length, temperatures.length);
-    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.dailyTemperatureAggregate));
+    assert.ok(
+      temperaturePoints[0].props['aria-label'].includes(
+        catalog.dailyTemperatureAggregate,
+      ),
+    );
     temperaturePoints[0].props.onFocus();
-    const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
+    const tooltip = allNodes(harness.render(props)).find((node) =>
+      node.props?.className?.startsWith('bio-trend-tooltip'),
+    );
     const markup = renderToStaticMarkup(tooltip);
     assert.ok(markup.includes(catalog.dailyTemperatureAggregate));
     assert.match(markup, /CHO 15 C/);
     assert.doesNotMatch(markup, /JKA zone 2/);
-    assert.equal(JSON.stringify({ raw, canonicalLocations, sourceLocations }), before);
+    assert.equal(
+      JSON.stringify({ raw, canonicalLocations, sourceLocations }),
+      before,
+    );
   });
 }
 
 test('source environment projection preserves null fallback and fails closed when source periods are missing', () => {
-  const data = timeline.prepareBiologicalChartData([
-    { ...reading(1, '2026-10-05', 0), environment_locations: null },
-    { ...reading(2, '2026-10-12', 0) },
-    { ...reading(3, '2026-01-01', 0), environment_source_box: 2141 },
-  ], undefined, labelsFor(en, 'en'));
+  const data = timeline.prepareBiologicalChartData(
+    [
+      { ...reading(1, '2026-10-05', 0), environment_locations: null },
+      { ...reading(2, '2026-10-12', 0) },
+      { ...reading(3, '2026-01-01', 0), environment_source_box: 2141 },
+    ],
+    undefined,
+    labelsFor(en, 'en'),
+  );
   assert.equal(data.measurements[0].environmentLocations, null);
   assert.equal(data.measurements[1].environmentLocations, null);
   assert.deepEqual(plain(data.measurements[2].environmentLocations), []);
 });
 
 test('a multi-child parent event yields one absolute state and one lifecycle marker', () => {
-  const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry, parentEntry], labelsFor(fr, 'fr'));
+  const data = timeline.prepareBiologicalChartData(
+    [measurement],
+    [parentEntry, measurementEntry, parentEntry],
+    labelsFor(fr, 'fr'),
+  );
   assert.equal(data.measurements.length, 1);
   assert.equal(data.polypStates.length, 1);
   assert.equal(data.events.length, 1);
@@ -336,7 +774,11 @@ test('a multi-child parent event yields one absolute state and one lifecycle mar
 });
 
 test('child initialization retains allocated zero and its parent code without inventing measurements', () => {
-  const data = timeline.prepareBiologicalChartData([], [childEntry], labelsFor(en, 'en'));
+  const data = timeline.prepareBiologicalChartData(
+    [],
+    [childEntry],
+    labelsFor(en, 'en'),
+  );
   assert.equal(data.measurements.length, 0);
   assert.equal(data.polypStates[0].kind, 'subculture_initialization');
   assert.equal(data.polypStates[0].polypCount, 0);
@@ -345,93 +787,220 @@ test('child initialization retains allocated zero and its parent code without in
 });
 
 test('legacy unknown balances are markers, never fake zero points', () => {
-  const legacy = { kind: 'subculture', id: 2, effective_date: '2026-09-15', polyp_count_before: null, polyp_count_after: null, allocated_polyps: null, children: [{ id: 4, global_code: 'SF.004' }] };
-  const data = timeline.prepareBiologicalChartData([], [legacy], labelsFor(fr, 'fr'));
+  const legacy = {
+    kind: 'subculture',
+    id: 2,
+    effective_date: '2026-09-15',
+    polyp_count_before: null,
+    polyp_count_after: null,
+    allocated_polyps: null,
+    children: [{ id: 4, global_code: 'SF.004' }],
+  };
+  const data = timeline.prepareBiologicalChartData(
+    [],
+    [legacy],
+    labelsFor(fr, 'fr'),
+  );
   assert.equal(data.polypStates.length, 0);
   assert.equal(data.events.length, 1);
-  assert.deepEqual(plain(data.events[0].detailLines), [{ label: 'Boîtes enfants', value: 'SF.004' }]);
+  assert.deepEqual(plain(data.events[0].detailLines), [
+    { label: 'Boîtes enfants', value: 'SF.004' },
+  ]);
 });
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   test(`${language}: partial allocations remain an event, not a quantitative graph point`, () => {
-    const partial = { ...parentEntry, polyp_count_after: null, allocated_polyps: null,
+    const partial = {
+      ...parentEntry,
+      polyp_count_after: null,
+      allocated_polyps: null,
       allocations: [
-        { child_box_id: 2, child_global_code: 'SF.002', allocated_polyps: 0, position: 0 },
-        { child_box_id: 3, child_global_code: 'SF.003', allocated_polyps: null, position: 1 },
+        {
+          child_box_id: 2,
+          child_global_code: 'SF.002',
+          allocated_polyps: 0,
+          position: 0,
+        },
+        {
+          child_box_id: 3,
+          child_global_code: 'SF.003',
+          allocated_polyps: null,
+          position: 1,
+        },
       ],
     };
-    const data = timeline.prepareBiologicalChartData([measurement], [measurementEntry, partial], labelsFor(catalog, language));
+    const data = timeline.prepareBiologicalChartData(
+      [measurement],
+      [measurementEntry, partial],
+      labelsFor(catalog, language),
+    );
     assert.equal(data.measurements[0].polypCount, 100);
     assert.equal(data.polypStates.length, 0);
     assert.equal(data.events.length, 1);
-    assert.deepEqual(plain(data.events[0].detailLines), [{
-      label: catalog.confirmDetailChildren,
-      value: `SF.002: 0, SF.003: ${catalog.subcultureUnknown}`,
-    }]);
+    assert.deepEqual(plain(data.events[0].detailLines), [
+      {
+        label: catalog.confirmDetailChildren,
+        value: `SF.002: 0, SF.003: ${catalog.subcultureUnknown}`,
+      },
+    ]);
     const { chart } = chartHarness();
-    const geometry = chart.buildGeometry(data.measurements, [], [], '2026-09-01', '2026-09-30', false, undefined, data.polypStates);
-    assert.deepEqual(plain(geometry.plottedMeasurements.map(point => point.polypCount)), [100]);
+    const geometry = chart.buildGeometry(
+      data.measurements,
+      [],
+      [],
+      '2026-09-01',
+      '2026-09-30',
+      false,
+      undefined,
+      data.polypStates,
+    );
+    assert.deepEqual(
+      plain(geometry.plottedMeasurements.map((point) => point.polypCount)),
+      [100],
+    );
   });
 }
 
 test('same-day identities and server state sequence remain distinct and correctly ordered', () => {
-  const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry], labelsFor(fr, 'fr'));
+  const data = timeline.prepareBiologicalChartData(
+    [measurement],
+    [parentEntry, measurementEntry],
+    labelsFor(fr, 'fr'),
+  );
   const { chart } = chartHarness();
-  const result = chart.buildGeometry(data.measurements, [], [], '2026-09-01', '2026-09-30', false, undefined, data.polypStates);
-  assert.deepEqual(plain(result.plottedMeasurements.map((point) => point.polypCount)), [100, 0]);
-  assert.notEqual(chart.getTrendPointId(result.plottedMeasurements[0]), chart.getTrendPointId(result.plottedMeasurements[1]));
+  const result = chart.buildGeometry(
+    data.measurements,
+    [],
+    [],
+    '2026-09-01',
+    '2026-09-30',
+    false,
+    undefined,
+    data.polypStates,
+  );
+  assert.deepEqual(
+    plain(result.plottedMeasurements.map((point) => point.polypCount)),
+    [100, 0],
+  );
+  assert.notEqual(
+    chart.getTrendPointId(result.plottedMeasurements[0]),
+    chart.getTrendPointId(result.plottedMeasurements[1]),
+  );
   assert.equal(result.measurementSegments.flat().length, 1);
   assert.equal(result.polypSegments.flat().length, 2);
   assert.equal(result.yCount(0), result.countHeight - result.padding.bottom);
-  assert.equal(result.countLine((point) => point.ephyraeCount)(data.polypStates), null);
+  assert.equal(
+    result.countLine((point) => point.ephyraeCount)(data.polypStates),
+    null,
+  );
 });
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   test(`${language.toUpperCase()} chart exposes the subculture point and allocations by focus, pinning and Escape`, () => {
-    const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry], labelsFor(catalog, language));
+    const data = timeline.prepareBiologicalChartData(
+      [measurement],
+      [parentEntry, measurementEntry],
+      labelsFor(catalog, language),
+    );
     const harness = chartHarness();
-    const props = { ...data, events: [], startDate: '2026-09-01', endDate: '2026-09-30', labels: chartLabels(catalog) };
+    const props = {
+      ...data,
+      events: [],
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      labels: chartLabels(catalog),
+    };
     const tree = harness.render(props);
-    const point = allNodes(tree).find((node) => node.props?.className === 'bio-trend-measurement is-subculture');
+    const point = allNodes(tree).find(
+      (node) => node.props?.className === 'bio-trend-measurement is-subculture',
+    );
     assert.ok(point);
-    assert.match(point.props['aria-label'], new RegExp(catalog.subcultureEvent));
-    const markers = allNodes(point).filter((node) => node.props?.className?.includes('bio-trend-dot'));
+    assert.match(
+      point.props['aria-label'],
+      new RegExp(catalog.subcultureEvent),
+    );
+    const markers = allNodes(point).filter((node) =>
+      node.props?.className?.includes('bio-trend-dot'),
+    );
     assert.equal(markers.length, 1);
     assert.equal(markers[0].type, 'rect');
     point.props.onFocus();
     let markup = renderToStaticMarkup(harness.render(props));
     assert.match(markup, /100 → 0/);
     assert.match(markup, /SF\.002: 40, SF\.003: 60/);
-    assert.doesNotMatch(markup, /undefined|NaN|measurement.*edit|Scientist.*salinity/);
+    assert.doesNotMatch(
+      markup,
+      /undefined|NaN|measurement.*edit|Scientist.*salinity/,
+    );
     let prevented = false;
-    point.props.onKeyDown({ key: 'Enter', preventDefault() { prevented = true; } });
+    point.props.onKeyDown({
+      key: 'Enter',
+      preventDefault() {
+        prevented = true;
+      },
+    });
     assert.equal(prevented, true);
     markup = renderToStaticMarkup(harness.render(props));
     assert.match(markup, /bio-trend-tooltip is-pinned/);
     point.props.onBlur();
     point.props.onKeyDown({ key: 'Escape', preventDefault() {} });
-    assert.doesNotMatch(renderToStaticMarkup(harness.render(props)), /bio-trend-tooltip/);
+    assert.doesNotMatch(
+      renderToStaticMarkup(harness.render(props)),
+      /bio-trend-tooltip/,
+    );
   });
 }
 
-for (const [language, catalog, movementLabel] of [['fr', fr, 'Déplacement'], ['en', en, 'Movement']]) {
+for (const [language, catalog, movementLabel] of [
+  ['fr', fr, 'Déplacement'],
+  ['en', en, 'Movement'],
+]) {
   test(`${language}: ordinary movement markers and hover, focus and pinned details keep exact evidence with a simple label`, () => {
-    const source = [{ id: 'movement:1', kind: 'ordinary', occurred_at: '2026-09-16T08:12:34Z',
-      temporal_precision: 'exact', evidence: {}, reconciliation_status: 'recorded',
-      from_thermal_zone: { id: 1, name: 'Origin' }, to_thermal_zone: { id: 2, name: 'Destination' } }];
+    const source = [
+      {
+        id: 'movement:1',
+        kind: 'ordinary',
+        occurred_at: '2026-09-16T08:12:34Z',
+        temporal_precision: 'exact',
+        evidence: {},
+        reconciliation_status: 'recorded',
+        from_thermal_zone: { id: 1, name: 'Origin' },
+        to_thermal_zone: { id: 2, name: 'Destination' },
+      },
+    ];
     const before = JSON.stringify(source);
-    const projection = utility('boxHistory').projectBoxHistory(source, [], [], key => catalog[key]);
+    const projection = utility('boxHistory').projectBoxHistory(
+      source,
+      [],
+      [],
+      (key) => catalog[key],
+    );
     assert.equal(projection.events.length, 1);
     assert.equal(projection.events[0].kind, 'movement');
     assert.equal(projection.events[0].title, movementLabel);
     assert.equal(projection.events[0].instant, source[0].occurred_at);
     assert.equal(JSON.stringify(source), before);
     const harness = chartHarness();
-    const props = { measurements: [{ id: 1, date: '2026-09-15', polypCount: 0, ephyraeCount: 2 }],
-      events: projection.events, locations: [], startDate: '2026-09-01', endDate: '2026-09-30',
-      labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
+    const props = {
+      measurements: [
+        { id: 1, date: '2026-09-15', polypCount: 0, ephyraeCount: 2 },
+      ],
+      events: projection.events,
+      locations: [],
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      labels: { ...chartLabels(catalog), movement: catalog.movementEvent },
+    };
     const initial = harness.render(props);
-    const marker = allNodes(initial).find(node => node.props?.className === 'bio-trend-event is-movement');
+    const marker = allNodes(initial).find(
+      (node) => node.props?.className === 'bio-trend-event is-movement',
+    );
     assert.ok(marker, 'ordinary movement marker remains selectable');
     assert.match(marker.props['aria-label'], new RegExp(movementLabel));
     assert.match(marker.props['aria-label'], /08:12:34 UTC/);
@@ -443,10 +1012,18 @@ for (const [language, catalog, movementLabel] of [['fr', fr, 'Déplacement'], ['
       assert.match(markup, new RegExp(movementLabel));
       assert.match(markup, /Origin → Destination/);
       assert.doesNotMatch(markup, /Déplacement ordinaire|Ordinary movement/);
-      if (action === 'onClick') assert.match(markup, /bio-trend-tooltip is-pinned/);
+      if (action === 'onClick')
+        assert.match(markup, /bio-trend-tooltip is-pinned/);
     }
-    const paths = tree => allNodes(tree).filter(node => node.type === 'path').map(node => node.props.d);
-    assert.deepEqual(paths(harness.render(props)), paths(initial), 'scientific curves are unchanged by event details');
+    const paths = (tree) =>
+      allNodes(tree)
+        .filter((node) => node.type === 'path')
+        .map((node) => node.props.d);
+    assert.deepEqual(
+      paths(harness.render(props)),
+      paths(initial),
+      'scientific curves are unchanged by event details',
+    );
   });
 }
 
@@ -454,36 +1031,92 @@ test('short same-zone lifecycle exit and entry remain visible with semantic labe
   for (const catalog of [fr, en]) {
     const zone = { id: 7, name: 'Zone 15 °C' };
     const source = [
-      { id: 'stop', kind: 'deactivation', provenance: 'lifecycle_audit', occurred_at: '2026-10-05T13:36:00Z',
-        temporal_precision: 'exact', reconciliation_status: 'recorded', from_thermal_zone: zone, to_thermal_zone: null, evidence: {} },
-      { id: 'audit-resume', kind: 'reactivation', provenance: 'lifecycle_audit', occurred_at: '2026-10-05T13:36:01Z',
-        temporal_precision: 'exact', reconciliation_status: 'paired', from_thermal_zone: null, to_thermal_zone: zone,
-        evidence: { lifecycle_pairing_reliable: true, paired_movement_id: 9 } },
-      { id: 'movement:9', kind: 'reactivation', provenance: 'box_movement', recorded_movement_id: 9,
-        occurred_at: '2026-10-05T13:36:01Z', temporal_precision: 'exact', reconciliation_status: 'recorded',
-        from_thermal_zone: zone, to_thermal_zone: zone, evidence: { recorded_via_polypbase: true } },
+      {
+        id: 'stop',
+        kind: 'deactivation',
+        provenance: 'lifecycle_audit',
+        occurred_at: '2026-10-05T13:36:00Z',
+        temporal_precision: 'exact',
+        reconciliation_status: 'recorded',
+        from_thermal_zone: zone,
+        to_thermal_zone: null,
+        evidence: {},
+      },
+      {
+        id: 'audit-resume',
+        kind: 'reactivation',
+        provenance: 'lifecycle_audit',
+        occurred_at: '2026-10-05T13:36:01Z',
+        temporal_precision: 'exact',
+        reconciliation_status: 'paired',
+        from_thermal_zone: null,
+        to_thermal_zone: zone,
+        evidence: { lifecycle_pairing_reliable: true, paired_movement_id: 9 },
+      },
+      {
+        id: 'movement:9',
+        kind: 'reactivation',
+        provenance: 'box_movement',
+        recorded_movement_id: 9,
+        occurred_at: '2026-10-05T13:36:01Z',
+        temporal_precision: 'exact',
+        reconciliation_status: 'recorded',
+        from_thermal_zone: zone,
+        to_thermal_zone: zone,
+        evidence: { recorded_via_polypbase: true },
+      },
     ];
     const before = JSON.stringify(source);
-    const projection = utility('boxHistory').projectBoxHistory(source, [], [], key => catalog[key]);
+    const projection = utility('boxHistory').projectBoxHistory(
+      source,
+      [],
+      [],
+      (key) => catalog[key],
+    );
     const harness = chartHarness();
-    const props = { measurements: [{ id: 1, date: '2026-10-05', polypCount: 0, ephyraeCount: 0 }],
-      events: projection.events, locations: [], startDate: '2026-10-05', endDate: '2026-10-05',
-      labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
+    const props = {
+      measurements: [
+        { id: 1, date: '2026-10-05', polypCount: 0, ephyraeCount: 0 },
+      ],
+      events: projection.events,
+      locations: [],
+      startDate: '2026-10-05',
+      endDate: '2026-10-05',
+      labels: { ...chartLabels(catalog), movement: catalog.movementEvent },
+    };
     for (const [kind, title, locationKey, time] of [
-      ['deactivation', catalog.historyDeactivation, 'historyLocationExit', '13:36:00 UTC'],
-      ['reactivation', catalog.historyReactivation, 'historyLocationEntry', '13:36:01 UTC'],
+      [
+        'deactivation',
+        catalog.historyDeactivation,
+        'historyLocationExit',
+        '13:36:00 UTC',
+      ],
+      [
+        'reactivation',
+        catalog.historyReactivation,
+        'historyLocationEntry',
+        '13:36:01 UTC',
+      ],
     ]) {
-      const marker = allNodes(harness.render(props)).find(node => node.props?.className === `bio-trend-event is-${kind}`);
+      const marker = allNodes(harness.render(props)).find(
+        (node) => node.props?.className === `bio-trend-event is-${kind}`,
+      );
       assert.ok(marker);
       assert.equal(marker.props.role, 'button');
       assert.equal(marker.props.tabIndex, 0);
       assert.ok(marker.props['aria-label'].startsWith(title));
       assert.ok(marker.props['aria-label'].includes(time));
-      assert.ok(allNodes(marker).some(node => node.props?.className === 'bio-trend-event-line'));
+      assert.ok(
+        allNodes(marker).some(
+          (node) => node.props?.className === 'bio-trend-event-line',
+        ),
+      );
       for (const action of ['onMouseEnter', 'onFocus', 'onKeyDown']) {
         marker.props[action]({ key: 'Enter', preventDefault() {} });
         const markup = renderToStaticMarkup(harness.render(props));
-        assert.ok(markup.includes(catalog[locationKey].replace('{zone}', zone.name)));
+        assert.ok(
+          markup.includes(catalog[locationKey].replace('{zone}', zone.name)),
+        );
         assert.ok(markup.includes(time));
         assert.ok(!markup.includes('Zone 15 °C → Zone 15 °C'));
         marker.props.onKeyDown({ key: 'Escape', preventDefault() {} });
@@ -492,83 +1125,216 @@ test('short same-zone lifecycle exit and entry remain visible with semantic labe
       }
     }
     const nodes = allNodes(harness.render(props));
-    assert.equal(nodes.filter(node => node.props?.className === 'bio-trend-event is-movement').length, 0);
-    assert.equal(nodes.filter(node => /bio-trend-event is-(deactivation|reactivation)$/.test(node.props?.className ?? '')).length, 2);
+    assert.equal(
+      nodes.filter(
+        (node) => node.props?.className === 'bio-trend-event is-movement',
+      ).length,
+      0,
+    );
+    assert.equal(
+      nodes.filter((node) =>
+        /bio-trend-event is-(deactivation|reactivation)$/.test(
+          node.props?.className ?? '',
+        ),
+      ).length,
+      2,
+    );
     assert.equal(JSON.stringify(source), before);
   }
 });
 
 test('an unclassified recorded movement keeps its exact red marker and tooltip in zoomed windows', () => {
-  const source = { id: 'movement:105', recorded_movement_id: 105, kind: 'unclassified', provenance: 'box_movement',
-    occurred_at: '2026-10-05T15:36:00+02:00', temporal_precision: 'exact', reconciliation_status: 'recorded',
+  const source = {
+    id: 'movement:105',
+    recorded_movement_id: 105,
+    kind: 'unclassified',
+    provenance: 'box_movement',
+    occurred_at: '2026-10-05T15:36:00+02:00',
+    temporal_precision: 'exact',
+    reconciliation_status: 'recorded',
     evidence: { period_pairing_reliable: false },
-    from_thermal_zone: { id: 10, name: 'Zone 10.0°C' }, to_thermal_zone: { id: 15, name: 'Zone 15.0°C' } };
+    from_thermal_zone: { id: 10, name: 'Zone 10.0°C' },
+    to_thermal_zone: { id: 15, name: 'Zone 15.0°C' },
+  };
   for (const catalog of [fr, en]) {
-    const events = utility('boxHistory').projectBoxHistory([source], [], [], key => catalog[key]).events;
+    const events = utility('boxHistory').projectBoxHistory(
+      [source],
+      [],
+      [],
+      (key) => catalog[key],
+    ).events;
     const harness = chartHarness();
-    const props = { measurements: [], events, locations: [], startDate: '2026-10-01', endDate: '2026-10-10',
-      labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
-    for (const range of [{ startDate: '2026-10-01', endDate: '2026-10-10' },
-      { startDate: '2026-10-05', endDate: '2026-10-05' }]) {
+    const props = {
+      measurements: [],
+      events,
+      locations: [],
+      startDate: '2026-10-01',
+      endDate: '2026-10-10',
+      labels: { ...chartLabels(catalog), movement: catalog.movementEvent },
+    };
+    for (const range of [
+      { startDate: '2026-10-01', endDate: '2026-10-10' },
+      { startDate: '2026-10-05', endDate: '2026-10-05' },
+    ]) {
       const scoped = { ...props, ...range };
       const nodes = allNodes(harness.render(scoped));
-      const marker = nodes.find(node => node.props?.className === 'bio-trend-event is-movement');
+      const marker = nodes.find(
+        (node) => node.props?.className === 'bio-trend-event is-movement',
+      );
       assert.ok(marker);
       assert.match(marker.props['aria-label'], /13:36:00 UTC/);
       assert.equal(marker.props.tabIndex, 0);
-      assert.ok(allNodes(marker).some(node => node.props?.className === 'bio-trend-event-line'));
+      assert.ok(
+        allNodes(marker).some(
+          (node) => node.props?.className === 'bio-trend-event-line',
+        ),
+      );
       marker.props.onFocus();
       const markup = renderToStaticMarkup(harness.render(scoped));
       assert.match(markup, /Zone 10.0°C → Zone 15.0°C/);
       assert.match(markup, /13:36:00 UTC/);
       marker.props.onBlur();
     }
-    assert.equal(allNodes(harness.render({ ...props, startDate: '2026-10-06' }))
-      .filter(node => node.props?.className === 'bio-trend-event is-movement').length, 0);
+    assert.equal(
+      allNodes(harness.render({ ...props, startDate: '2026-10-06' })).filter(
+        (node) => node.props?.className === 'bio-trend-event is-movement',
+      ).length,
+      0,
+    );
   }
 });
 
-for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+for (const [language, catalog] of [
+  ['fr', fr],
+  ['en', en],
+]) {
   for (const measuredOn of ['2026-09-15', '2026-09-17']) {
     test(`${language}: record and reconstructed movement in the same week remain visible and accessible (${measuredOn})`, () => {
-      const source = { id: 'historical:1', kind: 'historical_reconstruction', occurred_at: null,
-        temporal_precision: 'iso_week', iso_year: 2026, iso_week: 38, reconciliation_status: 'accepted', evidence: {},
-        from_thermal_zone: { id: 1, name: 'Origin' }, to_thermal_zone: { id: 2, name: 'Destination' } };
+      const source = {
+        id: 'historical:1',
+        kind: 'historical_reconstruction',
+        occurred_at: null,
+        temporal_precision: 'iso_week',
+        iso_year: 2026,
+        iso_week: 38,
+        reconciliation_status: 'accepted',
+        evidence: {},
+        from_thermal_zone: { id: 1, name: 'Origin' },
+        to_thermal_zone: { id: 2, name: 'Destination' },
+      };
       const before = JSON.stringify(source);
-      const events = utility('boxHistory').projectBoxHistory([source], [], [measuredOn], key => catalog[key]).events;
+      const events = utility('boxHistory').projectBoxHistory(
+        [source],
+        [],
+        [measuredOn],
+        (key) => catalog[key],
+      ).events;
       assert.equal(events.length, 1);
-      assert.equal(events[0].date, '2026-09-17', 'visual midpoint, not an occurrence');
+      assert.equal(
+        events[0].date,
+        '2026-09-17',
+        'visual midpoint, not an occurrence',
+      );
       assert.equal(events[0].instant, undefined);
       const harness = chartHarness();
-      const props = { measurements: [{ id: 0, date: measuredOn, polypCount: 0, ephyraeCount: 0 }],
-        events: [...events, ...['deactivation', 'reactivation'].map(kind => ({ id: kind, kind, date: measuredOn, title: kind }))],
-        locations: [], startDate: '2026-09-01', endDate: '2026-09-30', labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
+      const props = {
+        measurements: [
+          { id: 0, date: measuredOn, polypCount: 0, ephyraeCount: 0 },
+        ],
+        events: [
+          ...events,
+          ...['deactivation', 'reactivation'].map((kind) => ({
+            id: kind,
+            kind,
+            date: measuredOn,
+            title: kind,
+          })),
+        ],
+        locations: [],
+        startDate: '2026-09-01',
+        endDate: '2026-09-30',
+        labels: { ...chartLabels(catalog), movement: catalog.movementEvent },
+      };
       const tree = harness.render(props);
       const nodes = allNodes(tree);
-      assert.equal(nodes.filter(node => node.props?.className === 'bio-trend-event is-historical_reconstruction').length, 1);
-      assert.equal(nodes.filter(node => node.props?.className?.startsWith('bio-trend-measurement')).length, 1);
-      assert.equal(nodes.filter(node => /bio-trend-event is-(deactivation|reactivation)/.test(node.props?.className ?? '')).length, 2,
-        'real lifecycle markers remain alongside records and reconstructed movements');
-      const choice = nodes.find(node => node.props?.className === 'bio-trend-event-choice is-historical_reconstruction');
-      assert.equal(choice, undefined, 'no badge below the chart duplicates the movement marker');
-      const marker = nodes.find(node => node.props?.className === 'bio-trend-event is-historical_reconstruction');
-      assert.equal(marker.props.tabIndex, 0, 'a coincident record keeps the marker focusable');
-      assert.match(marker.props['aria-label'], new RegExp(catalog.movementKindOrdinary));
-      assert.match(marker.props['aria-label'], new RegExp(language === 'fr' ? 'Semaine 38' : 'Week 38'));
+      assert.equal(
+        nodes.filter(
+          (node) =>
+            node.props?.className ===
+            'bio-trend-event is-historical_reconstruction',
+        ).length,
+        1,
+      );
+      assert.equal(
+        nodes.filter((node) =>
+          node.props?.className?.startsWith('bio-trend-measurement'),
+        ).length,
+        1,
+      );
+      assert.equal(
+        nodes.filter((node) =>
+          /bio-trend-event is-(deactivation|reactivation)/.test(
+            node.props?.className ?? '',
+          ),
+        ).length,
+        2,
+        'real lifecycle markers remain alongside records and reconstructed movements',
+      );
+      const choice = nodes.find(
+        (node) =>
+          node.props?.className ===
+          'bio-trend-event-choice is-historical_reconstruction',
+      );
+      assert.equal(
+        choice,
+        undefined,
+        'no badge below the chart duplicates the movement marker',
+      );
+      const marker = nodes.find(
+        (node) =>
+          node.props?.className ===
+          'bio-trend-event is-historical_reconstruction',
+      );
+      assert.equal(
+        marker.props.tabIndex,
+        0,
+        'a coincident record keeps the marker focusable',
+      );
+      assert.match(
+        marker.props['aria-label'],
+        new RegExp(catalog.movementKindOrdinary),
+      );
+      assert.match(
+        marker.props['aria-label'],
+        new RegExp(language === 'fr' ? 'Semaine 38' : 'Week 38'),
+      );
       marker.props.onFocus();
       let markup = renderToStaticMarkup(harness.render(props));
       assert.match(markup, /bio-trend-tooltip/);
       assert.ok(markup.includes(catalog.historyReconstruction));
       assert.ok(markup.includes(catalog.historyWeekOnly));
       assert.match(markup, /Origin → Destination/);
-      const record = nodes.find(node => node.props?.className?.startsWith('bio-trend-measurement'));
+      const record = nodes.find((node) =>
+        node.props?.className?.startsWith('bio-trend-measurement'),
+      );
       record.props.onFocus();
       markup = renderToStaticMarkup(harness.render(props));
       assert.match(markup, /bio-trend-tooltip/);
-      const geometry = harness.chart.buildGeometry(props.measurements, [], events, props.startDate, props.endDate, false);
+      const geometry = harness.chart.buildGeometry(
+        props.measurements,
+        [],
+        events,
+        props.startDate,
+        props.endDate,
+        false,
+      );
       assert.equal(geometry.plottedMeasurements[0].polypCount, 0);
       assert.equal(geometry.plottedMeasurements[0].ephyraeCount, 0);
-      assert.equal(geometry.eventPoints.filter(point => point.event.id === source.id).length, 1);
+      assert.equal(
+        geometry.eventPoints.filter((point) => point.event.id === source.id)
+          .length,
+        1,
+      );
       assert.equal(JSON.stringify(source), before);
       assert.equal(source.occurred_at, null);
     });
@@ -576,92 +1342,270 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
 }
 
 test('movement chart lines and labels use the existing red token for exact and reconstructed events', () => {
-  const css = readFileSync(new URL('../src/styles/components/biological-trend-chart.css', import.meta.url), 'utf8');
-  assert.match(css, /\.bio-trend-event\.is-movement \.bio-trend-event-line,\s*\.bio-trend-event\.is-historical_reconstruction \.bio-trend-event-line,\s*\.bio-trend-event\.is-historical_movement \.bio-trend-event-line\s*\{\s*stroke: var\(--color-danger\)/);
-  assert.match(css, /\.bio-trend-event\.is-historical_movement \.bio-trend-event-label\s*\{ fill: var\(--color-danger-hover\)/);
+  const css = readFileSync(
+    new URL(
+      '../src/styles/components/biological-trend-chart.css',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  assert.match(
+    css,
+    /\.bio-trend-event\.is-movement \.bio-trend-event-line,\s*\.bio-trend-event\.is-historical_reconstruction \.bio-trend-event-line,\s*\.bio-trend-event\.is-historical_movement \.bio-trend-event-line\s*\{\s*stroke: var\(--color-danger\)/,
+  );
+  assert.match(
+    css,
+    /\.bio-trend-event\.is-historical_movement \.bio-trend-event-label\s*\{ fill: var\(--color-danger-hover\)/,
+  );
   // No badge list duplicates the chart markers below the chart.
-  assert.doesNotMatch(css, /\.bio-trend-event-choice\.is-(movement|historical_reconstruction|location-change|subculture)/);
+  assert.doesNotMatch(
+    css,
+    /\.bio-trend-event-choice\.is-(movement|historical_reconstruction|location-change|subculture)/,
+  );
 });
 
 test('a reconstructed historical movement draws a red labelled line and the temperature changes after it', () => {
   const { chart, render } = chartHarness();
-  const week = (id, number, start, end, value) => ({ date: start.slice(0, 8) + String(Number(start.slice(8)) + 3).padStart(2, '0'),
-    average_temperature_c: value, week: { id, year: 2026, number, start, end, valueText: String(value) } });
-  const temperatures = [week(7, 7, '2026-02-09', '2026-02-15', 15), week(8, 8, '2026-02-16', '2026-02-22', 10)];
-  const marker = { id: 'historical-transition:1', kind: 'historical_movement', date: '2026-02-16', title: fr.movementEvent,
-    detail: 'Zone 15 → Zone 10', temporalLabel: 'Semaines 7 et 8', temperatureStep: { fromReadingId: 7, toReadingId: 8 } };
-  const props = { measurements: [], temperatures, events: [marker], locations: [], startDate: '2026-02-01', endDate: '2026-02-28',
-    labels: { ...chartLabels(fr), temperature: 'Température', movement: fr.movementEvent } };
+  const week = (id, number, start, end, value) => ({
+    date:
+      start.slice(0, 8) + String(Number(start.slice(8)) + 3).padStart(2, '0'),
+    average_temperature_c: value,
+    week: { id, year: 2026, number, start, end, valueText: String(value) },
+  });
+  const temperatures = [
+    week(7, 7, '2026-02-09', '2026-02-15', 15),
+    week(8, 8, '2026-02-16', '2026-02-22', 10),
+  ];
+  const marker = {
+    id: 'historical-transition:1',
+    kind: 'historical_movement',
+    date: '2026-02-16',
+    title: fr.movementEvent,
+    detail: 'Zone 15 → Zone 10',
+    temporalLabel: 'Semaines 7 et 8',
+    temperatureStep: { fromReadingId: 7, toReadingId: 8 },
+  };
+  const props = {
+    measurements: [],
+    temperatures,
+    events: [marker],
+    locations: [],
+    startDate: '2026-02-01',
+    endDate: '2026-02-28',
+    labels: {
+      ...chartLabels(fr),
+      temperature: 'Température',
+      movement: fr.movementEvent,
+    },
+  };
   const nodes = allNodes(render(props));
-  const line = nodes.find(node => node.props?.className === 'bio-trend-event is-historical_movement');
+  const line = nodes.find(
+    (node) =>
+      node.props?.className === 'bio-trend-event is-historical_movement',
+  );
   assert.ok(line, 'reconstructed movement marker');
   assert.equal(line.props.role, 'button');
   assert.equal(line.props.tabIndex, 0);
   assert.match(line.props['aria-label'], /Semaines 7 et 8/);
-  assert.ok(allNodes(line).some(node => node.props?.className === 'bio-trend-event-line'));
-  assert.ok(allNodes(line).some(node => node.props?.className === 'bio-trend-event-label' && node.props.children === 'DÉPLACEMENT'));
-  const geometry = chart.buildGeometry([], [], [marker], props.startDate, props.endDate, false, undefined, [], temperatures);
-  const markerX = geometry.eventPoints.find(point => point.event.id === marker.id).x;
-  const [from, to] = geometry.plottedTemperatures.map(point => geometry.xPosition(point.date));
-  assert.ok(from < markerX && markerX < to, 'marker between the two weekly readings');
+  assert.ok(
+    allNodes(line).some(
+      (node) => node.props?.className === 'bio-trend-event-line',
+    ),
+  );
+  assert.ok(
+    allNodes(line).some(
+      (node) =>
+        node.props?.className === 'bio-trend-event-label' &&
+        node.props.children === 'DÉPLACEMENT',
+    ),
+  );
+  const geometry = chart.buildGeometry(
+    [],
+    [],
+    [marker],
+    props.startDate,
+    props.endDate,
+    false,
+    undefined,
+    [],
+    temperatures,
+  );
+  const markerX = geometry.eventPoints.find(
+    (point) => point.event.id === marker.id,
+  ).x;
+  const [from, to] = geometry.plottedTemperatures.map((point) =>
+    geometry.xPosition(point.date),
+  );
+  assert.ok(
+    from < markerX && markerX < to,
+    'marker between the two weekly readings',
+  );
   // The plotted connection keeps temperature A until the marker, then reads temperature B.
-  const path = nodes.find(node => node.type === 'path' && node.props.className?.startsWith('bio-trend-line is-temperature'));
-  const yA = geometry.yTemperature(15), yB = geometry.yTemperature(10);
+  const path = nodes.find(
+    (node) =>
+      node.type === 'path' &&
+      node.props.className?.startsWith('bio-trend-line is-temperature'),
+  );
+  const yA = geometry.yTemperature(15),
+    yB = geometry.yTemperature(10);
   assert.equal(path.props.d, `M${from},${yA}H${markerX}V${yB}H${to}`);
   // Without a movement between them, the readings keep their direct connector.
-  const plain = allNodes(render({ ...props, events: [] })).find(node => node.type === 'path' && node.props.className?.startsWith('bio-trend-line is-temperature'));
+  const plain = allNodes(render({ ...props, events: [] })).find(
+    (node) =>
+      node.type === 'path' &&
+      node.props.className?.startsWith('bio-trend-line is-temperature'),
+  );
   assert.doesNotMatch(plain.props.d, /H/);
 });
 
 test('timeline points respect gaps and chart windows without changing overflow behavior', () => {
   const { chart } = chartHarness();
-  const state = { id: 1, kind: 'subculture', title: 'Subculture', date: '2026-09-15', polypCount: 1200 };
-  const result = chart.buildGeometry([], [], [], '2026-09-01', '2026-09-30', true, undefined, [state]);
+  const state = {
+    id: 1,
+    kind: 'subculture',
+    title: 'Subculture',
+    date: '2026-09-15',
+    polypCount: 1200,
+  };
+  const result = chart.buildGeometry(
+    [],
+    [],
+    [],
+    '2026-09-01',
+    '2026-09-30',
+    true,
+    undefined,
+    [state],
+  );
   assert.equal(result.plottedMeasurements.length, 1);
   assert.equal(result.yCount(1200), result.yCount(1000));
-  assert.equal(chart.splitTrendPointsOnGaps([state, { ...state, date: '2026-09-26' }]).length, 2);
-  assert.equal(chart.buildGeometry([], [], [], '2026-08-01', '2026-08-31', true, undefined, [state]).plottedMeasurements.length, 0);
+  assert.equal(
+    chart.splitTrendPointsOnGaps([state, { ...state, date: '2026-09-26' }])
+      .length,
+    2,
+  );
+  assert.equal(
+    chart.buildGeometry(
+      [],
+      [],
+      [],
+      '2026-08-01',
+      '2026-08-31',
+      true,
+      undefined,
+      [state],
+    ).plottedMeasurements.length,
+    0,
+  );
 });
 
 test('same-day measurements and states retain separate, nonzero pointer hit areas', () => {
   const { chart } = chartHarness();
   for (const responsive of [false, true]) {
-    const areas = chart.buildMeasurementHitAreas([100, 100, 100], 44, 284, responsive);
+    const areas = chart.buildMeasurementHitAreas(
+      [100, 100, 100],
+      44,
+      284,
+      responsive,
+    );
     assert.ok(areas.every((area) => area.width > 0));
-    for (let index = 1; index < areas.length; index++) assert.ok(areas[index - 1].left + areas[index - 1].width <= areas[index].left + 1e-9);
+    for (let index = 1; index < areas.length; index++)
+      assert.ok(
+        areas[index - 1].left + areas[index - 1].width <=
+          areas[index].left + 1e-9,
+      );
   }
 });
 
 test('hiding polyps removes unmeasured event targets instead of blocking ephyrae readings', () => {
-  const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry], labelsFor(fr, 'fr'));
+  const data = timeline.prepareBiologicalChartData(
+    [measurement],
+    [parentEntry, measurementEntry],
+    labelsFor(fr, 'fr'),
+  );
   const harness = chartHarness();
-  const props = { ...data, events: [], startDate: '2026-09-01', endDate: '2026-09-30', labels: chartLabels(fr) };
-  const button = allNodes(harness.render(props)).find((node) => node.type === 'button' && node.props.className === 'is-polyps');
+  const props = {
+    ...data,
+    events: [],
+    startDate: '2026-09-01',
+    endDate: '2026-09-30',
+    labels: chartLabels(fr),
+  };
+  const button = allNodes(harness.render(props)).find(
+    (node) => node.type === 'button' && node.props.className === 'is-polyps',
+  );
   button.props.onClick();
   const tree = harness.render(props);
-  assert.equal(allNodes(tree).filter((node) => node.props?.className?.startsWith('bio-trend-measurement')).length, 1);
-  assert.doesNotMatch(renderToStaticMarkup(tree), /bio-trend-measurement is-subculture/);
+  assert.equal(
+    allNodes(tree).filter((node) =>
+      node.props?.className?.startsWith('bio-trend-measurement'),
+    ).length,
+    1,
+  );
+  assert.doesNotMatch(
+    renderToStaticMarkup(tree),
+    /bio-trend-measurement is-subculture/,
+  );
 });
 
 test('tracking window prefers the latest quantitative state over an older ordinary measurement', () => {
   const tracking = load('../src/components/BoxTrackingChart.tsx', {
     ...historyDependencies,
-    react: { useMemo: (fn) => fn(), useState: (initial) => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
-    '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
-    './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
-    '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+    react: {
+      useMemo: (fn) => fn(),
+      useState: (initial) => [initial, () => {}],
+    },
+    'react/jsx-runtime': jsxRuntime,
+    '../utils/chartWindow': utility('chartWindow'),
+    '../utils/biologicalTimeline': timeline,
+    './BiologicalTrendChart': { ...chartHarness().chart, default: () => null },
+    './ChartWindowControls': { default: () => null },
+    '../hooks/useTemperatureHistory': {
+      useTemperatureHistory: () => ({
+        points: [],
+        loading: false,
+        failed: false,
+        retry() {},
+      }),
+    },
     './TemperatureHistoryStatus': { default: () => null },
-    '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
-    './HistoricalTemperatureStatus': { default: () => null }, '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
-    '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
+    '../hooks/useHistoricalTemperatures': {
+      useHistoricalTemperatures: () => ({
+        points: [],
+        loading: false,
+        failed: false,
+        retry() {},
+      }),
+    },
+    './HistoricalTemperatureStatus': { default: () => null },
+    '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
+    '../i18n': {
+      createTranslator: (language) =>
+        translator(language === 'fr' ? fr : en, language),
+    },
   });
   const oldMeasurement = reading(8, '2024-01-01', 100);
-  const temperatures = [{ date: parentEntry.effective_date, average_temperature_c: 0 }];
-  const tree = tracking.default({ temperatures, measurements: [oldMeasurement], biologicalTimeline: [parentEntry], locations: [], events: [], language: 'fr', labels: {
-    polyps: fr.polyps, chartTitle: fr.chartTitle, chartEmpty: fr.chartEmpty,
-  } });
+  const temperatures = [
+    { date: parentEntry.effective_date, average_temperature_c: 0 },
+  ];
+  const tree = tracking.default({
+    temperatures,
+    measurements: [oldMeasurement],
+    biologicalTimeline: [parentEntry],
+    locations: [],
+    events: [],
+    language: 'fr',
+    labels: {
+      polyps: fr.polyps,
+      chartTitle: fr.chartTitle,
+      chartEmpty: fr.chartEmpty,
+    },
+  });
   const trend = allNodes(tree).find((node) => node.props?.polypStates);
-  assert.ok(trend.props.startDate <= parentEntry.effective_date && trend.props.endDate >= parentEntry.effective_date);
+  assert.ok(
+    trend.props.startDate <= parentEntry.effective_date &&
+      trend.props.endDate >= parentEntry.effective_date,
+  );
   assert.equal(trend.props.polypStates[0].polypCount, 0);
   assert.equal(trend.props.events.length, 1);
   assert.equal(trend.props.polypStates[0].title, 'Repiquage');
@@ -673,49 +1617,100 @@ test('tracking window prefers the latest quantitative state over an older ordina
 test('lifecycle grouping and preview integration use one event per parent operation', () => {
   const tracking = load('../src/components/BoxTrackingChart.tsx', {
     ...historyDependencies,
-    react: {}, 'react/jsx-runtime': jsxRuntime,
-    '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
-    './BiologicalTrendChart': {}, './ChartWindowControls': {},
-    '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
-    '../hooks/useHistoricalTemperatures': {}, './HistoricalTemperatureStatus': {}, '../utils/historicalTemperature': {},
-    '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
+    react: {},
+    'react/jsx-runtime': jsxRuntime,
+    '../utils/chartWindow': utility('chartWindow'),
+    '../utils/biologicalTimeline': timeline,
+    './BiologicalTrendChart': {},
+    './ChartWindowControls': {},
+    '../hooks/useTemperatureHistory': {},
+    './TemperatureHistoryStatus': {},
+    '../hooks/useHistoricalTemperatures': {},
+    './HistoricalTemperatureStatus': {},
+    '../utils/historicalTemperature': {},
+    '../i18n': {
+      createTranslator: (language) =>
+        translator(language === 'fr' ? fr : en, language),
+    },
   });
   const event = { id: 9, event_date: '2026-09-15' };
-  const events = tracking.buildLifecycleEvents({ parents: [], children: [
-    { event, box: { id: 2, global_code: 'SF.002' } },
-    { event, box: { id: 3, global_code: 'SF.003' } },
-  ] }, [], { subcultureEvent: 'Subculture', movementEvent: 'Transfer' });
+  const events = tracking.buildLifecycleEvents(
+    {
+      parents: [],
+      children: [
+        { event, box: { id: 2, global_code: 'SF.002' } },
+        { event, box: { id: 3, global_code: 'SF.003' } },
+      ],
+    },
+    [],
+    { subcultureEvent: 'Subculture', movementEvent: 'Transfer' },
+  );
   assert.equal(events.length, 1);
   assert.equal(events[0].detail, 'SF.002, SF.003');
-  const source = readFileSync(new URL('../src/components/BoxTrackingPreview.tsx', import.meta.url), 'utf8');
+  const source = readFileSync(
+    new URL('../src/components/BoxTrackingPreview.tsx', import.meta.url),
+    'utf8',
+  );
   assert.match(source, /biologicalTimeline=\{detail\.biological_timeline\}/);
-  const ast = ts.createSourceFile('BoxTrackingPreview.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const preview = ast.statements.find(node => ts.isFunctionDeclaration(node)
-    && node.name?.text === 'BoxTrackingPreviewContent');
+  const ast = ts.createSourceFile(
+    'BoxTrackingPreview.tsx',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const preview = ast.statements.find(
+    (node) =>
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === 'BoxTrackingPreviewContent',
+  );
   assert.ok(preview);
-  const { outputText } = ts.transpileModule(`${preview.getText(ast)}\nexport { BoxTrackingPreviewContent };`, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  });
+  const { outputText } = ts.transpileModule(
+    `${preview.getText(ast)}\nexport { BoxTrackingPreviewContent };`,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
+      },
+    },
+  );
   for (const biological_timeline of [undefined, []]) {
-    const detail = { id: 7, biological_timeline, biological_measurements: [], locations: [], movements: [],
-      lineage: { parents: [], children: [] } };
+    const detail = {
+      id: 7,
+      biological_timeline,
+      biological_measurements: [],
+      locations: [],
+      movements: [],
+      lineage: { parents: [], children: [] },
+    };
     const exports = {};
     let stateIndex = 0;
     const Suspense = Symbol('Suspense');
-    const TrackingChart = () => null;
     vm.runInNewContext(outputText, {
-      exports, Suspense, TrackingChart, SkeletonRows: () => null,
+      exports,
+      Suspense,
+      TrackingChart,
+      SkeletonRows: EmptyPreviewSkeleton,
       useState: () => [[detail, null, 0][stateIndex++], () => {}],
       useEffect() {},
-      require: name => {
+      require: (name) => {
         assert.equal(name, 'react/jsx-runtime');
         return jsxRuntime;
       },
     });
-    const rendered = exports.BoxTrackingPreviewContent({ boxId: detail.id, language: 'en',
-      onSpeciesLoaded() {}, t: key => key });
+    const rendered = exports.BoxTrackingPreviewContent({
+      boxId: detail.id,
+      language: 'en',
+      onSpeciesLoaded() {},
+      t: (key) => key,
+    });
     assert.equal(rendered.type, Suspense);
-    assert.equal(rendered.props.children.type, TrackingChart, 'Empty biological history must not block temperature loading');
+    assert.equal(
+      rendered.props.children.type,
+      TrackingChart,
+      'Empty biological history must not block temperature loading',
+    );
     assert.equal(rendered.props.children.props.detail, detail);
   }
 });

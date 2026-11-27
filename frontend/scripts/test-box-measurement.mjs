@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 import ts from 'typescript';
 import { appHarness, functionNode } from './app-operation-test-harness.mjs';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 for (const [input, expected] of [
   ['0', 0],
@@ -428,8 +429,9 @@ test('Box uses shared localized back controls with a non-desktop normal-page esc
   const controlSource = readSource('../src/components/DetailBackButton.tsx');
   assert.match(controlSource, /aria-label=\{label\}/);
   assert.match(controlSource, /title=\{label\}/);
-  assert.match(readSource('../src/i18n/fr.ts'), /back: 'Retour'/);
-  assert.match(readSource('../src/i18n/en.ts'), /back: 'Back'/);
+  const { fr, en } = loadI18n().translations;
+  assert.equal(fr.back, 'Retour');
+  assert.equal(en.back, 'Back');
 });
 
 test('measurement summary and editor are mutually exclusive states of one anchored module', () => {
@@ -585,8 +587,7 @@ test('generic post-action feedback is removed while meaningful errors remain', (
   const buttonSource = readSource(
     '../src/components/MeasurementSaveButton.tsx',
   );
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
+  const { fr, en } = loadI18n().translations;
 
   for (const source of [shellSource, appSource]) {
     assert.doesNotMatch(
@@ -608,8 +609,8 @@ test('generic post-action feedback is removed while meaningful errors remain', (
     'adminOrganizationDeleted',
     'adminTransferImportSuccess',
   ]) {
-    assert.doesNotMatch(frSource, new RegExp(`${key}:`));
-    assert.doesNotMatch(enSource, new RegExp(`${key}:`));
+    assert.equal(Object.hasOwn(fr, key), false);
+    assert.equal(Object.hasOwn(en, key), false);
   }
 
   // Failures stay visible and actionable.

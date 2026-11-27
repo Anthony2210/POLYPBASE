@@ -443,7 +443,7 @@ DEFINER routines and untrusted SET/ALTER SYSTEM parameter ACLs capable of settin
 The protected correction stores original full evidence, reading and biological
 rows together with the exact identity transition, approval, actor, reviewed plan
 bytes/hash, actual executor, scientific-decision reason and consumption timestamp.
-The reason attributes the explicit product decision to Anthony's orally reported
+The reason attributes the explicit product decision to the product owner's orally reported
 laboratory confirmation; it does not invent written laboratory attestation.
 
 The source-label exception is the exact protected record, not a global alias:

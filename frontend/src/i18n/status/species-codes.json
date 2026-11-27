@@ -1,0 +1,536 @@
+{
+  "speciesCodeChangeActionBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "863eb04d86122067b54b1d2acb7cf6d8f32fca091569ba8e105afb4bb16e32a2"
+    }
+  },
+  "speciesCodeChangeActionRename": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "17264166fa2c189a1245c0edba37f5abf1919cd7ee48baba4c19d55189bdab9c"
+    }
+  },
+  "speciesCodeChangeActionUnchanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c3ebe14b5a562553755a7bf86b4f88450c4f58edfaa4034150ea06ae48ce9d44"
+    }
+  },
+  "speciesCodeChangeAfter": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6f0f4bbdb64a336bb08b0537cb32f82164ad95879da7d4699c8cd0f95242a5ce"
+    }
+  },
+  "speciesCodeChangeBefore": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a6594f80458a068ce74e5f9400e0a5da1f7e46d983a603e82a31d5aa4d116bb2"
+    }
+  },
+  "speciesCodeChangeBlockers": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "50c1e25efd166a992a95a7ff7fe3fb8ef16efc5e0e8ebd1c5f5d857df3ff1474"
+    }
+  },
+  "speciesCodeChangeBoxPreviewHint": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9acac2e6fc255962af4dc5fb37b68f5e67b027c217e37b8f77df15e4a55daf9a"
+    }
+  },
+  "speciesCodeChangeBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "835c6e612b4c1e666bdbabc2dc9a0cb85ac1567650bad48f0afe43a37dbe4abe"
+    }
+  },
+  "speciesCodeChangeBoxesConcerned": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "539e7cefb29476700eabc7167bfb91ac1a5d927277657446bd760c51d81fbe40"
+    }
+  },
+  "speciesCodeChangeBreakdown": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "38ae7d0dfb5b175ae7e3ce13d54d9bb41181b093eaa4a3efff36a9cd0405820a"
+    }
+  },
+  "speciesCodeChangeCodeInvalid": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e75a34d546e31cccebcabffba6d15e3430f41c683b0f0c946730b3e9b7c7d279"
+    }
+  },
+  "speciesCodeChangeCodeLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "abf03146a105dd0512d42e8c0bef4a9fc12ab3fab580f1589d8e2bf0c7b3ce8b"
+    }
+  },
+  "speciesCodeChangeCodeRequired": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "25fee2ce38a9cf284237dd76ec93288ce703a85c4f35f5ede727955ece68754c"
+    }
+  },
+  "speciesCodeChangeConsequence": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "787b1e9a0de54247f96cb8eb51894589098a1d85e7a7c1ead20cd303dd2b4631"
+    }
+  },
+  "speciesCodeChangeCurrent": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "95f7d64eb30e10cd66ed6e4f3601c8fee911218e1c8e8ec77d5227cea15e8b03"
+    }
+  },
+  "speciesCodeChangeDependencyActions": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "07a1278e506b80f2f67e4b70cb12047625f445346a76cb9c27e1e47b87f19c3a"
+    }
+  },
+  "speciesCodeChangeDependencyLabels": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "516c4249cc57f276585785ee81c2dd508065e1761f4bc92b9adcce8854771e18"
+    }
+  },
+  "speciesCodeChangeDependencyLineage": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e5f34aa4c4846139de48bdba6af898749395bdc7cafb01830e5b38f2c8de9cd1"
+    }
+  },
+  "speciesCodeChangeDependencyMergedRecords": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7909c221ecb7d424ff41e81ba623cdc37a2ceed1f1ae9c44a553ad0d98d80986"
+    }
+  },
+  "speciesCodeChangeDependencyPreviousIds": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d1dd44227c719cbb9e35a8c326132a6ab27ae6b2b9618e83e1420ef17c08cb7a"
+    }
+  },
+  "speciesCodeChangeDependencyQr": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f9089a7f615eb7e367ffbeaf9bad0c4b309f3c0625f14e204badb11648beb49d"
+    }
+  },
+  "speciesCodeChangeDependencyTransfers": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8d407d96deeac371f3e093b2c4abad4abde93fedb612dd66b6d31e492d7244ea"
+    }
+  },
+  "speciesCodeChangeDependencyTransplants": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e0aef9e009ef687f9dacf515b0532229c2cf48776d270a519c0b4e3205d91f67"
+    }
+  },
+  "speciesCodeChangeEmpty": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "44cc4b568d5e6a10acfa604cc1f9f98f3dc1bc12a105749bad54cb3279b1657b"
+    }
+  },
+  "speciesCodeChangeFeasible": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ff15d205a00c6b6db1280af06e4107732082f56f7b0fe1410a37c4e7b7cd23f6"
+    }
+  },
+  "speciesCodeChangeFilterAll": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "42623b97b4815a8a5520e24ab0f2cfaf8639cef7bc9213d782ac9c56b8dd28c5"
+    }
+  },
+  "speciesCodeChangeFilterLabel": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "87a3f88de691e0b8f5160f45e688bc92f1515d7f144ab4384a7b31cc0ae12fcb"
+    }
+  },
+  "speciesCodeChangeForbidden": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3271f12004d79579ab67b616952f727365d77826f5654f2bbf36223a1f742d74"
+    }
+  },
+  "speciesCodeChangeHint": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "05d9b7567a7c2581e28d893d96baac43c93f3fe28915bf55d36fb60a3ccce4ec"
+    }
+  },
+  "speciesCodeChangeHistoryNote": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d85c5334b9866a5f0fbb94406a5c1b18bd4d42047510ee8e7030f00612ba97c3"
+    }
+  },
+  "speciesCodeChangeHistoryTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9350e18840f293414710d2de3f6df70747918cbf666e075b017e6727cfa3429e"
+    }
+  },
+  "speciesCodeChangeIdentifiersToChange": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ced8edcc1807b1afce5cd072e2cab2ff485b4fc5b167747eef36d2016911f359"
+    }
+  },
+  "speciesCodeChangeImpossible": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "271eb74658a1058fb0c7bf4f40a58dea17f00f39cc3b95029382f470c10494ca"
+    }
+  },
+  "speciesCodeChangeImpossibleNote": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9c764ee3b0ab9cbc7d22b2459de5bcc17d1b244979f76e868e06aabccfa252c9"
+    }
+  },
+  "speciesCodeChangeInvariant": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "999e7504fc2e23a62259aa28360ee7e958164dc24b342d98058705ccc4aa64da"
+    }
+  },
+  "speciesCodeChangeKept": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "8bbedb15d29ee02919571c293ca57272248a75440f13e77d871843227b7a3e09"
+    }
+  },
+  "speciesCodeChangeLabelsNote": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2901129b3908cbdacc29b3c2de96b09cf1579aa1f2e247a902774d8de0f74037"
+    }
+  },
+  "speciesCodeChangeLabelsToReview": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2a56b830d35fd1ce816c45c2497f00b6b46633712634af8855e0531bad0c3ecc"
+    }
+  },
+  "speciesCodeChangeLoadError": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0d44dbf62c0e5551a089af23b4566776e2b406b7787d54fa34067481533afd1d"
+    }
+  },
+  "speciesCodeChangeLoading": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "95954cf3bd749b99b96dc28bb7fcd2b3eb14294c5e1fcea00c57ed2c1e776240"
+    }
+  },
+  "speciesCodeChangeMissingGlobalId": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "220689077a34ad6eddd547598f6ca6c1b874f69975aa6db9e9acce3e5d1eb0ee"
+    }
+  },
+  "speciesCodeChangeMoreRecords": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e597016d507566e22068407690e5f64eb4596cced3131de40565512a6aff0c3e"
+    }
+  },
+  "speciesCodeChangeNoImpact": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "76233e4a577a7593adfe0cbefef8ddbd7a17285e07d4fa162f9db333d359662a"
+    }
+  },
+  "speciesCodeChangeNothingApplied": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "9263a282248fa64c609e59b5c059f29f0def8d27ad544bb467c0c0f6ef5123a1"
+    }
+  },
+  "speciesCodeChangeOpen": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "5be293353b68ef469851faf83e6a7cc63a366a71d16efff24d6e11e581738788"
+    }
+  },
+  "speciesCodeChangeOutsideInstitution": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "fe3f7e6fab79923ab51105bae9dfaa9ed3a0d1a6690f4fdd83e28cb7aec03451"
+    }
+  },
+  "speciesCodeChangeProposed": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "032004d84fadca479cfd960060ca9aceb436b6b25379bf75c0aa853d32166da7"
+    }
+  },
+  "speciesCodeChangeReady": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "00a2ecdd7820dd06a7b710cf7e133fe1db8e2cfef01e8544ca649063fa3ab6c3"
+    }
+  },
+  "speciesCodeChangeReasonAssigned": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ad022188629966cce6b0b13d1d6377c65349e54445479352845d88d838b7c9d0"
+    }
+  },
+  "speciesCodeChangeReasonBoxBatchCollision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "2f0453c914fc12be5d589c69380625d18bb9d863355a6800808aa5df67c94c0f"
+    }
+  },
+  "speciesCodeChangeReasonBoxCollision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c26b5a1d9ead57e43e85d455296a26eea54c0cae57c8e0609d81ff0d5c78ac99"
+    }
+  },
+  "speciesCodeChangeReasonBoxHistoricalCollision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "b01f3d11cdaa700460bfc5701da409a76bdae7656ed1c583ff449332197a66ce"
+    }
+  },
+  "speciesCodeChangeReasonBoxStrainMismatch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ea82416f65fe812f75a3885b0f7e9254c65ff85f77d9d9e3a0e3888cf129b74b"
+    }
+  },
+  "speciesCodeChangeReasonBoxWithoutCode": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "f45d9daf8077e43b7c485802765be4f4a446c3e3336967b170f8b79696b89fc0"
+    }
+  },
+  "speciesCodeChangeReasonCodeMissing": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7cbb23eb9842111b6e49516440670dda72521e453e887cf9808f39482cddfe5b"
+    }
+  },
+  "speciesCodeChangeReasonCurrentOnOtherSpecies": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "bba453b4c5d3eca539345316a684610b70d3a1ab54f097f4e1f5614d44f9d06a"
+    }
+  },
+  "speciesCodeChangeReasonCurrentUnusable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3da0aa818577dcc21eb72db0da02961217b79038c175c3fc130dfc20ebe72f2d"
+    }
+  },
+  "speciesCodeChangeReasonHistoryUnresolved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "d7a9461b6076bf4c715d828d0679d5bf4ee7665462f857ce036a2a96fe5e0d22"
+    }
+  },
+  "speciesCodeChangeReasonIdentityMismatch": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "6d9e88fdc37ccb21c51c9335c2662b2955e9f71e65b2f7cdde35deea58729db8"
+    }
+  },
+  "speciesCodeChangeReasonMergedRecord": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7c9108c6c35f37c13da9b7bf4070a1af3bfdeccd43e87d01c9ed14d56e0a7861"
+    }
+  },
+  "speciesCodeChangeReasonMissingGlobalId": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "952175dba86123a2d8ae50c8f6965e7b1fbe4ce9c695875455d906fbbd5eabf6"
+    }
+  },
+  "speciesCodeChangeReasonNumberingInUse": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "eb71bf561b37a856aad123af3c0a3d5f5b4f581041ba3a1f310e03e57e99dd19"
+    }
+  },
+  "speciesCodeChangeReasonNumberingReserved": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e9b13f0d380c0dc772502ffecb447aacfc66e03c0c9c1d3f31daf0d15dc5fb5e"
+    }
+  },
+  "speciesCodeChangeReasonOther": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "12c2f1beff091471f7ee45f07cef025984ff8863c79db719aceae2a83b096d7b"
+    }
+  },
+  "speciesCodeChangeReasonOtherStrains": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "cc16019730b2193fb61d4281bc4976e96fb6216e739d0242893afbd6bf77146d"
+    }
+  },
+  "speciesCodeChangeReasonReviewedIdentity": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "74fdf87e763fbe209adc52de8f6615fe7a7b5a24eec8f7bd91bb0551fa681108"
+    }
+  },
+  "speciesCodeChangeReasonStrainBatchCollision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "88b7ccd5afea7e03a082d00091959b084b01be7df525ffb1933fc74b94768a23"
+    }
+  },
+  "speciesCodeChangeReasonStrainBlocked": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "84f6e90d1f7a0af2914d1604ee778a371cf070b404c3ed35204da6cea6af49cc"
+    }
+  },
+  "speciesCodeChangeReasonStrainCollision": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "aadce15b74b710365e33e93c88a23301910fcf2be1d852db0922ae53136630b6"
+    }
+  },
+  "speciesCodeChangeReasonStrainForeign": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e38b37fafe5c4fd39f67ff4f05707a545498c878a61059a4475add825a5e75c2"
+    }
+  },
+  "speciesCodeChangeReasonStrainFormat": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "627975ead8376925251a4578994ce87967934a13a0cf4898551854fefb67c954"
+    }
+  },
+  "speciesCodeChangeReasonStrainPrefix": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "4dc27703b047f97752fb670d1b78e9ac90b894194f655c4b5fc8465444642503"
+    }
+  },
+  "speciesCodeChangeReasonStrainShared": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a172b6b1ef71c89c42bbfc5a6e9d87178c70b0d1dd4ae7e44dbc5045ab7384ae"
+    }
+  },
+  "speciesCodeChangeReasonStrainUnowned": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "de6edb8cea73b5607273f63225479d76661b76c45bcfade4cb6275fd5ba6e797"
+    }
+  },
+  "speciesCodeChangeReasonUnchanged": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "348518070d145e160f4b642d34d9888fd078cd1bdf593fe12115591ea9da1c75"
+    }
+  },
+  "speciesCodeChangeReasonUsedByOtherSpecies": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "3e6c04426a9e553ec4df230b210838fc74c7304a559cb9b230b81c2d9af82983"
+    }
+  },
+  "speciesCodeChangeReasonUsedOutside": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "c2dbc89c7e0558aaa5f1356a503480e35473abb411f210135736d741530ec49f"
+    }
+  },
+  "speciesCodeChangeRecord": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ce00d9e396befa33095c7d26cb5058406dcbd118c9057130ca0674885be6dc00"
+    }
+  },
+  "speciesCodeChangeRecords": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "ca4b753f647fba69c877fc274f4cfbbb381fc620a86f81502ede49f383d686a1"
+    }
+  },
+  "speciesCodeChangeShowAllBoxes": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "7604df87a441589f2f6fe29613eee33ff4b8f15b4305f78b7432f328f5477c2d"
+    }
+  },
+  "speciesCodeChangeSimulation": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a7ef328717c498975c0f95b5d4a53d1c26d853a5498f63afcc23c9df40b0952c"
+    }
+  },
+  "speciesCodeChangeStrainsConcerned": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1f596a9832463f99cc2a99b6c12e88d8cccf7ddac56f0bc9d541a3e25347584e"
+    }
+  },
+  "speciesCodeChangeSubmit": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "1ab0096456fdb8ad913264fb2b3e12ac122289686ef32bea3c3033cfb626265b"
+    }
+  },
+  "speciesCodeChangeTitle": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "df5db24126cc51ffe928bf30fe7d5dfc738ffb41d5d97e2e99958a430f646021"
+    }
+  },
+  "speciesCodeChangeWarnings": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "a4997c02648e913a8a3389096cf8875b7e717d25e619fdda39a1988f5bad9274"
+    }
+  },
+  "speciesCodeDataIssue": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "e2aba87637d51ee2cfde2c570a51025fac9bd3e309a9f27c94394a602853cc60"
+    }
+  },
+  "speciesCodeExhausted": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "0b3259ad1393e37718a22dd905cd3fb2e337b4a8e944d8f18be5cea4c0df9288"
+    }
+  },
+  "speciesCodeHistoricalConflict": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "678ea296d6b34171f7cdf99ac088ccad7fcd5a0914b54fb3d807c1ce06f922f9"
+    }
+  },
+  "speciesCodeNameNotDerivable": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "756e7b1670185534872389561ba943b36a7486e229ccb25eb07261424f6de00a"
+    }
+  }
+}

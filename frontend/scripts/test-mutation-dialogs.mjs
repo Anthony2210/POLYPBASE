@@ -3,18 +3,27 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 
 // Execute real components/hooks with deferred promises and a small DOM model.
 // This covers handler/effect contracts, not browser layout or screen-reader output.
 const compiled = new Map();
-const focusableSelector = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+const focusableSelector =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 const dialogSelector = '[role="dialog"][aria-modal="true"]';
 const controlTypes = ['button', 'input', 'select', 'textarea'];
-const sameDeps = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
+const sameDeps = (a, b) =>
+  a &&
+  b &&
+  a.length === b.length &&
+  a.every((value, i) => Object.is(value, b[i]));
 const plain = (value) => JSON.parse(JSON.stringify(value));
 function deferred() {
   let resolve, reject;
-  const promise = new Promise((accept, decline) => { resolve = accept; reject = decline; });
+  const promise = new Promise((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
   return { promise, resolve, reject };
 }
 function text(node) {
@@ -24,10 +33,17 @@ function text(node) {
 }
 
 function environment() {
-  const roots = [], listeners = new Map();
+  const roots = [],
+    listeners = new Map();
   const document = {
     activeElement: null,
-    querySelectorAll(selector) { return roots.flatMap((root) => root.matches(selector) ? [root, ...root.querySelectorAll(selector)] : root.querySelectorAll(selector)); },
+    querySelectorAll(selector) {
+      return roots.flatMap((root) =>
+        root.matches(selector)
+          ? [root, ...root.querySelectorAll(selector)]
+          : root.querySelectorAll(selector),
+      );
+    },
   };
   class Element {
     constructor(type, props = {}) {
@@ -38,25 +54,46 @@ function environment() {
       this.isConnected = true;
       this.focusCalls = 0;
     }
-    get disabled() { return Boolean(this.props.disabled); }
+    get disabled() {
+      return Boolean(this.props.disabled);
+    }
     focus() {
       this.focusCalls++;
       if (this.isConnected && !this.disabled) document.activeElement = this;
     }
-    contains(node) { return node === this || this.children.some((child) => child.contains(node)); }
+    contains(node) {
+      return (
+        node === this || this.children.some((child) => child.contains(node))
+      );
+    }
     matches(selector) {
-      if (selector === dialogSelector) return this.props.role === 'dialog' && this.props['aria-modal'] === 'true';
+      if (selector === dialogSelector)
+        return (
+          this.props.role === 'dialog' && this.props['aria-modal'] === 'true'
+        );
       const allocation = selector.match(/^\[data-allocation-key="(\d+)"\]$/);
-      if (allocation) return String(this.props['data-allocation-key']) === allocation[1];
-      assert.equal(selector, focusableSelector, `Unexpected DOM selector: ${selector}`);
-      return (controlTypes.includes(this.type) && !this.disabled)
-        || (this.type === 'a' && Boolean(this.props.href))
-        || (this.props.tabIndex != null && this.props.tabIndex !== -1);
+      if (allocation)
+        return String(this.props['data-allocation-key']) === allocation[1];
+      assert.equal(
+        selector,
+        focusableSelector,
+        `Unexpected DOM selector: ${selector}`,
+      );
+      return (
+        (controlTypes.includes(this.type) && !this.disabled) ||
+        (this.type === 'a' && Boolean(this.props.href)) ||
+        (this.props.tabIndex != null && this.props.tabIndex !== -1)
+      );
     }
     querySelectorAll(selector) {
-      return this.children.flatMap((child) => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]);
+      return this.children.flatMap((child) => [
+        ...(child.matches(selector) ? [child] : []),
+        ...child.querySelectorAll(selector),
+      ]);
     }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
   }
   document.body = new Element('body');
   const opener = new Element('button', { children: 'Open dialog' });
@@ -67,88 +104,153 @@ function environment() {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(fn);
     },
-    removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
+    removeEventListener(name, fn) {
+      listeners.get(name)?.delete(fn);
+    },
   };
   function key(key, shiftKey = false) {
-    const event = { key, shiftKey, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    const event = {
+      key,
+      shiftKey,
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
     // Keep every listener, in registration order, to detect underlying-dialog interference.
-    for (const listener of [...(listeners.get('keydown') ?? [])]) listener(event);
+    for (const listener of [...(listeners.get('keydown') ?? [])])
+      listener(event);
     if (key === 'Tab' && !event.defaultPrevented) {
       const controls = document.querySelectorAll(focusableSelector);
       const index = controls.indexOf(document.activeElement);
-      controls[(index + (shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+      controls[
+        (index + (shiftKey ? -1 : 1) + controls.length) % controls.length
+      ]?.focus();
     }
     return event;
   }
   let current;
   const hooks = {
     useState(initial) {
-      const owner = current, index = owner.cursor++;
+      const owner = current,
+        index = owner.cursor++;
       if (!owner.slots[index]) {
-        const slot = { value: typeof initial === 'function' ? initial() : initial };
+        const slot = {
+          value: typeof initial === 'function' ? initial() : initial,
+        };
         slot.set = (next) => {
           const value = typeof next === 'function' ? next(slot.value) : next;
-          if (!Object.is(value, slot.value)) { slot.value = value; owner.dirty = true; }
+          if (!Object.is(value, slot.value)) {
+            slot.value = value;
+            owner.dirty = true;
+          }
         };
         owner.slots[index] = slot;
       }
       return [owner.slots[index].value, owner.slots[index].set];
     },
-    useRef(initial) { const index = current.cursor++; return current.slots[index] ??= { current: initial }; },
+    useRef(initial) {
+      const index = current.cursor++;
+      current.slots[index] ??= { current: initial };
+      return current.slots[index];
+    },
     useMemo(factory, deps) {
       const index = current.cursor++;
-      if (!sameDeps(current.slots[index]?.deps, deps)) current.slots[index] = { value: factory(), deps };
+      if (!sameDeps(current.slots[index]?.deps, deps))
+        current.slots[index] = { value: factory(), deps };
       return current.slots[index].value;
     },
-    useCallback(fn, deps) { return hooks.useMemo(() => fn, deps); },
-    useLayoutEffect(fn, deps) { effect('layout', fn, deps); },
-    useEffect(fn, deps) { effect('passive', fn, deps); },
+    useCallback(fn, deps) {
+      return hooks.useMemo(() => fn, deps);
+    },
+    useLayoutEffect(fn, deps) {
+      effect('layout', fn, deps);
+    },
+    useEffect(fn, deps) {
+      effect('passive', fn, deps);
+    },
   };
   function effect(phase, fn, deps) {
     const index = current.cursor++;
-    if (!sameDeps(current.slots[index]?.deps, deps)) current.effects[phase].push({ index, fn, deps });
+    if (!sameDeps(current.slots[index]?.deps, deps))
+      current.effects[phase].push({ index, fn, deps });
   }
   const modules = new Map();
   function load(path) {
     const url = new URL(path, import.meta.url);
     if (modules.has(url.href)) return modules.get(url.href);
     if (!compiled.has(url.href)) {
-      compiled.set(url.href, ts.transpileModule(readFileSync(url, 'utf8'), {
-        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-      }).outputText);
+      compiled.set(
+        url.href,
+        ts.transpileModule(readFileSync(url, 'utf8'), {
+          compilerOptions: {
+            module: ts.ModuleKind.CommonJS,
+            target: ts.ScriptTarget.ES2022,
+            jsx: ts.JsxEmit.ReactJSX,
+          },
+        }).outputText,
+      );
     }
     const exports = {};
     modules.set(url.href, exports);
     const require = (name) => {
       if (name.endsWith('.css')) return {};
       if (name === 'react') return hooks;
-      if (name === 'lucide-react') return Object.fromEntries(['AlertTriangle', 'CheckCircle2', 'X', 'XCircle'].map((icon) => [icon, `icon-${icon}`]));
+      if (name === 'lucide-react')
+        return Object.fromEntries(
+          ['AlertTriangle', 'CheckCircle2', 'X', 'XCircle'].map((icon) => [
+            icon,
+            `icon-${icon}`,
+          ]),
+        );
       if (name === 'react/jsx-runtime') {
         const jsx = (type, props, key) => ({ type, props, key });
         return { jsx, jsxs: jsx, Fragment: 'test-fragment' };
       }
       // Portals are represented in document order; icons have no interactive DOM.
-      if (name === './ModalPortal' || name === './PolypbaseIcon') return { default: name };
-      if (name === '../i18n') return load(new URL('../i18n/index.ts', url).href);
-      if (url.pathname.includes('/i18n/') && (name === './fr' || name === './en' || name === './ja')) return load(new URL(`${name}.ts`, url).href);
-      if (name === '../hooks/useSubcultureCodePreview') return { default: () => [] };
-            if (name.startsWith('../hooks/') || name.startsWith('../utils/')) return load(new URL(`${name}.ts`, url).href);
+      if (name === './ModalPortal' || name === './PolypbaseIcon')
+        return { default: name };
+      if (name === '../i18n') return loadI18n();
+      if (name === '../hooks/useSubcultureCodePreview')
+        return { default: () => [] };
+      if (name.startsWith('../hooks/') || name.startsWith('../utils/'))
+        return load(new URL(`${name}.ts`, url).href);
       throw new Error(`Unexpected import: ${name}`);
     };
-    vm.runInNewContext(compiled.get(url.href), { exports, require, document, window, HTMLElement: Element }, { filename: url.pathname });
+    vm.runInNewContext(
+      compiled.get(url.href),
+      { exports, require, document, window, HTMLElement: Element },
+      { filename: url.pathname },
+    );
     return exports;
   }
   function instance(component, initialProps, attach = true) {
-    const owner = { slots: [], cursor: 0, dirty: true, effects: { layout: [], passive: [] } };
+    const owner = {
+      slots: [],
+      cursor: 0,
+      dirty: true,
+      effects: { layout: [], passive: [] },
+    };
     const container = new Element('test-root');
     if (attach) roots.push(container);
-    let props = initialProps, elements = new Map(), value, mounted = true;
+    let props = initialProps,
+      elements = new Map(),
+      value,
+      mounted = true;
     function reconcile(tree) {
       const next = new Map();
       function build(node, parent, path) {
-        if (Array.isArray(node)) { node.forEach((child, i) => build(child, parent, `${path}/${child?.key ?? i}`)); return; }
+        if (Array.isArray(node)) {
+          node.forEach((child, i) => {
+            build(child, parent, `${path}/${child?.key ?? i}`);
+          });
+          return;
+        }
         if (!node || typeof node !== 'object') return;
-        const element = elements.get(path)?.type === node.type ? elements.get(path) : new Element(node.type);
+        const element =
+          elements.get(path)?.type === node.type
+            ? elements.get(path)
+            : new Element(node.type);
         element.props = node.props;
         element.children = [];
         element.parent = parent;
@@ -160,16 +262,25 @@ function environment() {
       }
       container.children = [];
       build(tree, container, 'root');
-      for (const [path, element] of elements) if (!next.has(path)) element.isConnected = false;
+      for (const [path, element] of elements)
+        if (!next.has(path)) element.isConnected = false;
       elements = next;
-      if (document.activeElement?.disabled || document.activeElement?.isConnected === false) document.activeElement = document.body;
+      if (
+        document.activeElement?.disabled ||
+        document.activeElement?.isConnected === false
+      )
+        document.activeElement = document.body;
     }
     function render() {
       assert.ok(mounted, 'Cannot render an unmounted instance');
       owner.cursor = 0;
       owner.dirty = false;
       current = owner;
-      try { value = component(props); } finally { current = null; }
+      try {
+        value = component(props);
+      } finally {
+        current = null;
+      }
       if (attach) reconcile(value);
       for (const phase of ['layout', 'passive']) {
         const effects = owner.effects[phase];
@@ -189,98 +300,246 @@ function environment() {
       return value;
     }
     const api = {
-      render, flush,
-      get value() { return value; },
-      get nodes() { return [...elements.values()]; },
-      get dialog() { return api.nodes.find((node) => node.props.role === 'dialog'); },
-      get fields() { return api.nodes.filter((node) => ['input', 'select', 'textarea'].includes(node.type)); },
-      get controls() { return api.nodes.filter((node) => controlTypes.includes(node.type)); },
-      get form() { return api.nodes.find((node) => node.type === 'form'); },
-      get backdrop() { return api.nodes.find((node) => node.props.role === 'presentation'); },
-      setProps(next) { props = { ...props, ...next }; owner.dirty = true; return flush(); },
+      render,
+      flush,
+      get value() {
+        return value;
+      },
+      get nodes() {
+        return [...elements.values()];
+      },
+      get dialog() {
+        return api.nodes.find((node) => node.props.role === 'dialog');
+      },
+      get fields() {
+        return api.nodes.filter((node) =>
+          ['input', 'select', 'textarea'].includes(node.type),
+        );
+      },
+      get controls() {
+        return api.nodes.filter((node) => controlTypes.includes(node.type));
+      },
+      get form() {
+        return api.nodes.find((node) => node.type === 'form');
+      },
+      get backdrop() {
+        return api.nodes.find((node) => node.props.role === 'presentation');
+      },
+      setProps(next) {
+        props = { ...props, ...next };
+        owner.dirty = true;
+        return flush();
+      },
       unmount() {
-        if (container.contains(document.activeElement)) document.activeElement = document.body;
-        for (const element of elements.values()) { element.isConnected = false; if (element.props.ref) element.props.ref.current = null; }
+        if (container.contains(document.activeElement))
+          document.activeElement = document.body;
+        for (const element of elements.values()) {
+          element.isConnected = false;
+          if (element.props.ref) element.props.ref.current = null;
+        }
         if (attach) roots.splice(roots.indexOf(container), 1);
-        for (const phase of ['layout', 'passive']) for (const slot of owner.slots) if (slot?.phase === phase) slot.cleanup?.();
+        for (const phase of ['layout', 'passive'])
+          for (const slot of owner.slots)
+            if (slot?.phase === phase) slot.cleanup?.();
         mounted = false;
       },
     };
     render();
     return api;
   }
-  return { document, opener, key, load, instance, listenerCount: () => listeners.get('keydown')?.size ?? 0 };
+  return {
+    document,
+    opener,
+    key,
+    load,
+    instance,
+    listenerCount: () => listeners.get('keydown')?.size ?? 0,
+  };
 }
 
 const cases = [
-  { name: 'MoveBoxModal', titles: { en: 'Move box', fr: 'Déplacer la boîte' }, initialType: 'select', saves: { en: 'Move', fr: 'Déplacer' }, saving: { en: 'Saving...', fr: 'Enregistrement...' } },
-  { name: 'SubcultureModal', titles: { en: 'Transplanting', fr: 'Repiquer' }, initialType: 'input', saves: { en: 'Transplanting', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
+  {
+    name: 'MoveBoxModal',
+    titles: { en: 'Move box', fr: 'Déplacer la boîte' },
+    initialType: 'select',
+    saves: { en: 'Move', fr: 'Déplacer' },
+    saving: { en: 'Saving...', fr: 'Enregistrement...' },
+  },
+  {
+    name: 'SubcultureModal',
+    titles: { en: 'Transplanting', fr: 'Repiquer' },
+    initialType: 'input',
+    saves: { en: 'Transplanting', fr: 'Repiquer' },
+    saving: { en: 'Creating...', fr: 'Création...' },
+  },
 ];
 function fixture(spec, overrides = {}, env = environment()) {
   let closed = 0;
   const box = {
-    id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, strain: { code: '1-ATL' },
-    organization: { id: 1, name: 'Test institution' }, thermal_zone: { id: 2, name: 'Current zone' },
-    current_polyp_state: { polyp_count: 12, revision: 'opaque-current-revision', source: { kind: 'subculture', id: 8, timestamp: '2026-09-21T12:00:00Z' } },
+    id: 17,
+    global_code: '1-ATL.001',
+    species: { scientific_name: 'Aurelia aurita' },
+    strain: { code: '1-ATL' },
+    organization: { id: 1, name: 'Test institution' },
+    thermal_zone: { id: 2, name: 'Current zone' },
+    current_polyp_state: {
+      polyp_count: 12,
+      revision: 'opaque-current-revision',
+      source: { kind: 'subculture', id: 8, timestamp: '2026-09-21T12:00:00Z' },
+    },
     latest_measurement: { polyp_count: 999 },
   };
   const props = {
-    box, existingBoxes: [box], zones: [2, 3, 4].map((id) => ({ id, name: `Zone ${id}`, organization: box.organization, is_active: true })),
-    language: 'en', isSaving: false, error: null, onClose() { closed++; }, onSubmit: async () => {}, ...overrides,
+    box,
+    existingBoxes: [box],
+    zones: [2, 3, 4].map((id) => ({
+      id,
+      name: `Zone ${id}`,
+      organization: box.organization,
+      is_active: true,
+    })),
+    language: 'en',
+    isSaving: false,
+    error: null,
+    onClose() {
+      closed++;
+    },
+    onSubmit: async () => {},
+    ...overrides,
   };
   props.box = { ...box, ...overrides.box };
-  const modal = env.instance(env.load(`../src/components/${spec.name}.tsx`).default, props);
-  return { env, modal, box: props.box, get closed() { return closed; } };
+  const modal = env.instance(
+    env.load(`../src/components/${spec.name}.tsx`).default,
+    props,
+  );
+  return {
+    env,
+    modal,
+    box: props.box,
+    get closed() {
+      return closed;
+    },
+  };
 }
-function hasClass(node, name) { return node.props.className?.split(/\s+/).includes(name) ?? false; }
-function byClass(modal, name) { return modal.nodes.find((node) => hasClass(node, name)); }
-function submitButton(modal) { return modal.controls.find((node) => node.props.type === 'submit'); }
+function hasClass(node, name) {
+  return node.props.className?.split(/\s+/).includes(name) ?? false;
+}
+function byClass(modal, name) {
+  return modal.nodes.find((node) => hasClass(node, name));
+}
+function submitButton(modal) {
+  return modal.controls.find((node) => node.props.type === 'submit');
+}
 function closeButtons(modal) {
-  return modal.controls.filter((node) => node.type === 'button' && (node.props['aria-label'] === 'Cancel' || text(node) === 'Cancel' || node.props['aria-label'] === 'Annuler' || text(node) === 'Annuler'));
+  return modal.controls.filter(
+    (node) =>
+      node.type === 'button' &&
+      (node.props['aria-label'] === 'Cancel' ||
+        text(node) === 'Cancel' ||
+        node.props['aria-label'] === 'Annuler' ||
+        text(node) === 'Annuler'),
+  );
 }
-function change(node, value) { node.props.onChange({ target: { value } }); }
-function submitEvent() { return { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; }
+function change(node, value) {
+  node.props.onChange({ target: { value } });
+}
+function submitEvent() {
+  return {
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+}
 function addSecondChild(spec, modal) {
   if (spec.name === 'SubcultureModal') {
-    byClass(modal, 'quantitative-subculture-add').children.find((node) => node.type === 'button').props.onClick();
+    byClass(modal, 'quantitative-subculture-add')
+      .children.find((node) => node.type === 'button')
+      .props.onClick();
     modal.flush();
-    assert.equal(modal.controls.filter((node) => /^Remove box \d+$|^Supprimer la boîte \d+$/.test(node.props['aria-label'] ?? '')).length, 2);
+    assert.equal(
+      modal.controls.filter((node) =>
+        /^Remove box \d+$|^Supprimer la boîte \d+$/.test(
+          node.props['aria-label'] ?? '',
+        ),
+      ).length,
+      2,
+    );
   }
 }
 function editDraft(spec, modal) {
   if (spec.name === 'MoveBoxModal') {
-    change(modal.fields.find((node) => node.type === 'select'), '4');
-    change(modal.fields.find((node) => node.type === 'textarea'), '  Keep this movement note  ');
+    change(
+      modal.fields.find((node) => node.type === 'select'),
+      '4',
+    );
+    change(
+      modal.fields.find((node) => node.type === 'textarea'),
+      '  Keep this movement note  ',
+    );
   } else {
     addSecondChild(spec, modal);
-    change(modal.fields.find((node) => node.props.name === 'notes'), '  Keep this global note  ');
-    change(modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0');
-    change(modal.fields.find((node) => node.props.name === 'children.1.allocated_polyps'), '12');
+    change(
+      modal.fields.find((node) => node.props.name === 'notes'),
+      '  Keep this global note  ',
+    );
+    change(
+      modal.fields.find(
+        (node) => node.props.name === 'children.0.allocated_polyps',
+      ),
+      '0',
+    );
+    change(
+      modal.fields.find(
+        (node) => node.props.name === 'children.1.allocated_polyps',
+      ),
+      '12',
+    );
   }
   modal.flush();
 }
-function draftValues(modal) { return modal.fields.map((node) => node.props.value); }
+function draftValues(modal) {
+  return modal.fields.map((node) => node.props.value);
+}
 function assertBusy(h, checkInitialFocus = true) {
   const { env, modal } = h;
   assert.equal(modal.dialog.props['aria-busy'], true);
   assert.ok(modal.fields.length > 0);
-  assert.ok(modal.controls.every((node) => node.disabled), 'Every field, close, add/remove and submit control must be disabled');
-  assert.equal(closeButtons(modal).length, 2, 'Both header and footer close buttons are covered');
+  assert.ok(
+    modal.controls.every((node) => node.disabled),
+    'Every field, close, add/remove and submit control must be disabled',
+  );
+  assert.equal(
+    closeButtons(modal).length,
+    2,
+    'Both header and footer close buttons are covered',
+  );
   const history = byClass(modal, 'move-location-history');
   if (history) {
     const summary = history.children[0];
     assert.equal(summary.props.tabIndex, -1);
     assert.equal(summary.props['aria-disabled'], true);
-    const event = submitEvent(); summary.props.onClick(event);
-    assert.equal(event.defaultPrevented, true, 'History cannot be expanded while the move is pending');
+    const event = submitEvent();
+    summary.props.onClick(event);
+    assert.equal(
+      event.defaultPrevented,
+      true,
+      'History cannot be expanded while the move is pending',
+    );
   }
-  if (checkInitialFocus) assert.ok(env.document.activeElement === modal.dialog, 'Busy dialog must contain focus');
+  if (checkInitialFocus)
+    assert.ok(
+      env.document.activeElement === modal.dialog,
+      'Busy dialog must contain focus',
+    );
   for (const reverse of [false, true]) {
     assert.equal(env.key('Tab', reverse).defaultPrevented, true);
     assert.equal(env.document.activeElement, modal.dialog);
   }
   modal.backdrop.props.onClick();
-  closeButtons(modal).forEach((node) => node.props.onClick());
+  closeButtons(modal).forEach((node) => {
+    node.props.onClick();
+  });
   assert.equal(env.key('Escape').defaultPrevented, true);
   assert.equal(h.closed, 0);
 }
@@ -288,20 +547,43 @@ function assertBusy(h, checkInitialFocus = true) {
 for (const spec of cases) {
   for (const language of ['en', 'fr']) {
     test(`${spec.name}: ${language} shared layout keeps labelled fields/errors in one body and actions outside it`, () => {
-      const { env, modal } = fixture(spec, { language, error: 'Test validation error' });
+      const { env, modal } = fixture(spec, {
+        language,
+        error: 'Test validation error',
+      });
       const isMove = spec.name === 'MoveBoxModal';
       const body = byClass(modal, 'box-dialog-body');
       const footer = byClass(modal, 'box-dialog-actions');
       const heading = byClass(modal, 'box-dialog-heading');
-      const context = byClass(modal, isMove ? 'utility-dialog-identity' : 'quantitative-subculture-parent');
+      const context = byClass(
+        modal,
+        isMove ? 'utility-dialog-identity' : 'quantitative-subculture-parent',
+      );
       const close = byClass(modal, 'box-dialog-close');
-      const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
+      const title = modal.nodes.find(
+        (node) => node.props.id === modal.dialog.props['aria-labelledby'],
+      );
       assert.ok(hasClass(modal.dialog, 'box-dialog'));
-      assert.ok(hasClass(modal.dialog, isMove ? 'box-dialog--move' : 'box-dialog--subculture'));
-      assert.ok(hasClass(modal.backdrop, 'modal-backdrop') && hasClass(modal.backdrop, 'box-dialog-backdrop'));
+      assert.ok(
+        hasClass(
+          modal.dialog,
+          isMove ? 'box-dialog--move' : 'box-dialog--subculture',
+        ),
+      );
+      assert.ok(
+        hasClass(modal.backdrop, 'modal-backdrop') &&
+          hasClass(modal.backdrop, 'box-dialog-backdrop'),
+      );
       assert.ok(hasClass(modal.form, 'box-dialog-form'));
-      assert.equal(modal.nodes.filter((node) => hasClass(node, 'box-dialog-body')).length, 1);
-      assert.deepEqual(modal.form.children, [body, footer], 'Body and footer are direct form siblings for parent-owned scrolling');
+      assert.equal(
+        modal.nodes.filter((node) => hasClass(node, 'box-dialog-body')).length,
+        1,
+      );
+      assert.deepEqual(
+        modal.form.children,
+        [body, footer],
+        'Body and footer are direct form siblings for parent-owned scrolling',
+      );
       assert.deepEqual(modal.dialog.children, [heading, modal.form]);
       assert.equal(body.type, 'div');
       assert.equal(footer.type, 'footer');
@@ -311,7 +593,10 @@ for (const spec of cases) {
       assert.equal(close.parent, heading);
       assert.equal(close.props.className, 'icon-button box-dialog-close');
       assert.equal(close.props.type, 'button');
-      assert.equal(close.props['aria-label'], language === 'fr' ? 'Annuler' : 'Cancel');
+      assert.equal(
+        close.props['aria-label'],
+        language === 'fr' ? 'Annuler' : 'Cancel',
+      );
       assert.equal(close.props.title, close.props['aria-label']);
       assert.equal(close.disabled, false);
       assert.equal(close.children.length, 1);
@@ -320,12 +605,25 @@ for (const spec of cases) {
       assert.equal(icon.props.name, 'close');
       assert.equal(icon.props.size, 19);
       assert.equal(icon.props['aria-hidden'], 'true');
-      assert.equal(text(close), '', 'Close is an accessible icon, not a literal x');
+      assert.equal(
+        text(close),
+        '',
+        'Close is an accessible icon, not a literal x',
+      );
       assert.ok(modal.fields.every((field) => body.contains(field)));
-      assert.ok(modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
-      assert.ok(body.contains(modal.nodes.find((node) => node.props.role === 'alert')));
+      assert.ok(
+        modal.fields.every(
+          (field) => field.parent.type === 'label' && text(field.parent).trim(),
+        ),
+      );
+      assert.ok(
+        body.contains(modal.nodes.find((node) => node.props.role === 'alert')),
+      );
       assert.ok(!body.contains(footer));
-      assert.equal(footer.children.filter((node) => node.type === 'button').length, 2);
+      assert.equal(
+        footer.children.filter((node) => node.type === 'button').length,
+        2,
+      );
       assert.ok(footer.contains(submitButton(modal)));
       assert.equal(text(submitButton(modal)), spec.saves[language]);
       assert.equal(submitButton(modal).props.type, 'submit');
@@ -350,28 +648,52 @@ for (const spec of cases) {
         assert.equal(heading.contains(context), false);
         assert.ok(text(context).includes('Aurelia aurita'));
         assert.ok(text(context).includes('1-ATL'));
-        assert.equal(body.contains(context), true, 'Parent identity shares the body with the available state');
-        assert.ok(context.contains(byClass(modal, 'quantitative-subculture-summary')));
+        assert.equal(
+          body.contains(context),
+          true,
+          'Parent identity shares the body with the available state',
+        );
+        assert.ok(
+          context.contains(byClass(modal, 'quantitative-subculture-summary')),
+        );
         assert.equal(initial.props.type, 'number');
         assert.equal(initial.props.name, 'children.0.allocated_polyps');
         assert.equal(initial.props.value, '');
         assert.equal(submitButton(modal).disabled, false);
-        assert.equal(modal.fields.some((field) => ['date', 'datetime-local'].includes(field.props.type) || field.props.readOnly || /code/.test(field.props.name ?? '')), false);
-        assert.ok(body.contains(byClass(modal, 'quantitative-subculture-summary')));
-        assert.ok(body.contains(byClass(modal, 'quantitative-subculture-rows')));
+        assert.equal(
+          modal.fields.some(
+            (field) =>
+              ['date', 'datetime-local'].includes(field.props.type) ||
+              field.props.readOnly ||
+              /code/.test(field.props.name ?? ''),
+          ),
+          false,
+        );
+        assert.ok(
+          body.contains(byClass(modal, 'quantitative-subculture-summary')),
+        );
+        assert.ok(
+          body.contains(byClass(modal, 'quantitative-subculture-rows')),
+        );
         const rows = byClass(modal, 'quantitative-subculture-rows');
         const add = byClass(modal, 'quantitative-subculture-add');
-        assert.deepEqual(byClass(modal, 'quantitative-subculture-children').children, [rows, add]);
+        assert.deepEqual(
+          byClass(modal, 'quantitative-subculture-children').children,
+          [rows, add],
+        );
       }
       modal.unmount();
     });
 
     test(`${spec.name}: ${language} label, initial focus, forward/reverse Tab, idle Escape and opener restore`, () => {
-      const h = fixture(spec, { language }), { env, modal } = h;
+      const h = fixture(spec, { language }),
+        { env, modal } = h;
       assert.equal(modal.dialog.props['aria-modal'], 'true');
       assert.equal(modal.dialog.props.tabIndex, -1);
       assert.equal(modal.dialog.props['aria-busy'], false);
-      const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
+      const title = modal.nodes.find(
+        (node) => node.props.id === modal.dialog.props['aria-labelledby'],
+      );
       assert.ok(title);
       assert.equal(text(title), spec.titles[language]);
       const initial = modal.fields.find((node) => node.props.ref);
@@ -379,12 +701,24 @@ for (const spec of cases) {
       assert.equal(env.document.activeElement, initial);
       for (const field of modal.fields) {
         assert.equal(field.parent.type, 'label');
-        assert.ok(text(field.parent).trim(), 'Every field has a nonempty wrapping label');
+        assert.ok(
+          text(field.parent).trim(),
+          'Every field has a nonempty wrapping label',
+        );
       }
-      const controls = modal.dialog.querySelectorAll(focusableSelector), first = controls[0], last = controls.at(-1);
+      const controls = modal.dialog.querySelectorAll(focusableSelector),
+        first = controls[0],
+        last = controls.at(-1);
       initial.focus();
-      assert.equal(env.key('Tab').defaultPrevented, false, 'Interior Tab uses native order');
-      assert.equal(env.document.activeElement, controls[controls.indexOf(initial) + 1]);
+      assert.equal(
+        env.key('Tab').defaultPrevented,
+        false,
+        'Interior Tab uses native order',
+      );
+      assert.equal(
+        env.document.activeElement,
+        controls[controls.indexOf(initial) + 1],
+      );
       assert.equal(env.key('Tab', true).defaultPrevented, false);
       assert.equal(env.document.activeElement, initial);
       first.focus();
@@ -423,32 +757,51 @@ for (const spec of cases) {
   test(`${spec.name}: idle backdrop and both close buttons dismiss; dialog click stays inside`, () => {
     const h = fixture(spec);
     let stopped = false;
-    h.modal.dialog.props.onClick({ stopPropagation() { stopped = true; } });
+    h.modal.dialog.props.onClick({
+      stopPropagation() {
+        stopped = true;
+      },
+    });
     assert.equal(stopped, true);
     assert.equal(h.closed, 0);
     h.modal.backdrop.props.onClick();
-    closeButtons(h.modal).forEach((node) => node.props.onClick());
+    closeButtons(h.modal).forEach((node) => {
+      node.props.onClick();
+    });
     assert.equal(h.closed, 3);
     h.modal.unmount();
   });
 
   test(`${spec.name}: pending promise locks same-tick duplicates/dismissal and restores edit focus`, async () => {
-    const operation = deferred(), payloads = [];
-    const h = fixture(spec, { onSubmit(payload) { payloads.push(plain(payload)); return operation.promise; } });
+    const operation = deferred(),
+      payloads = [];
+    const h = fixture(spec, {
+      onSubmit(payload) {
+        payloads.push(plain(payload));
+        return operation.promise;
+      },
+    });
     editDraft(spec, h.modal);
-    const handler = h.modal.form.props.onSubmit, event = submitEvent();
+    const handler = h.modal.form.props.onSubmit,
+      event = submitEvent();
     const pending = handler(event);
     const duplicate = handler(submitEvent());
     assert.equal(event.defaultPrevented, true);
     assert.equal(payloads.length, 1);
     // These still reference the idle render: the synchronous ref must guard them.
     h.modal.backdrop.props.onClick();
-    closeButtons(h.modal).forEach((node) => node.props.onClick());
+    closeButtons(h.modal).forEach((node) => {
+      node.props.onClick();
+    });
     h.env.key('Escape');
     assert.equal(h.closed, 0);
     h.modal.flush();
     assertBusy(h);
-    assert.equal(text(submitButton(h.modal)), spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en, 'Subculture labels its entire pending intent as creating');
+    assert.equal(
+      text(submitButton(h.modal)),
+      spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en,
+      'Subculture labels its entire pending intent as creating',
+    );
     await h.modal.form.props.onSubmit(submitEvent());
     assert.equal(payloads.length, 1);
     operation.resolve();
@@ -456,14 +809,23 @@ for (const spec of cases) {
     h.modal.flush();
     assert.equal(h.modal.dialog.props['aria-busy'], false);
     assert.ok(h.modal.controls.every((node) => !node.disabled));
-    assert.ok(h.env.document.activeElement === h.modal.fields.find((node) => node.props.ref), 'Settled submission must restore initial-field focus after the field is enabled');
+    assert.ok(
+      h.env.document.activeElement ===
+        h.modal.fields.find((node) => node.props.ref),
+      'Settled submission must restore initial-field focus after the field is enabled',
+    );
     h.modal.unmount();
   });
 
   for (const language of ['en', 'fr']) {
     test(`${spec.name}: ${language} externally saving locks fields/close controls and uses actual save label`, async () => {
       let calls = 0;
-      const h = fixture(spec, { language, onSubmit: async () => { calls++; } });
+      const h = fixture(spec, {
+        language,
+        onSubmit: async () => {
+          calls++;
+        },
+      });
       editDraft(spec, h.modal);
       const idleHandler = h.modal.form.props.onSubmit;
       h.modal.setProps({ isSaving: true });
@@ -471,7 +833,11 @@ for (const spec of cases) {
       assert.equal(text(submitButton(h.modal)), spec.saving[language]);
       await idleHandler(submitEvent());
       await h.modal.form.props.onSubmit(submitEvent());
-      assert.equal(calls, 0, 'Saving ref also rejects a stale idle submit handler');
+      assert.equal(
+        calls,
+        0,
+        'Saving ref also rejects a stale idle submit handler',
+      );
       h.modal.setProps({ isSaving: false });
       assert.equal(h.modal.dialog.props['aria-busy'], false);
       assert.ok(h.modal.controls.every((node) => !node.disabled));
@@ -482,8 +848,16 @@ for (const spec of cases) {
   }
 
   test(`${spec.name}: rejected mutation retains edited form, announces error and permits identical retry`, async () => {
-    const attempts = [], payloads = [];
-    const h = fixture(spec, { onSubmit(payload) { payloads.push(plain(payload)); const attempt = deferred(); attempts.push(attempt); return attempt.promise; } });
+    const attempts = [],
+      payloads = [];
+    const h = fixture(spec, {
+      onSubmit(payload) {
+        payloads.push(plain(payload));
+        const attempt = deferred();
+        attempts.push(attempt);
+        return attempt.promise;
+      },
+    });
     editDraft(spec, h.modal);
     const before = draftValues(h.modal);
     const pending = h.modal.form.props.onSubmit(submitEvent());
@@ -508,10 +882,16 @@ for (const spec of cases) {
     if (spec.name === 'SubcultureModal') {
       assert.equal(payloads[1].children.length, 2);
       assert.equal(payloads[1].children[0].allocated_polyps, 0);
-      assert.equal(payloads[1].expected_current_state_revision, 'opaque-current-revision');
+      assert.equal(
+        payloads[1].expected_current_state_revision,
+        'opaque-current-revision',
+      );
       assert.equal(payloads[1].reason, '');
       assert.equal(payloads[1].notes, 'Keep this global note');
-      assert.deepEqual(payloads[1].children.map(child => child.notes), ['', '']);
+      assert.deepEqual(
+        payloads[1].children.map((child) => child.notes),
+        ['', ''],
+      );
     } else {
       assert.equal(payloads[1].thermal_zone_id, 4);
       assert.equal(payloads[1].notes, 'Keep this movement note');
@@ -520,7 +900,10 @@ for (const spec of cases) {
     await retry;
     h.modal.setProps({ error: null });
     assert.deepEqual(draftValues(h.modal), before);
-    assert.equal(h.modal.nodes.some((node) => node.props.role === 'alert'), false);
+    assert.equal(
+      h.modal.nodes.some((node) => node.props.role === 'alert'),
+      false,
+    );
     h.modal.unmount();
   });
 
@@ -529,16 +912,27 @@ for (const spec of cases) {
     const confirm = env.load('../src/components/ConfirmActionModal.tsx');
     const host = env.instance(() => confirm.useConfirmAction(), {}, false);
     const mutation = deferred();
-    let requests = 0, mutations = 0;
-    const h = fixture(spec, { async onSubmit() {
-      requests++;
-      const accepted = await host.value.confirmAction({ title: 'Confirm test operation', confirmLabel: 'Confirm', cancelLabel: 'Cancel' });
-      if (!accepted) return;
-      mutations++;
-      h.modal.setProps({ isSaving: true });
-      await mutation.promise;
-      h.modal.setProps({ isSaving: false });
-    } }, env);
+    let requests = 0,
+      mutations = 0;
+    const h = fixture(
+      spec,
+      {
+        async onSubmit() {
+          requests++;
+          const accepted = await host.value.confirmAction({
+            title: 'Confirm test operation',
+            confirmLabel: 'Confirm',
+            cancelLabel: 'Cancel',
+          });
+          if (!accepted) return;
+          mutations++;
+          h.modal.setProps({ isSaving: true });
+          await mutation.promise;
+          h.modal.setProps({ isSaving: false });
+        },
+      },
+      env,
+    );
     editDraft(spec, h.modal);
     const before = draftValues(h.modal);
     function mountConfirmation() {
@@ -552,13 +946,17 @@ for (const spec of cases) {
     // Mount top dialog before the underlying busy layout effect runs, so it
     // must not steal the confirmation's initial focus during the same commit.
     const nested = mountConfirmation();
-    const first = nested.controls[0], last = nested.controls.at(-1);
+    const first = nested.controls[0],
+      last = nested.controls.at(-1);
     assert.equal(env.document.activeElement, first);
     h.modal.flush();
     assert.equal(env.document.activeElement, first);
     assert.equal(env.listenerCount(), 2);
     assert.ok(h.modal.controls.every((node) => node.disabled));
-    assert.equal(text(submitButton(h.modal)), spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en);
+    assert.equal(
+      text(submitButton(h.modal)),
+      spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en,
+    );
     const underlyingFocusCalls = h.modal.dialog.focusCalls;
     assert.equal(env.key('Tab', true).defaultPrevented, true);
     assert.equal(env.document.activeElement, last);
@@ -571,7 +969,11 @@ for (const spec of cases) {
     assert.equal(env.document.activeElement, first);
     assert.equal(h.modal.dialog.focusCalls, underlyingFocusCalls);
     // Cancellation changes the real confirmation owner's state, never onClose.
-    assert.equal(env.key('Escape').defaultPrevented, false, 'Underlying hook must not consume the confirmation Escape');
+    assert.equal(
+      env.key('Escape').defaultPrevented,
+      false,
+      'Underlying hook must not consume the confirmation Escape',
+    );
     assert.equal(h.closed, 0);
     host.flush();
     assert.equal(host.value.confirmActionModal, null);
@@ -613,7 +1015,10 @@ for (const spec of cases) {
     h.modal.unmount();
     assert.equal(env.document.activeElement, env.opener);
     assert.equal(env.listenerCount(), 0);
-    assert.ok(regainedBusyFocus, 'Busy dialog must recover focus after its nested confirmation closes');
+    assert.ok(
+      regainedBusyFocus,
+      'Busy dialog must recover focus after its nested confirmation closes',
+    );
   });
 }
 
@@ -621,25 +1026,53 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
   test(`MoveBoxModal: location flow preserves exact payload with ${currentZone ? 'known' : 'null'} current zone and historical display`, async () => {
     const organization = { id: 1, name: 'Test institution' };
     const locations = Array.from({ length: 7 }, (_, index) => ({
-      id: index + 1, thermal_zone: { id: 10 + index, name: `History zone ${index + 1}` },
-      starts_at: '2026-09-20T12:00:00Z', ends_at: index === 1 ? null : '2026-09-21T12:00:00Z',
-      end_date_unknown: index === 0, notes: index === 0 ? 'Historical note' : '',
+      id: index + 1,
+      thermal_zone: { id: 10 + index, name: `History zone ${index + 1}` },
+      starts_at: '2026-09-20T12:00:00Z',
+      ends_at: index === 1 ? null : '2026-09-21T12:00:00Z',
+      end_date_unknown: index === 0,
+      notes: index === 0 ? 'Historical note' : '',
     }));
     const payloads = [];
     const h = fixture(cases[0], {
-      box: { id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, organization, thermal_zone: currentZone, locations },
+      box: {
+        id: 17,
+        global_code: '1-ATL.001',
+        species: { scientific_name: 'Aurelia aurita' },
+        organization,
+        thermal_zone: currentZone,
+        locations,
+      },
       zones: [
         { id: 2, name: 'Current zone', organization, is_active: true },
         { id: 3, name: 'Destination', organization, is_active: true },
         { id: 4, name: 'Inactive', organization, is_active: false },
-        { id: 5, name: 'Other institution', organization: { id: 9 }, is_active: true },
+        {
+          id: 5,
+          name: 'Other institution',
+          organization: { id: 9 },
+          is_active: true,
+        },
       ],
-      onSubmit: async (payload) => { payloads.push(plain(payload)); },
+      onSubmit: async (payload) => {
+        payloads.push(plain(payload));
+      },
     });
     const destination = h.modal.fields.find((field) => field.type === 'select');
-    assert.deepEqual(destination.children.map((option) => option.props.value), currentZone ? [3] : [2, 3]);
-    assert.ok(text(byClass(h.modal, 'move-current-zone')).includes(currentZone ? 'Current zone' : 'No location'));
-    assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'move-location-row')).length, 7);
+    assert.deepEqual(
+      destination.children.map((option) => option.props.value),
+      currentZone ? [3] : [2, 3],
+    );
+    assert.ok(
+      text(byClass(h.modal, 'move-current-zone')).includes(
+        currentZone ? 'Current zone' : 'No location',
+      ),
+    );
+    assert.equal(
+      h.modal.nodes.filter((node) => hasClass(node, 'move-location-row'))
+        .length,
+      7,
+    );
     const historyNode = byClass(h.modal, 'move-location-history');
     assert.equal(historyNode.type, 'details');
     assert.equal(historyNode.props.open, undefined, 'History starts collapsed');
@@ -647,21 +1080,39 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
     assert.equal(text(byClass(h.modal, 'move-history-count')), '7');
     const history = text(historyNode);
     assert.ok(history.includes('end date unknown'));
-    const currentHistoryRows = h.modal.nodes.filter(node => hasClass(node, 'move-location-row') && text(node).includes('History zone 2'));
+    const currentHistoryRows = h.modal.nodes.filter(
+      (node) =>
+        hasClass(node, 'move-location-row') &&
+        text(node).includes('History zone 2'),
+    );
     assert.equal(currentHistoryRows.length, 1);
-    assert.equal(text(currentHistoryRows[0]).includes('Departure'), false, 'Current location has no departure');
+    assert.equal(
+      text(currentHistoryRows[0]).includes('Departure'),
+      false,
+      'Current location has no departure',
+    );
     assert.ok(history.includes('Historical note'));
-    assert.equal(history.includes('History zone 7'), true, 'Collapsed history preserves every location');
+    assert.equal(
+      history.includes('History zone 7'),
+      true,
+      'Collapsed history preserves every location',
+    );
     change(destination, '3');
-    change(h.modal.fields.find((field) => field.type === 'textarea'), '  Movement note  ');
+    change(
+      h.modal.fields.find((field) => field.type === 'textarea'),
+      '  Movement note  ',
+    );
     h.modal.flush();
     const event = submitEvent();
     await h.modal.form.props.onSubmit(event);
     assert.equal(event.defaultPrevented, true);
-    assert.deepEqual(payloads, [{
-      expected_thermal_zone_id: currentZone?.id ?? null, thermal_zone_id: 3,
-      notes: 'Movement note',
-    }]);
+    assert.deepEqual(payloads, [
+      {
+        expected_thermal_zone_id: currentZone?.id ?? null,
+        thermal_zone_id: 3,
+        notes: 'Movement note',
+      },
+    ]);
     h.modal.flush();
     h.modal.unmount();
   });
@@ -669,13 +1120,25 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
 
 test('SubcultureModal: expanded children preserve explicit zero versus empty, focus, trimming and payload after removal', async () => {
   const payloads = [];
-  const h = fixture(cases[1], { onSubmit: async (payload) => { payloads.push(plain(payload)); } });
+  const h = fixture(cases[1], {
+    onSubmit: async (payload) => {
+      payloads.push(plain(payload));
+    },
+  });
   addSecondChild(cases[1], h.modal);
-  assert.equal(h.env.document.activeElement.props.name, 'children.1.allocated_polyps');
+  assert.equal(
+    h.env.document.activeElement.props.name,
+    'children.1.allocated_polyps',
+  );
   byClass(h.modal, 'quantitative-subculture-add').children[0].props.onClick();
   h.modal.flush();
-  assert.equal(h.env.document.activeElement.props.name, 'children.2.allocated_polyps');
-  const counts = h.modal.fields.filter((field) => field.props.type === 'number');
+  assert.equal(
+    h.env.document.activeElement.props.name,
+    'children.2.allocated_polyps',
+  );
+  const counts = h.modal.fields.filter(
+    (field) => field.props.type === 'number',
+  );
   assert.equal(counts.length, 3);
   for (const count of counts) {
     assert.equal(count.props.required, undefined);
@@ -684,111 +1147,291 @@ test('SubcultureModal: expanded children preserve explicit zero versus empty, fo
     assert.equal(count.props.step, '1');
     assert.equal(count.props.value, '');
   }
-  const rows = h.modal.nodes.filter((node) => hasClass(node, 'quantitative-subculture-row'));
+  const rows = h.modal.nodes.filter((node) =>
+    hasClass(node, 'quantitative-subculture-row'),
+  );
   assert.equal(rows.length, 3);
   for (const row of rows) {
     assert.equal(row.type, 'section');
     assert.equal(row.props.hidden, undefined);
-    assert.ok(row.children.some((node) => node.contains(h.modal.nodes.find((node) => node.props.id === row.props['aria-labelledby']))));
-    assert.equal(h.modal.fields.filter((field) => row.contains(field)).length, 2, 'Every allocation and zone stays expanded');
+    assert.ok(
+      row.children.some((node) =>
+        node.contains(
+          h.modal.nodes.find(
+            (node) => node.props.id === row.props['aria-labelledby'],
+          ),
+        ),
+      ),
+    );
+    assert.equal(
+      h.modal.fields.filter((field) => row.contains(field)).length,
+      2,
+      'Every allocation and zone stays expanded',
+    );
   }
-  assert.equal(h.modal.fields.some((field) => field.props.readOnly || /code/.test(field.props.name ?? '') || field.props.type === 'date'), false);
-  change(h.modal.fields.find((field) => field.props.name === 'notes'), '  Global note  ');
+  assert.equal(
+    h.modal.fields.some(
+      (field) =>
+        field.props.readOnly ||
+        /code/.test(field.props.name ?? '') ||
+        field.props.type === 'date',
+    ),
+    false,
+  );
+  change(
+    h.modal.fields.find((field) => field.props.name === 'notes'),
+    '  Global note  ',
+  );
   change(counts[0], '0');
   change(counts[1], '9');
   h.modal.flush();
-  change(h.modal.fields.filter((field) => field.props.type === 'number')[1], '');
-  change(h.modal.fields.filter((field) => field.props.type === 'number')[2], '12');
-  change(h.modal.fields.find((field) => field.props.name === 'children.2.thermal_zone_id'), '3');
+  change(
+    h.modal.fields.filter((field) => field.props.type === 'number')[1],
+    '',
+  );
+  change(
+    h.modal.fields.filter((field) => field.props.type === 'number')[2],
+    '12',
+  );
+  change(
+    h.modal.fields.find(
+      (field) => field.props.name === 'children.2.thermal_zone_id',
+    ),
+    '3',
+  );
   h.modal.flush();
-  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), ['0', '', '12']);
-  assert.equal(submitButton(h.modal).disabled, false, 'Blank is an unknown allocation, not zero');
-  assert.deepEqual(h.modal.nodes.filter(node => node.type === 'dd').map(text), ['12 Polyps']);
-  change(h.modal.fields.find((field) => field.props.name === 'children.1.allocated_polyps'), '0');
+  assert.deepEqual(
+    h.modal.fields
+      .filter((field) => field.props.type === 'number')
+      .map((field) => field.props.value),
+    ['0', '', '12'],
+  );
+  assert.equal(
+    submitButton(h.modal).disabled,
+    false,
+    'Blank is an unknown allocation, not zero',
+  );
+  assert.deepEqual(
+    h.modal.nodes.filter((node) => node.type === 'dd').map(text),
+    ['12 Polyps'],
+  );
+  change(
+    h.modal.fields.find(
+      (field) => field.props.name === 'children.1.allocated_polyps',
+    ),
+    '0',
+  );
   h.modal.flush();
   assert.equal(submitButton(h.modal).disabled, false);
   const children = [0, 0, 12].map((count, index) => ({
-    thermal_zone_id: index === 2 ? 3 : 2, copy_origin: true, allocated_polyps: count, notes: '',
+    thermal_zone_id: index === 2 ? 3 : 2,
+    copy_origin: true,
+    allocated_polyps: count,
+    notes: '',
   }));
   await h.modal.form.props.onSubmit(submitEvent());
   h.modal.flush();
-  assert.deepEqual(payloads[0], { expected_current_state_revision: 'opaque-current-revision', reason: '', notes: 'Global note', children });
-  h.modal.controls.find((node) => node.props['aria-label'] === 'Remove box 2').props.onClick();
+  assert.deepEqual(payloads[0], {
+    expected_current_state_revision: 'opaque-current-revision',
+    reason: '',
+    notes: 'Global note',
+    children,
+  });
+  h.modal.controls
+    .find((node) => node.props['aria-label'] === 'Remove box 2')
+    .props.onClick();
   h.modal.flush();
-  assert.equal(h.env.document.activeElement.props.name, 'children.1.allocated_polyps');
-  assert.equal(h.env.document.activeElement.props['data-allocation-key'], 3, 'Removing a row focuses the next stable draft');
-  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), ['0', '12']);
-  assert.equal(byClass(h.modal, 'box-dialog-body').contains(byClass(h.modal, 'box-dialog-actions')), false);
+  assert.equal(
+    h.env.document.activeElement.props.name,
+    'children.1.allocated_polyps',
+  );
+  assert.equal(
+    h.env.document.activeElement.props['data-allocation-key'],
+    3,
+    'Removing a row focuses the next stable draft',
+  );
+  assert.deepEqual(
+    h.modal.fields
+      .filter((field) => field.props.type === 'number')
+      .map((field) => field.props.value),
+    ['0', '12'],
+  );
+  assert.equal(
+    byClass(h.modal, 'box-dialog-body').contains(
+      byClass(h.modal, 'box-dialog-actions'),
+    ),
+    false,
+  );
   await h.modal.form.props.onSubmit(submitEvent());
   h.modal.flush();
-  assert.deepEqual(payloads[1], { ...payloads[0], children: [children[0], children[2]] });
-  h.modal.controls.find((node) => node.props['aria-label'] === 'Remove box 2').props.onClick();
+  assert.deepEqual(payloads[1], {
+    ...payloads[0],
+    children: [children[0], children[2]],
+  });
+  h.modal.controls
+    .find((node) => node.props['aria-label'] === 'Remove box 2')
+    .props.onClick();
   h.modal.flush();
-  assert.equal(h.env.document.activeElement.props['data-allocation-key'], 1, 'Removing the last row focuses the previous allocation');
-  assert.equal(h.modal.controls.some((node) => /^Remove box/.test(node.props['aria-label'] ?? '')), false, 'The final child cannot be removed');
+  assert.equal(
+    h.env.document.activeElement.props['data-allocation-key'],
+    1,
+    'Removing the last row focuses the previous allocation',
+  );
+  assert.equal(
+    h.modal.controls.some((node) =>
+      /^Remove box/.test(node.props['aria-label'] ?? ''),
+    ),
+    false,
+    'The final child cannot be removed',
+  );
   h.modal.unmount();
 });
 
 for (const language of ['en', 'fr']) {
   test(`SubcultureModal: ${language} changed state requires explicit revalidation and preserves the draft through retry`, async () => {
-    const attempts = [], payloads = [];
-    const h = fixture(cases[1], { language, onSubmit(payload) {
-      payloads.push(plain(payload));
-      const attempt = deferred(); attempts.push(attempt); return attempt.promise;
-    } });
+    const attempts = [],
+      payloads = [];
+    const h = fixture(cases[1], {
+      language,
+      onSubmit(payload) {
+        payloads.push(plain(payload));
+        const attempt = deferred();
+        attempts.push(attempt);
+        return attempt.promise;
+      },
+    });
     editDraft(cases[1], h.modal);
     const before = draftValues(h.modal);
-    const refreshed = { ...h.box, current_polyp_state: { ...h.box.current_polyp_state, polyp_count: 10, revision: 'refreshed-revision' } };
+    const refreshed = {
+      ...h.box,
+      current_polyp_state: {
+        ...h.box.current_polyp_state,
+        polyp_count: 10,
+        revision: 'refreshed-revision',
+      },
+    };
     h.modal.setProps({ box: refreshed, error: 'Stale server intent' });
-    const catalogue = h.env.load(`../src/i18n/${language}.ts`)[language];
-    assert.equal(text(h.modal.nodes.find((node) => node.props.id === 'subculture-validation')), catalogue.subcultureStateChanged);
+    const catalogue = loadI18n().translations[language];
+    assert.equal(
+      text(
+        h.modal.nodes.find((node) => node.props.id === 'subculture-validation'),
+      ),
+      catalogue.subcultureStateChanged,
+    );
     assert.deepEqual(draftValues(h.modal), before);
-    assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), [`10 ${catalogue.polyps}`, '12', '-2']);
+    assert.deepEqual(
+      h.modal.nodes.filter((node) => node.type === 'dd').map(text),
+      [`10 ${catalogue.polyps}`, '12', '-2'],
+    );
     assert.equal(submitButton(h.modal).disabled, true);
-    assert.equal(h.modal.nodes.some((node) => node.props.role === 'alert'), false, 'Changed-state guidance replaces the stale server error');
+    assert.equal(
+      h.modal.nodes.some((node) => node.props.role === 'alert'),
+      false,
+      'Changed-state guidance replaces the stale server error',
+    );
     await h.modal.form.props.onSubmit(submitEvent());
-    assert.equal(payloads.length, 0, 'A refresh never automatically rebases or retries the intent');
-    const review = () => h.modal.controls.find((node) => text(node) === catalogue.subcultureReviewState);
+    assert.equal(
+      payloads.length,
+      0,
+      'A refresh never automatically rebases or retries the intent',
+    );
+    const review = () =>
+      h.modal.controls.find(
+        (node) => text(node) === catalogue.subcultureReviewState,
+      );
     assert.ok(review());
     h.modal.setProps({ isSaving: true });
     assertBusy(h);
-    assert.equal(review().disabled, true, 'Explicit revalidation is also locked during saving');
+    assert.equal(
+      review().disabled,
+      true,
+      'Explicit revalidation is also locked during saving',
+    );
     h.modal.setProps({ isSaving: false });
     assert.deepEqual(draftValues(h.modal), before);
-    review().props.onClick(); h.modal.flush();
+    review().props.onClick();
+    h.modal.flush();
     assert.deepEqual(draftValues(h.modal), before);
     assert.equal(review(), undefined);
-    assert.equal(submitButton(h.modal).disabled, true, 'Explicit revalidation still checks the refreshed available stock');
-    assert.equal(text(h.modal.nodes.find((node) => node.props.id === 'subculture-validation')), catalogue.subcultureOverAllocated);
-    change(h.modal.fields.find((node) => node.props.name === 'children.1.allocated_polyps'), '10'); h.modal.flush();
+    assert.equal(
+      submitButton(h.modal).disabled,
+      true,
+      'Explicit revalidation still checks the refreshed available stock',
+    );
+    assert.equal(
+      text(
+        h.modal.nodes.find((node) => node.props.id === 'subculture-validation'),
+      ),
+      catalogue.subcultureOverAllocated,
+    );
+    change(
+      h.modal.fields.find(
+        (node) => node.props.name === 'children.1.allocated_polyps',
+      ),
+      '10',
+    );
+    h.modal.flush();
     assert.equal(submitButton(h.modal).disabled, false);
     const reviewedDraft = draftValues(h.modal);
-    const pending = h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
+    const pending = h.modal.form.props.onSubmit(submitEvent());
+    h.modal.flush();
     assertBusy(h);
-    assert.equal(payloads[0].expected_current_state_revision, 'refreshed-revision');
-    assert.deepEqual(payloads[0].children.map((child) => child.allocated_polyps), [0, 10]);
+    assert.equal(
+      payloads[0].expected_current_state_revision,
+      'refreshed-revision',
+    );
+    assert.deepEqual(
+      payloads[0].children.map((child) => child.allocated_polyps),
+      [0, 10],
+    );
     const failure = new Error('Retry this reviewed intent');
     const rejected = assert.rejects(pending, (error) => error === failure);
-    attempts[0].reject(failure); await rejected;
+    attempts[0].reject(failure);
+    await rejected;
     h.modal.setProps({ error: failure.message });
     assert.deepEqual(draftValues(h.modal), reviewedDraft);
-    assert.equal(h.env.document.activeElement.props.name, 'children.0.allocated_polyps');
-    const retry = h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
+    assert.equal(
+      h.env.document.activeElement.props.name,
+      'children.0.allocated_polyps',
+    );
+    const retry = h.modal.form.props.onSubmit(submitEvent());
+    h.modal.flush();
     assert.deepEqual(payloads[1], payloads[0]);
-    attempts[1].resolve(); await retry; h.modal.flush();
+    attempts[1].resolve();
+    await retry;
+    h.modal.flush();
     h.modal.unmount();
   });
 }
 
-for (const current of [undefined, null, { polyp_count: null, revision: 'unknown-count', source: null }, { polyp_count: 0, revision: '', source: null }]) {
+for (const current of [
+  undefined,
+  null,
+  { polyp_count: null, revision: 'unknown-count', source: null },
+  { polyp_count: 0, revision: '', source: null },
+]) {
   test(`SubcultureModal: unavailable current state ${JSON.stringify(current)} cannot fall back to the latest measurement`, async () => {
     let calls = 0;
-    const h = fixture(cases[1], { box: { current_polyp_state: current }, onSubmit: async () => { calls++; } });
-    change(h.modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0'); h.modal.flush();
+    const h = fixture(cases[1], {
+      box: { current_polyp_state: current },
+      onSubmit: async () => {
+        calls++;
+      },
+    });
+    change(
+      h.modal.fields.find(
+        (node) => node.props.name === 'children.0.allocated_polyps',
+      ),
+      '0',
+    );
+    h.modal.flush();
     assert.equal(submitButton(h.modal).disabled, true);
     await h.modal.form.props.onSubmit(submitEvent());
     assert.equal(calls, 0);
-    assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), current?.polyp_count === 0 ? ['0 Polyps', '0', '0'] : ['Unknown']);
+    assert.deepEqual(
+      h.modal.nodes.filter((node) => node.type === 'dd').map(text),
+      current?.polyp_count === 0 ? ['0 Polyps', '0', '0'] : ['Unknown'],
+    );
     h.modal.unmount();
   });
 }
@@ -796,16 +1439,48 @@ for (const current of [undefined, null, { polyp_count: null, revision: 'unknown-
 test('SubcultureModal: known current zero preserves optional blank versus explicit zero', async () => {
   const payloads = [];
   const h = fixture(cases[1], {
-    box: { current_polyp_state: { polyp_count: 0, revision: 'known-zero-revision', source: { kind: 'subculture', id: 8, timestamp: '2026-09-21T12:00:00Z' } } },
-    onSubmit: async (payload) => { payloads.push(plain(payload)); },
+    box: {
+      current_polyp_state: {
+        polyp_count: 0,
+        revision: 'known-zero-revision',
+        source: {
+          kind: 'subculture',
+          id: 8,
+          timestamp: '2026-09-21T12:00:00Z',
+        },
+      },
+    },
+    onSubmit: async (payload) => {
+      payloads.push(plain(payload));
+    },
   });
   assert.equal(submitButton(h.modal).disabled, false);
-  assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), ['0 Polyps']);
-  change(h.modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0'); h.modal.flush();
-  assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), ['0 Polyps', '0', '0']);
+  assert.deepEqual(
+    h.modal.nodes.filter((node) => node.type === 'dd').map(text),
+    ['0 Polyps'],
+  );
+  change(
+    h.modal.fields.find(
+      (node) => node.props.name === 'children.0.allocated_polyps',
+    ),
+    '0',
+  );
+  h.modal.flush();
+  assert.deepEqual(
+    h.modal.nodes.filter((node) => node.type === 'dd').map(text),
+    ['0 Polyps', '0', '0'],
+  );
   assert.equal(submitButton(h.modal).disabled, false);
-  await h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
-  assert.deepEqual(payloads[0], { expected_current_state_revision: 'known-zero-revision', reason: '', notes: '', children: [{ thermal_zone_id: 2, allocated_polyps: 0, copy_origin: true, notes: '' }] });
+  await h.modal.form.props.onSubmit(submitEvent());
+  h.modal.flush();
+  assert.deepEqual(payloads[0], {
+    expected_current_state_revision: 'known-zero-revision',
+    reason: '',
+    notes: '',
+    children: [
+      { thermal_zone_id: 2, allocated_polyps: 0, copy_origin: true, notes: '' },
+    ],
+  });
   h.modal.unmount();
 });
 
@@ -820,37 +1495,100 @@ for (const spec of cases) {
     assert.ok(closeButtons(h.modal).every((button) => !button.disabled));
     assert.ok(footer.contains(closeButtons(h.modal)[1]));
     assert.equal(body.contains(footer), false);
-    assert.ok(h.modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
-    if (spec.name === 'MoveBoxModal') assert.ok(text(byClass(h.modal, 'move-location-history')).includes('No location history for this box.'));
+    assert.ok(
+      h.modal.fields.every(
+        (field) => field.parent.type === 'label' && text(field.parent).trim(),
+      ),
+    );
+    if (spec.name === 'MoveBoxModal')
+      assert.ok(
+        text(byClass(h.modal, 'move-location-history')).includes(
+          'No location history for this box.',
+        ),
+      );
     h.modal.unmount();
   });
 }
 
 const operationalCases = [
-  ...['qualify', 'deactivate', 'reactivate', 'assign'].map((action) => ({ name: 'BoxLifecycleModal', action })),
-  ...['active', 'inactive'].map((action) => ({ name: 'BoxInventoryBatchModal', action })),
+  ...['qualify', 'deactivate', 'reactivate', 'assign'].map((action) => ({
+    name: 'BoxLifecycleModal',
+    action,
+  })),
+  ...['active', 'inactive'].map((action) => ({
+    name: 'BoxInventoryBatchModal',
+    action,
+  })),
 ];
 function operationalFixture(spec, overrides = {}) {
   const env = environment();
   let closed = 0;
-  const box = { id: 17, global_code: '1-ATL.001', status: 'pending_review', species: { scientific_name: 'Test species' }, thermal_zone: null };
-  const props = {
-    action: spec.action, box, zones: [{ id: 3, name: 'Zone 3', is_active: true }],
-    selectedBoxes: [{ id: box.id, global_code: box.global_code, species_name: 'Test species', has_location: false }],
-    result: null, error: null, isSaving: false, t: (key) => key,
-    onClose() { closed++; }, onSubmit: async () => {}, onConfirm: async () => {}, ...overrides,
+  const box = {
+    id: 17,
+    global_code: '1-ATL.001',
+    status: 'pending_review',
+    species: { scientific_name: 'Test species' },
+    thermal_zone: null,
   };
-  const modal = env.instance(env.load(`../src/components/${spec.name}.tsx`).default, props);
-  const start = () => spec.name === 'BoxLifecycleModal'
-    ? modal.form.props.onSubmit(submitEvent())
-    : modal.controls.find((node) => text(node) === 'boxInventoryBatchConfirm').props.onClick();
-  if (spec.action === 'deactivate') change(modal.fields.find((node) => node.type === 'textarea'), '  Keep this reason  ');
-  if (spec.action === 'reactivate' || spec.action === 'assign') change(modal.fields.find((node) => node.type === 'select'), '3');
+  const props = {
+    action: spec.action,
+    box,
+    zones: [{ id: 3, name: 'Zone 3', is_active: true }],
+    selectedBoxes: [
+      {
+        id: box.id,
+        global_code: box.global_code,
+        species_name: 'Test species',
+        has_location: false,
+      },
+    ],
+    result: null,
+    error: null,
+    isSaving: false,
+    t: (key) => key,
+    onClose() {
+      closed++;
+    },
+    onSubmit: async () => {},
+    onConfirm: async () => {},
+    ...overrides,
+  };
+  const modal = env.instance(
+    env.load(`../src/components/${spec.name}.tsx`).default,
+    props,
+  );
+  const start = () =>
+    spec.name === 'BoxLifecycleModal'
+      ? modal.form.props.onSubmit(submitEvent())
+      : modal.controls
+          .find((node) => text(node) === 'boxInventoryBatchConfirm')
+          .props.onClick();
+  if (spec.action === 'deactivate')
+    change(
+      modal.fields.find((node) => node.type === 'textarea'),
+      '  Keep this reason  ',
+    );
+  if (spec.action === 'reactivate' || spec.action === 'assign')
+    change(
+      modal.fields.find((node) => node.type === 'select'),
+      '3',
+    );
   modal.flush();
-  return { env, modal, start, get closed() { return closed; } };
+  return {
+    env,
+    modal,
+    start,
+    get closed() {
+      return closed;
+    },
+  };
 }
 function operationalCloseButtons(modal) {
-  return modal.controls.filter((node) => node.props['aria-label'] === 'close' || ['confirmCancel', 'boxInventoryBatchCloseReport'].includes(text(node)));
+  return modal.controls.filter(
+    (node) =>
+      node.props['aria-label'] === 'close' ||
+      ['confirmCancel', 'boxInventoryBatchCloseReport'].includes(text(node)),
+  );
 }
 function assertOperationalContainment(h) {
   const { env, modal } = h;
@@ -863,7 +1601,10 @@ function assertOperationalContainment(h) {
     assert.equal(env.document.activeElement, controls.at(-1));
     for (let step = 0; step < controls.length * 2; step++) {
       env.key('Tab');
-      assert.ok(modal.dialog.contains(env.document.activeElement), 'Background must never enter the modal tab cycle');
+      assert.ok(
+        modal.dialog.contains(env.document.activeElement),
+        'Background must never enter the modal tab cycle',
+      );
     }
   } else {
     for (const reverse of [false, true]) {
@@ -885,7 +1626,9 @@ for (const spec of operationalCases) {
   test(`${label}: labelled initial focus, Tab confinement, idle Escape and connected opener restoration`, () => {
     const h = operationalFixture(spec);
     const { env, modal } = h;
-    const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
+    const title = modal.nodes.find(
+      (node) => node.props.id === modal.dialog.props['aria-labelledby'],
+    );
     assert.ok(title && text(title));
     assert.equal(modal.dialog.props['aria-modal'], 'true');
     assert.equal(env.document.activeElement, operationalCloseButtons(modal)[0]);
@@ -900,11 +1643,17 @@ for (const spec of operationalCases) {
   test(`${label}: idle close/backdrop dismiss and inside mousedown does not dismiss`, () => {
     const h = operationalFixture(spec);
     let stopped = false;
-    h.modal.dialog.props.onMouseDown({ stopPropagation() { stopped = true; } });
+    h.modal.dialog.props.onMouseDown({
+      stopPropagation() {
+        stopped = true;
+      },
+    });
     assert.ok(stopped);
     assert.equal(h.closed, 0);
     h.modal.backdrop.props.onMouseDown();
-    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    operationalCloseButtons(h.modal).forEach((node) => {
+      node.props.onClick();
+    });
     assert.equal(h.closed, 3);
     h.modal.unmount();
   });
@@ -924,14 +1673,23 @@ for (const spec of operationalCases) {
     assert.equal(h.modal.dialog.props['aria-busy'], true);
     assert.equal(h.env.document.activeElement, h.modal.dialog);
     assert.ok(operationalCloseButtons(h.modal).every((node) => node.disabled));
-    if (spec.name === 'BoxLifecycleModal') assert.ok(h.modal.controls.every((node) => node.disabled), 'Saving locks all lifecycle draft controls');
+    if (spec.name === 'BoxLifecycleModal')
+      assert.ok(
+        h.modal.controls.every((node) => node.disabled),
+        'Saving locks all lifecycle draft controls',
+      );
     h.modal.backdrop.props.onMouseDown();
-    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    operationalCloseButtons(h.modal).forEach((node) => {
+      node.props.onClick();
+    });
     assert.equal(h.env.key('Escape').defaultPrevented, true);
     assert.equal(h.closed, 0);
     assertOperationalContainment(h);
     h.modal.setProps({ isSaving: false });
-    assert.ok(h.modal.dialog.contains(h.env.document.activeElement), 'Focus stays inside when saving ends');
+    assert.ok(
+      h.modal.dialog.contains(h.env.document.activeElement),
+      'Focus stays inside when saving ends',
+    );
     assert.ok(operationalCloseButtons(h.modal).every((node) => !node.disabled));
     h.env.key('Escape');
     assert.equal(h.closed, 1);
@@ -939,23 +1697,31 @@ for (const spec of operationalCases) {
   });
 
   test(`${label}: pending mutation blocks stale dismissal/duplicates; failure retains usable draft and permits retry`, async () => {
-    const attempts = [], payloads = [];
+    const attempts = [],
+      payloads = [];
     let h;
     const operation = async (payload) => {
       payloads.push(payload == null ? null : plain(payload));
       const attempt = deferred();
       attempts.push(attempt);
-      try { await attempt.promise; }
-      catch (error) { h.modal.setProps({ error: error.message }); }
+      try {
+        await attempt.promise;
+      } catch (error) {
+        h.modal.setProps({ error: error.message });
+      }
     };
     h = operationalFixture(spec, { onSubmit: operation, onConfirm: operation });
     const before = draftValues(h.modal);
-    const staleClose = operationalCloseButtons(h.modal).map((node) => node.props.onClick);
+    const staleClose = operationalCloseButtons(h.modal).map(
+      (node) => node.props.onClick,
+    );
     const staleBackdrop = h.modal.backdrop.props.onMouseDown;
     const start = h.start;
     const pending = start();
     start();
-    staleClose.forEach((close) => close());
+    staleClose.forEach((close) => {
+      close();
+    });
     staleBackdrop();
     h.env.key('Escape');
     assert.equal(h.closed, 0);
@@ -970,8 +1736,13 @@ for (const spec of operationalCases) {
     h.modal.flush();
     assert.equal(h.modal.dialog.props['aria-busy'], false);
     assert.deepEqual(draftValues(h.modal), before);
-    assert.ok(h.modal.nodes.some((node) => text(node) === 'Test mutation failed'));
-    assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+    assert.ok(
+      h.modal.nodes.some((node) => text(node) === 'Test mutation failed'),
+    );
+    assert.equal(
+      h.env.document.activeElement,
+      operationalCloseButtons(h.modal)[0],
+    );
     assertOperationalContainment(h);
     const retry = h.start();
     assert.equal(attempts.length, 2);
@@ -990,7 +1761,10 @@ for (const spec of operationalCases) {
   test(`${label}: successful mutation unmount restores connected focus before promise settlement`, async () => {
     const attempt = deferred();
     let h;
-    const operation = async () => { await attempt.promise; h.modal.unmount(); };
+    const operation = async () => {
+      await attempt.promise;
+      h.modal.unmount();
+    };
     h = operationalFixture(spec, { onSubmit: operation, onConfirm: operation });
     const pending = h.start();
     h.modal.flush();
@@ -1004,17 +1778,29 @@ for (const spec of operationalCases) {
 }
 
 test('BoxInventoryBatchModal: success report retains focus, traps Tab and restores opener when closed', async () => {
-  const h = operationalFixture({ name: 'BoxInventoryBatchModal', action: 'active' });
+  const h = operationalFixture({
+    name: 'BoxInventoryBatchModal',
+    action: 'active',
+  });
   const attempt = deferred();
   h.modal.setProps({ onConfirm: () => attempt.promise });
   h.start();
   h.modal.flush();
   h.modal.setProps({
-    result: { success_count: 1, failure_count: 0, active_with_location_count: 0, active_without_location_count: 1, successes: [{ box_id: 17, global_code: '1-ATL.001' }], failures: [] },
+    result: {
+      success_count: 1,
+      failure_count: 0,
+      active_with_location_count: 0,
+      active_without_location_count: 1,
+      successes: [{ box_id: 17, global_code: '1-ATL.001' }],
+      failures: [],
+    },
     isSaving: true,
   });
   assert.ok(operationalCloseButtons(h.modal).every((node) => node.disabled));
-  operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+  operationalCloseButtons(h.modal).forEach((node) => {
+    node.props.onClick();
+  });
   h.modal.backdrop.props.onMouseDown();
   h.env.key('Escape');
   assert.equal(h.closed, 0);
@@ -1022,7 +1808,10 @@ test('BoxInventoryBatchModal: success report retains focus, traps Tab and restor
   attempt.resolve();
   await settleOperational();
   h.modal.setProps({ isSaving: false });
-  assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+  assert.equal(
+    h.env.document.activeElement,
+    operationalCloseButtons(h.modal)[0],
+  );
   assertOperationalContainment(h);
   operationalCloseButtons(h.modal).at(-1).props.onClick();
   assert.equal(h.closed, 1);
@@ -1034,34 +1823,166 @@ test('BoxInventoryBatchModal: success report retains focus, traps Tab and restor
 // Direct handler calls elsewhere intentionally test stale dismissal guards instead.
 function interactLifecycle(node, value) {
   if (node.disabled) return false;
-  if (node.props.onChange) node.props.onChange({ target: { value, checked: value } });
+  if (node.props.onChange)
+    node.props.onChange({ target: { value, checked: value } });
   else node.props.onClick();
   return true;
 }
 function lifecycleDraftControls(modal) {
-  return [...modal.fields, ...modal.controls.filter((node) => text(node) === 'boxLifecycleReuseLastLocation')];
+  return [
+    ...modal.fields,
+    ...modal.controls.filter(
+      (node) => text(node) === 'boxLifecycleReuseLastLocation',
+    ),
+  ];
 }
 function lifecycleDraft(modal) {
-  return modal.fields.map((node) => ({ type: node.props.type ?? node.type, value: node.props.value, checked: node.props.checked }));
+  return modal.fields.map((node) => ({
+    type: node.props.type ?? node.type,
+    value: node.props.value,
+    checked: node.props.checked,
+  }));
 }
 function editLifecycle(h, type, value) {
-  const node = h.modal.fields.find((field) => (field.props.type ?? field.type) === type);
+  const node = h.modal.fields.find(
+    (field) => (field.props.type ?? field.type) === type,
+  );
   assert.ok(node, `Missing lifecycle ${type}`);
-  assert.equal(interactLifecycle(node, value), true, `${type} must be editable`);
+  assert.equal(
+    interactLifecycle(node, value),
+    true,
+    `${type} must be editable`,
+  );
   h.modal.flush();
 }
 const lifecycleDraftCases = [
-  { action: 'qualify', variant: 'active', setup(h) { editLifecycle(h, 'select', '3'); }, edit(h) { editLifecycle(h, 'select', '4'); }, payload: { target_status: 'active', thermal_zone_id: 3 }, editedPayload: { target_status: 'active', thermal_zone_id: 4 } },
-  { action: 'qualify', variant: 'inactive reason', setup(h) { editLifecycle(h, 'textarea', '  Draft A reason  '); }, edit(h) { editLifecycle(h, 'checkbox', true); }, payload: { target_status: 'inactive', reason: 'Draft A reason', reason_missing_from_history: false }, editedPayload: { target_status: 'inactive', reason: '', reason_missing_from_history: true } },
-  { action: 'qualify', variant: 'inactive historical reason', setup(h) { editLifecycle(h, 'checkbox', true); }, edit(h) { editLifecycle(h, 'checkbox', false); editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { target_status: 'inactive', reason: '', reason_missing_from_history: true }, editedPayload: { target_status: 'inactive', reason: 'Draft B reason', reason_missing_from_history: false } },
-  { action: 'qualify', variant: 'status change', setup(h) { editLifecycle(h, 'select', '3'); }, edit(h) { assert.equal(interactLifecycle(h.modal.fields.find((node) => node.props.value === 'inactive'), true), true); h.modal.flush(); editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { target_status: 'active', thermal_zone_id: 3 }, editedPayload: { target_status: 'inactive', reason: 'Draft B reason', reason_missing_from_history: false } },
-  { action: 'deactivate', variant: 'reason', setup(h) { editLifecycle(h, 'textarea', '  Draft A reason  '); }, edit(h) { editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { reason: 'Draft A reason' }, editedPayload: { reason: 'Draft B reason' } },
-  ...['reactivate', 'assign'].map((action) => ({ action, variant: 'zone and notes', setup(h) { editLifecycle(h, 'textarea', '  Draft A notes  '); }, edit(h) { editLifecycle(h, 'select', '4'); editLifecycle(h, 'textarea', 'Draft B notes'); }, payload: { thermal_zone_id: 3, notes: 'Draft A notes' }, editedPayload: { thermal_zone_id: 4, notes: 'Draft B notes' } })),
-  { action: 'reactivate', variant: 'reuse last zone', setup(h) { editLifecycle(h, 'textarea', '  Draft A notes  '); }, edit(h) { assert.equal(interactLifecycle(lifecycleDraftControls(h.modal).find((node) => text(node) === 'boxLifecycleReuseLastLocation')), true); h.modal.flush(); }, payload: { thermal_zone_id: 3, notes: 'Draft A notes' }, editedPayload: { thermal_zone_id: 4, notes: 'Draft A notes' } },
+  {
+    action: 'qualify',
+    variant: 'active',
+    setup(h) {
+      editLifecycle(h, 'select', '3');
+    },
+    edit(h) {
+      editLifecycle(h, 'select', '4');
+    },
+    payload: { target_status: 'active', thermal_zone_id: 3 },
+    editedPayload: { target_status: 'active', thermal_zone_id: 4 },
+  },
+  {
+    action: 'qualify',
+    variant: 'inactive reason',
+    setup(h) {
+      editLifecycle(h, 'textarea', '  Draft A reason  ');
+    },
+    edit(h) {
+      editLifecycle(h, 'checkbox', true);
+    },
+    payload: {
+      target_status: 'inactive',
+      reason: 'Draft A reason',
+      reason_missing_from_history: false,
+    },
+    editedPayload: {
+      target_status: 'inactive',
+      reason: '',
+      reason_missing_from_history: true,
+    },
+  },
+  {
+    action: 'qualify',
+    variant: 'inactive historical reason',
+    setup(h) {
+      editLifecycle(h, 'checkbox', true);
+    },
+    edit(h) {
+      editLifecycle(h, 'checkbox', false);
+      editLifecycle(h, 'textarea', 'Draft B reason');
+    },
+    payload: {
+      target_status: 'inactive',
+      reason: '',
+      reason_missing_from_history: true,
+    },
+    editedPayload: {
+      target_status: 'inactive',
+      reason: 'Draft B reason',
+      reason_missing_from_history: false,
+    },
+  },
+  {
+    action: 'qualify',
+    variant: 'status change',
+    setup(h) {
+      editLifecycle(h, 'select', '3');
+    },
+    edit(h) {
+      assert.equal(
+        interactLifecycle(
+          h.modal.fields.find((node) => node.props.value === 'inactive'),
+          true,
+        ),
+        true,
+      );
+      h.modal.flush();
+      editLifecycle(h, 'textarea', 'Draft B reason');
+    },
+    payload: { target_status: 'active', thermal_zone_id: 3 },
+    editedPayload: {
+      target_status: 'inactive',
+      reason: 'Draft B reason',
+      reason_missing_from_history: false,
+    },
+  },
+  {
+    action: 'deactivate',
+    variant: 'reason',
+    setup(h) {
+      editLifecycle(h, 'textarea', '  Draft A reason  ');
+    },
+    edit(h) {
+      editLifecycle(h, 'textarea', 'Draft B reason');
+    },
+    payload: { reason: 'Draft A reason' },
+    editedPayload: { reason: 'Draft B reason' },
+  },
+  ...['reactivate', 'assign'].map((action) => ({
+    action,
+    variant: 'zone and notes',
+    setup(h) {
+      editLifecycle(h, 'textarea', '  Draft A notes  ');
+    },
+    edit(h) {
+      editLifecycle(h, 'select', '4');
+      editLifecycle(h, 'textarea', 'Draft B notes');
+    },
+    payload: { thermal_zone_id: 3, notes: 'Draft A notes' },
+    editedPayload: { thermal_zone_id: 4, notes: 'Draft B notes' },
+  })),
+  {
+    action: 'reactivate',
+    variant: 'reuse last zone',
+    setup(h) {
+      editLifecycle(h, 'textarea', '  Draft A notes  ');
+    },
+    edit(h) {
+      assert.equal(
+        interactLifecycle(
+          lifecycleDraftControls(h.modal).find(
+            (node) => text(node) === 'boxLifecycleReuseLastLocation',
+          ),
+        ),
+        true,
+      );
+      h.modal.flush();
+    },
+    payload: { thermal_zone_id: 3, notes: 'Draft A notes' },
+    editedPayload: { thermal_zone_id: 4, notes: 'Draft A notes' },
+  },
 ];
 for (const spec of lifecycleDraftCases) {
   test(`BoxLifecycleModal (${spec.action}, ${spec.variant}): freezes A in flight, retries A after failure, allows deliberate B and restores success focus`, async () => {
-    const attempts = [], payloads = [];
+    const attempts = [],
+      payloads = [];
     let h;
     const operation = async (submission) => {
       payloads.push(plain(submission));
@@ -1074,36 +1995,83 @@ for (const spec of lifecycleDraftCases) {
         h.modal.setProps({ isSaving: false, error: error.message });
       }
     };
-    h = operationalFixture({ name: 'BoxLifecycleModal', action: spec.action }, {
-      initialTargetStatus: spec.variant.startsWith('inactive') ? 'inactive' : 'active',
-      zones: [3, 4].map((id) => ({ id, name: `Zone ${id}`, is_active: true })),
-      box: { id: 17, global_code: '1-ATL.001', status: 'pending_review', species: { scientific_name: 'Test species' }, thermal_zone: null, last_location: { thermal_zone: { id: 4, name: 'Zone 4' }, starts_at: '2026-01-01' } },
-      onSubmit: operation,
-    });
+    h = operationalFixture(
+      { name: 'BoxLifecycleModal', action: spec.action },
+      {
+        initialTargetStatus: spec.variant.startsWith('inactive')
+          ? 'inactive'
+          : 'active',
+        zones: [3, 4].map((id) => ({
+          id,
+          name: `Zone ${id}`,
+          is_active: true,
+        })),
+        box: {
+          id: 17,
+          global_code: '1-ATL.001',
+          status: 'pending_review',
+          species: { scientific_name: 'Test species' },
+          thermal_zone: null,
+          last_location: {
+            thermal_zone: { id: 4, name: 'Zone 4' },
+            starts_at: '2026-01-01',
+          },
+        },
+        onSubmit: operation,
+      },
+    );
     spec.setup(h);
     const draftA = lifecycleDraft(h.modal);
-    const disabledBefore = lifecycleDraftControls(h.modal).map((node) => node.disabled);
+    const disabledBefore = lifecycleDraftControls(h.modal).map(
+      (node) => node.disabled,
+    );
     const focusedField = h.modal.fields.find((node) => !node.disabled);
     focusedField.focus();
     assert.equal(h.env.document.activeElement, focusedField);
     const pending = h.start();
-    assert.deepEqual(payloads[0], { action: spec.action, payload: spec.payload });
+    assert.deepEqual(payloads[0], {
+      action: spec.action,
+      payload: spec.payload,
+    });
     h.modal.flush();
-    assert.equal(h.modal.dialog.props['aria-busy'], true, 'Hook locks draft before parent isSaving changes');
-    assert.equal(h.env.document.activeElement, h.modal.dialog, 'Disabling the focused field transfers focus to the dialog');
+    assert.equal(
+      h.modal.dialog.props['aria-busy'],
+      true,
+      'Hook locks draft before parent isSaving changes',
+    );
+    assert.equal(
+      h.env.document.activeElement,
+      h.modal.dialog,
+      'Disabling the focused field transfers focus to the dialog',
+    );
     assert.ok(h.modal.controls.every((node) => node.disabled));
     for (const node of lifecycleDraftControls(h.modal)) {
-      assert.equal(interactLifecycle(node, node.type === 'select' ? '4' : node.props.type === 'checkbox' || node.props.type === 'radio' ? !node.props.checked : 'Draft B'), false);
+      assert.equal(
+        interactLifecycle(
+          node,
+          node.type === 'select'
+            ? '4'
+            : node.props.type === 'checkbox' || node.props.type === 'radio'
+              ? !node.props.checked
+              : 'Draft B',
+        ),
+        false,
+      );
     }
     h.modal.flush();
     assert.deepEqual(lifecycleDraft(h.modal), draftA);
-    assert.deepEqual(payloads[0], { action: spec.action, payload: spec.payload });
+    assert.deepEqual(payloads[0], {
+      action: spec.action,
+      payload: spec.payload,
+    });
     await h.start();
     assert.equal(attempts.length, 1);
     h.modal.setProps({ isSaving: true });
     assert.ok(h.modal.controls.every((node) => node.disabled));
     h.modal.backdrop.props.onMouseDown();
-    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    operationalCloseButtons(h.modal).forEach((node) => {
+      node.props.onClick();
+    });
     h.env.key('Escape');
     assert.equal(h.closed, 0);
     assertOperationalContainment(h);
@@ -1111,9 +2079,15 @@ for (const spec of lifecycleDraftCases) {
     await pending;
     h.modal.flush();
     assert.deepEqual(lifecycleDraft(h.modal), draftA);
-    assert.deepEqual(lifecycleDraftControls(h.modal).map((node) => node.disabled), disabledBefore);
+    assert.deepEqual(
+      lifecycleDraftControls(h.modal).map((node) => node.disabled),
+      disabledBefore,
+    );
     assert.ok(h.modal.nodes.some((node) => text(node) === 'Request A failed'));
-    assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+    assert.equal(
+      h.env.document.activeElement,
+      operationalCloseButtons(h.modal)[0],
+    );
     const retry = h.start();
     assert.deepEqual(payloads[1], payloads[0]);
     h.modal.flush();
@@ -1124,7 +2098,10 @@ for (const spec of lifecycleDraftCases) {
     spec.edit(h);
     assert.notDeepEqual(lifecycleDraft(h.modal), draftA);
     const editedSubmission = h.start();
-    assert.deepEqual(payloads[2], { action: spec.action, payload: spec.editedPayload });
+    assert.deepEqual(payloads[2], {
+      action: spec.action,
+      payload: spec.editedPayload,
+    });
     h.modal.flush();
     attempts[2].resolve();
     await editedSubmission;

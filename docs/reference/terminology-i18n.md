@@ -1,8 +1,8 @@
 # Terminology and FR / EN / JA translations
 
-Read this reference when working on any user-visible text, i18n, translation, or domain term. The i18n mechanisms (`frontend/src/i18n/` catalogues, FR/EN parity, `CONTENT_LANGUAGES`) are in [`frontend-ux.md`](frontend.md).
+Read this reference when working on user-visible text, i18n, or domain terms. See the [frontend reference](frontend.md#internationalization) for runtime behavior.
 
-Sources: product decisions approved by the product owner and historical translations from the “Traduction Polypbase” workbook, archived outside the repository. The terminology rules below are the reference for new development. Changes actually applied to the application are tracked in docs/translation-review/application/register.csv. Earlier cleanup proposals are not decisions that can be applied automatically.
+Use the confirmed product vocabulary below and the current catalogs. The [legacy translation review archive](../archive/translation-review.md) preserves historical review evidence, including decisions based on the “Traduction Polypbase” workbook. The archive and workbook do not drive current edits; earlier proposals are not approvals.
 
 ## A. Confirmed product vocabulary
 
@@ -41,9 +41,9 @@ Examples:
 
 ## B. Approved translations to preserve
 
-- **Japanese**: The Japanese reviewer personally approved the 1,384 JA translations marked “Fait.” Never overwrite, normalize, retranslate, or automatically “align” them, even to apply a term or rule from section A. Any Japanese adaptation requiring new wording remains unresolved until explicitly approved and is never applied automatically. Japanese is a partially supported interface language: only approved translations that are still compatible with current FR/EN are displayed; the other keys display English (manifest and the Japanese reviewer's review: [`../translation-review/japanese/`](../archive/2026-11-traductions/provenance-japonaise.md)). Japanese also remains a separate content language (`CONTENT_LANGUAGES`). Explicit exception, limited to the 2026-11-04 batch: 59 new React keys absent from the workbook use an independent AI review, tracked as `AI_REVIEWED` / `ja_ai_reviewed` in the manifest. They are neither human-approved nor validated by the Japanese reviewer, do not replace any historical Japanese translations, and do not resolve any deferred questions. See the contract and locked sources in the Japanese provenance note linked above.
+- **Japanese**: The Japanese reviewer approved the 1,384 historical JA translations marked “Fait.” Never overwrite, normalize, retranslate, or automatically “align” approved Japanese, even to apply a rule from section A. Adaptations of that wording require an explicit decision and are never applied automatically. The 59 React keys independently reviewed by AI in the 2026-11-04 batch were not human-approved and did not resolve deferred questions; see the [historical Japanese provenance note](../archive/2026-11-traductions/provenance-japonaise.md). When a React key has no JA entry, the interface shows EN.
 - **G36 glossary**: Lecteurs / Read-only mode / 閲覧専用 stays as is.
-- **Statuses**: never modify a “Fait” approval or a Correction cell. A Correction is a reviewer comment, not an approved value.
+- **Historical workbook**: a Correction cell is a reviewer comment, not an approved value. Do not change or infer approval from historical evidence.
 - **Reference Japanese values**, already approved: 容器 (box), 測定記録 (biological record), 測定値 (measurement), 移植 (transplant), 機関 (institution as an entity), 系統 (strain), 系譜 (lineage), 設置場所 (location), 現在の設置場所 (current location), 設置期間 (location period). Citing them does not reopen them for review.
 
 ## C. Key-specific exceptions
@@ -58,11 +58,9 @@ Examples:
 | G36 Lecteurs | EN / JA | Read-only mode / 閲覧専用 | Propose Viewer or 閲覧者 |
 | Other uses of “À vérifier” | all | depends on context | Align with Pending: `auditMetaNeedsAttention` (a record requiring attention) and review actions are different concepts |
 
-The current values `Provenance not established` and `Needs review` are preserved by the register (T019/T022, then T764/T763) and protected in `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` and `To be checked` reflect the historical worksheet, not a decision to replace the wording in the application. Any alignment requires a new explicit decision.
+The current values `Provenance not established` and `Needs review` were recorded in the legacy register (T019/T022, then T764/T763) and are protected in `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` and `To be checked` reflect the historical worksheet, not a decision to replace the wording in the application. Any alignment requires a new explicit decision.
 
-Application catalogues are never automatically rewritten from the historical workbook. Discrepancies identified during cleanup are kept in private archives outside the repository. Decisions and changes actually reviewed in the application are tracked in docs/translation-review/application/register.csv. Unresolved discrepancies must not be corrected automatically. adminZoneTypeCabinet was aligned with Emplacement / Rack in the application by the product owner's explicit decision (2026-10-28).
-
-Every change to FR/EN application text, or decision not to change it, is tracked in `docs/translation-review/application/register.csv` and checked by `check_register.py` (see the README in that directory).
+Do not import wording automatically from historical evidence or resolve discrepancies without a decision. `adminZoneTypeCabinet` was aligned with Emplacement / Rack by the product owner's explicit decision (2026-10-28).
 
 ## D. Unresolved language choices
 
@@ -83,9 +81,30 @@ The overall audit of visible permission-denial messages (frontend and Django mes
 1. Look up the key, the code that displays it, and the domain context ([domain reference](../INDEX.md)). The FR word alone is not enough.
 2. Reuse a term from section A or B if it covers exactly that meaning.
 3. Otherwise, do not invent product or scientific terminology: ask the product owner. New Japanese wording remains unresolved.
-4. Add all new user-visible text in FR and EN to the catalogues, preserve variables (`{zone}`, `{count}`, etc.), and do not use the middle dot.
-5. For the shared workbook: always identify a row by its exact key, never by row number; never restore a deleted key or deduplicate based on matching text.
+4. Add new copy in FR, EN, and JA through i18n, preserve placeholder names and counts (`{zone}`, `{count}`, etc.), and do not use the middle dot. Identify entries by exact key, not by line number or matching text.
+
+## Frontend review workflow
+
+From `frontend/`, use `npm run i18n:find -- <key or text>`. It searches keys and FR/EN/JA values for case-insensitive substrings. It reports the section file and line, values, review statuses, and any stale source. For example:
+
+```sh
+npm run i18n:find -- overviewEmpty
+npm run i18n:find -- "No living box to display."
+```
+
+Edit the key in its owning `frontend/src/i18n/sections/<section>.ts` file and its review record in the matching `frontend/src/i18n/status/<section>.json`. Add keys in sorted order and provide FR, EN, and JA for new copy. For a wording correction, check all three values in that same entry, update those that need to change, and preserve approved text unless the correction is explicit. The legacy catalog may still omit JA. Each EN value and each present JA value must have a status record. FR is reviewed in the PR and has no status record. If you add or rename a section, run `npm run i18n:generate-index`.
+
+| Status | Required fields | Meaning |
+|---|---|---|
+| `ai` | `status`, `source_sha256` | Use for new or changed translations that have not been human-validated. Do not add a `reviewer` field. |
+| `validated` | `status`, `source_sha256`, `reviewer` | The exact translation and source were approved by the relevant reviewer: `english-reviewer` for EN or `japanese-reviewer` for JA. |
+
+`source_sha256` is the lowercase, 64-character SHA-256 hex digest of the exact UTF-8 **string value**, not the commit, file, or string literal syntax. Hash FR for the EN record and EN for the JA record. Include whitespace, punctuation, and placeholders exactly; do not trim, normalize, or add quotes, a newline, or a BOM to the value being hashed.
+
+A source change makes the old digest stale. `npm run i18n:find --` marks it `(stale source)` and the section checker warns without failing on that mismatch alone. The warning does not change the rendered value or status. Recheck the translation with the appropriate reviewer rather than refreshing an approval hash without review.
+
+If an authorized edit changes a previously `validated` translation value, set it back to `ai`, remove `reviewer`, and hash its exact current source. Do not remove a previously validated value. The delta check rejects removal and rejects changed validated values that do not go back to `ai`, using the merge base with `origin/main`.
 
 ## Usage checks
 
-`npm run check:i18n-usage` inventories statically detectable usages. A flagged key is not permission to remove it: check dynamic access, conditional workflows, and historical script exclusions. `npm run test:i18n` checks the catalogues and the detector. The [application register](../translation-review/application/README.md) documents the integration; do not rework historical batches to make a current discrepancy disappear.
+From `frontend/`, `npm run check:i18n-usage` inventories statically detectable usages. A flagged key is not permission to remove it: check dynamic access, conditional workflows, and explicit exceptions. Run the [i18n QA checks](../operations/development-qa.md#i18n-checks) after editing.

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { frontendDirectory, readSections } from './i18n-sections.mjs';
 import { retainedPr2Copy } from './pr2-retained-copy.mjs';
 import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 
@@ -289,34 +289,21 @@ export function analyzeUsage(catalogs, sources, exceptions = usageExceptions) {
   };
 }
 
-export function checkRepository(
-  frontendDirectory = fileURLToPath(new URL('../', import.meta.url)),
-) {
-  const catalogs = Object.fromEntries(
-    ['fr', 'en'].map((language) => [
-      language,
-      catalogKeys(
-        `src/i18n/${language}.ts`,
-        readFileSync(
-          resolve(frontendDirectory, 'src', 'i18n', `${language}.ts`),
-          'utf8',
-        ),
-        language,
-      ),
-    ]),
-  );
+export function checkRepository(directory = frontendDirectory) {
+  const { entries } = readSections(directory);
+  const catalogs = { fr: new Set(entries.keys()), en: new Set(entries.keys()) };
   const sources = new Map();
-  function walk(directory) {
-    for (const entry of readdirSync(resolve(frontendDirectory, directory), {
+  function walk(relativeDirectory) {
+    for (const entry of readdirSync(resolve(directory, relativeDirectory), {
       withFileTypes: true,
     })) {
-      const filename = posix.join(directory, entry.name);
+      const filename = posix.join(relativeDirectory, entry.name);
       if (entry.isDirectory()) {
         if (filename !== 'src/i18n') walk(filename);
       } else if (entry.isFile() && isUsageSource(filename)) {
         sources.set(
           filename,
-          readFileSync(resolve(frontendDirectory, filename), 'utf8'),
+          readFileSync(resolve(directory, filename), 'utf8'),
         );
       }
     }
