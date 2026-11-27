@@ -1,6 +1,6 @@
 """Subprocess-isolated real Django migration tests, SQLite memory only.
 
-Run with Python 3.13 and Django 5.2.17. No project settings, dotenv, database
+Run with Python 3.12 and Django 5.2.17. No project settings, dotenv, database
 service, production identity or files are used by the child test process.
 """
 
