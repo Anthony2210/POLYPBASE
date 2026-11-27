@@ -7,18 +7,27 @@ export type QrLabelVariant = 'trigger' | 'preview' | 'label';
 
 export default function QrLabel({
   altLabel = 'QR code',
+  buildPrintSvg,
   className,
   item,
+  printFailureLabel,
   showMetadata = true,
   variant = 'preview',
 }: {
   altLabel?: string;
+  buildPrintSvg?: (qrSvg: string) => string;
   className?: string;
   item: QrLabelItem;
+  printFailureLabel?: string;
   showMetadata?: boolean;
   variant?: QrLabelVariant;
 }) {
-  const [resource, setResource] = useState<{ source: string; url: string; contextSignal: AbortSignal } | null>(null);
+  const [resource, setResource] = useState<{
+    source: string;
+    url: string;
+    qrSvg?: string;
+    contextSignal: AbortSignal;
+  } | null>(null);
   const contextSignal = getOrganizationResourceSignal();
 
   useEffect(() => {
@@ -32,11 +41,21 @@ export default function QrLabel({
     };
     setResource(null);
     contextSignal.addEventListener('abort', clearResource, { once: true });
-    void apiGetResource(item.qrImageUrl, { signal: controller.signal, contextSignal })
+    void apiGetResource(item.qrImageUrl, {
+      signal: controller.signal,
+      contextSignal,
+    })
       .then((svg) => {
         if (controller.signal.aborted || contextSignal.aborted) return;
-        objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-        setResource({ source: item.qrImageUrl, url: objectUrl, contextSignal });
+        objectUrl = URL.createObjectURL(
+          new Blob([svg], { type: 'image/svg+xml' }),
+        );
+        setResource({
+          source: item.qrImageUrl,
+          url: objectUrl,
+          qrSvg: variant === 'label' ? svg : undefined,
+          contextSignal,
+        });
       })
       .catch(() => {
         if (!controller.signal.aborted) setResource(null);
@@ -46,16 +65,46 @@ export default function QrLabel({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [item.qrImageUrl, contextSignal]);
+  }, [item.qrImageUrl, variant, contextSignal]);
 
-  const imageUrl = resource?.source === item.qrImageUrl
-    && resource.contextSignal === contextSignal && !contextSignal.aborted ? resource.url : undefined;
+  const imageUrl =
+    resource?.source === item.qrImageUrl &&
+    resource.contextSignal === contextSignal &&
+    !contextSignal.aborted
+      ? resource.url
+      : undefined;
   const classes = [
     'qr-label',
     `qr-label--${variant}`,
     showMetadata ? '' : 'qr-label--image-only',
     className,
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  // Ctrl+P shares the standalone SVG layout for named labels, so it cannot
+  // bypass the fit check or use the old species-only clamp.
+  if (buildPrintSvg) {
+    if (imageUrl && resource?.qrSvg) {
+      try {
+        const svg = buildPrintSvg(resource.qrSvg);
+        return (
+          <img
+            className={`${className ?? ''} qr-label-print-svg`}
+            src={`data:image/svg+xml,${encodeURIComponent(svg)}`}
+            alt={`${altLabel} ${item.globalCode}`}
+          />
+        );
+      } catch {
+        // Show the translated failure rather than offering a partial label.
+      }
+    }
+    return (
+      <p className={className}>
+        {printFailureLabel} {item.globalCode}
+      </p>
+    );
+  }
 
   return (
     <span className={classes}>
@@ -70,7 +119,15 @@ export default function QrLabel({
         <span className="qr-label__metadata">
           <span className="qr-label__text">
             <strong>{item.globalCode}</strong>
-            <small>{item.speciesName}</small>
+            <small>
+              {item.speciesName}
+              {item.strainName ? (
+                <>
+                  {' '}
+                  <span className="qr-label__strain">{item.strainName}</span>
+                </>
+              ) : null}
+            </small>
           </span>
         </span>
       ) : null}

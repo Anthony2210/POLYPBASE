@@ -28,6 +28,7 @@ export type Species = {
 export type Strain = {
   id: number;
   code: string;
+  name?: string | null;
   number: number | null;
   origin_code: string;
   species: Species;
@@ -57,12 +58,21 @@ export type BiologicalMeasurement = {
   created_at: string;
   can_edit: boolean;
   edit_deadline: string | null;
-  edit_restriction: 'edit_window_expired' | 'role_read_only' | 'measurement_duplicate_read_only' | null;
+  edit_restriction:
+    | 'edit_window_expired'
+    | 'role_read_only'
+    | 'measurement_duplicate_read_only'
+    | null;
   readonly duplicate_of?: number | null;
   readonly environment_source_box?: number | null;
   readonly environment_locations?: readonly BoxLocation[] | null;
   // Server provenance; 'box_creation' marks the initial count entered with a new Box.
-  readonly origin?: 'direct_entry' | 'file_import' | 'legacy_unclassified' | 'box_creation' | string;
+  readonly origin?:
+    | 'direct_entry'
+    | 'file_import'
+    | 'legacy_unclassified'
+    | 'box_creation'
+    | string;
 };
 
 export type CurrentPolypState = {
@@ -115,7 +125,11 @@ export type BoxTemperaturePoint = {
   zone_id: number;
   zone_name: string;
   // Recorded periods supporting this zone temperature; absent for ordinary boxes.
-  readonly supported_by?: readonly { location_id: number; box_id: number; box_code: string }[];
+  readonly supported_by?: readonly {
+    location_id: number;
+    box_id: number;
+    box_code: string;
+  }[];
 };
 
 // Week-precision temperature; the interval is uncertainty, not an observation day.
@@ -143,8 +157,12 @@ export type HistoricalTemperaturePoint = {
 export type LocationConflict = {
   readonly basis: 'end_unknown' | 'recorded';
   readonly locations: readonly {
-    location_id: number; box_id: number; box_code: string;
-    zone_id: number; zone_name: string; end_unknown: boolean;
+    location_id: number;
+    box_id: number;
+    box_code: string;
+    zone_id: number;
+    zone_name: string;
+    end_unknown: boolean;
   }[];
 };
 
@@ -366,7 +384,12 @@ export type BoxLocation = {
   notes: string;
 };
 
-export type BoxMovementKind = 'ordinary' | 'initial_location' | 'qualification' | 'reactivation' | 'unclassified';
+export type BoxMovementKind =
+  | 'ordinary'
+  | 'initial_location'
+  | 'qualification'
+  | 'reactivation'
+  | 'unclassified';
 
 export type BoxMovementCorrectionPayload = {
   expected_revision: number;
@@ -487,9 +510,12 @@ export type BoxCreationResolution =
   | { status: 'created'; box: BoxDetail }
   | { status: 'cancelled' };
 
-export type BoxCreationInspection = BoxCreationResolution | { status: 'unknown' | 'pending' };
+export type BoxCreationInspection =
+  | BoxCreationResolution
+  | { status: 'unknown' | 'pending' };
 
-export type BoxCreationIntentResult = BoxCreationResolution
+export type BoxCreationIntentResult =
+  | BoxCreationResolution
   | { status: 'pending' }
   | { status: 'rejected'; errors: Record<string, unknown> };
 
@@ -505,14 +531,14 @@ export type BoxStrainIdentityIssue =
 // part of this contract.
 export type BoxStrainIdentity =
   | {
-    status: 'usable';
-    prefix: string;
-    species_code: string;
-    origin_code: string;
-    strain_number: string;
-    // Optional reference metadata recorded by the active institution.
-    recorded_provenance_name: string | null;
-  }
+      status: 'usable';
+      prefix: string;
+      species_code: string;
+      origin_code: string;
+      strain_number: string;
+      // Optional reference metadata recorded by the active institution.
+      recorded_provenance_name: string | null;
+    }
   | { status: 'unusable'; reason: BoxStrainIdentityIssue };
 
 export type BoxStrainOption = {
@@ -561,10 +587,22 @@ export type ZoneProbeMonitoring = {
 export type ProbeReadingPoint = [number, number, number | null, number | null];
 
 /** Storage provenance: bounds (null end for an observation), exact sum, count, extrema, last observation. */
-export type ProbeReadingSource = [number, number | null, string, number, number, number, number];
+export type ProbeReadingSource = [
+  number,
+  number | null,
+  string,
+  number,
+  number,
+  number,
+  number,
+];
 
 /** Server mean with equal probe weights: UTC period start, °C, contributing probes (at least two). */
-export type ProbeAveragePoint = [periodStartMs: number, meanC: number, contributingProbes: number];
+export type ProbeAveragePoint = [
+  periodStartMs: number,
+  meanC: number,
+  contributingProbes: number,
+];
 
 export type ZoneProbeReadings = {
   zone_id: number;
@@ -592,7 +630,10 @@ export type ZoneProbeReadings = {
 };
 
 /** Server-fixed inclusive four-hour snapshot of individual probe observations. */
-export type ZoneThermalMonitoring = Omit<ZoneProbeReadings, 'monitoring' | 'target_temperature_c'> & {
+export type ZoneThermalMonitoring = Omit<
+  ZoneProbeReadings,
+  'monitoring' | 'target_temperature_c'
+> & {
   target_temperature_c: number | null;
   summary: {
     mean_temperature_c: number | null;
@@ -613,7 +654,12 @@ export type ThermalZoneMovementEvent = {
   occurred_at: string | null;
   temporal_precision?: 'observation_interval';
   transition_id?: string;
-  historical_interval?: { from_iso_year: number; from_iso_week: number; to_iso_year: number; to_iso_week: number };
+  historical_interval?: {
+    from_iso_year: number;
+    from_iso_week: number;
+    to_iso_year: number;
+    to_iso_week: number;
+  };
   provenance?: Record<string, unknown>;
   box_id: number;
   box_code: string;
@@ -841,11 +887,31 @@ export type AuditBusinessDetails =
       parent_polyp_count_before?: number | null;
       allocated_polyp_count?: number | null;
       parent_polyp_count_after?: number | null;
-      allocations?: Array<{ child_global_code: string; allocated_polyps: number | null; position?: number }>;
+      allocations?: Array<{
+        child_global_code: string;
+        allocated_polyps: number | null;
+        position?: number;
+      }>;
     }
-  | { type: 'transfer_out'; destination_organization?: string; date?: string; polyp_count?: number; note?: string }
-  | { type: 'transfer_import'; source_global_code?: string; source_organization?: string }
-  | { type: 'box_movement'; from_zone?: string; to_zone?: string; moved_at?: string; note?: string }
+  | {
+      type: 'transfer_out';
+      destination_organization?: string;
+      date?: string;
+      polyp_count?: number;
+      note?: string;
+    }
+  | {
+      type: 'transfer_import';
+      source_global_code?: string;
+      source_organization?: string;
+    }
+  | {
+      type: 'box_movement';
+      from_zone?: string;
+      to_zone?: string;
+      moved_at?: string;
+      note?: string;
+    }
   | {
       type: 'box_status';
       transition?: { from: string; to: string };
@@ -853,7 +919,11 @@ export type AuditBusinessDetails =
       stop_reason_missing_from_history?: boolean;
       deactivated_on?: string;
     }
-  | { type: 'box_inventory_initialization'; box_count?: number; target_status?: string }
+  | {
+      type: 'box_inventory_initialization';
+      box_count?: number;
+      target_status?: string;
+    }
   | {
       type: 'export';
       box_count?: number;
@@ -861,7 +931,11 @@ export type AuditBusinessDetails =
       week_count?: number;
       filters?: Record<string, AuditValue>;
     }
-  | { type: 'box' | 'environment' | 'account' | 'reference'; values?: AuditValues; changes?: AuditChanges }
+  | {
+      type: 'box' | 'environment' | 'account' | 'reference';
+      values?: AuditValues;
+      changes?: AuditChanges;
+    }
   | { type: 'unknown' };
 
 export type AuditBoxReference = {
