@@ -12,14 +12,7 @@
     "noEmit": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-
-    /* Volontairement non-strict: le but est de bloquer les vrais bugs
-       (variable supprimee, prop manquante, mauvais type) sans noyer l'equipe
-       sous des milliers d'erreurs sur le code existant. On pourra durcir
-       progressivement (strict...). */
-    "strict": false,
-    "strictNullChecks": true,
-    "noImplicitAny": false,
+    "strict": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src"]
