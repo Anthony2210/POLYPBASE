@@ -321,6 +321,16 @@ jobs:
           test -x "$PWD/extracted/usr/sbin/nginx"
           printf '%s\n' "$PWD/extracted/usr/sbin" >> "$GITHUB_PATH"
 
+      - name: Parse local PR helpers
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD 'scripts/pr_tools.ps1'), [ref]$tokens, [ref]$parseErrors
+          )
+          if ($parseErrors) { throw ($parseErrors -join "`n") }
+
       - name: Test deployment scripts
         run: uv run --frozen python -B -m unittest discover -s deploy/tests
 

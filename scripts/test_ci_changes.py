@@ -23,6 +23,7 @@ class PathTests(unittest.TestCase):
             b"uv.lock": {"backend", "backend_postgres", "deploy_scripts"},
             b"scripts/run_backend_postgres_ci.py": {"backend", "backend_postgres"},
             b"deploy/deploy_vm.ps1": {"deploy_scripts"},
+            b"scripts/pr_tools.ps1": {"deploy_scripts"},
             b".github/workflows/ci.yml": set(ci_changes.CHECKS),
         }
         for path, expected in cases.items():

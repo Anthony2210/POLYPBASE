@@ -20,7 +20,9 @@ def classify(paths):
             selected.add("frontend")
         if path.startswith(b"docs/translation-review/application/"):
             selected.add("backend")
-        if path.startswith(b"scripts/"):
+        if path == b"scripts/pr_tools.ps1":
+            selected.add("deploy_scripts")
+        elif path.startswith(b"scripts/"):
             selected.update(("backend", "backend_postgres"))
         if path.startswith(b"deploy/"):
             selected.add("deploy_scripts")
