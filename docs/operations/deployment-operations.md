@@ -222,17 +222,17 @@ To run only the local checks without contacting the VM:
 
 Run only after explicit production approval, as root in Bash from an independently
 reviewed, root-controlled snapshot (not `/srv/polypbase/app`). Pause deployments
-until verification succeeds. Run each command in order and stop on failure or
-unexpected output. Leave the pinned helper files, database settings, peer mapping,
-sudo rule, archive directory, and timer schedule unchanged.
+until verification succeeds. Run the commands in order in the same Bash session
+and stop on failure or unexpected output. Leave the pinned helper files, database
+settings, peer mapping, sudo rule, archive directory, and timer schedule unchanged.
 
 1. Confirm the base unit is a regular file at the path below and only the two
    named drop-ins apply. Review the drop-ins privately for any extra hardening
    or site-specific settings. If present, stop and reconcile them before removal.
-   Confirm the timer is active and enabled. Record the legacy `approved_commit`
-   and the SHA in `20-current-release.conf` privately, without exporting or
-   copying the JSON. They must match for rollback; if not, resolve the mismatch
-   in the rollback plan before proceeding.
+   Confirm the timer is active and enabled. Privately confirm that the JSON's
+   `approved_commit` is the exact legacy approval below, without exporting or
+   copying the JSON. The check below also requires the live drop-in's `ExecStart`
+   to use that SHA. Stop if either check fails.
 
    ```bash
    unit=polypbase-backup.service
@@ -241,24 +241,52 @@ sudo rule, archive directory, and timer schedule unchanged.
    dropins=$fragment.d
    broker=/usr/local/libexec/polypbase-deployment-backup
    config=/etc/polypbase/deployment-backup.json
+   legacy_approval=68ca288ef63a37340f3380e67835711be3ab885e
+
+   check_legacy_exec_start() {
+     local expected="^[[:blank:]]*ExecStart[[:blank:]]*=[[:blank:]]*$broker[[:blank:]]+$legacy_approval[[:blank:]]*$"
+     if ! grep -Eq -- "$expected" "$1"; then
+       printf 'Aborting: %s has no broker ExecStart matching legacy approval %s.\n' \
+         "$1" "$legacy_approval" >&2
+       return 1
+     fi
+   }
+
+   stop_timer_and_wait_for_backup() {
+     systemctl stop "$timer" || return 1
+     local deadline=$((SECONDS + 1800)) state
+     while (( SECONDS < deadline )); do
+       state=$(timeout 5s systemctl is-active "$unit") || true
+       case "$state" in
+         inactive|failed) return 0 ;;
+         active|activating|deactivating|reloading|refreshing) sleep 5 ;;
+         *) printf 'Aborting: cannot determine backup service state (%s).\n' "$state" >&2
+            return 1 ;;
+       esac
+     done
+     printf 'Aborting: %s did not stop within 30 minutes.\n' "$unit" >&2
+     return 1
+   }
 
    systemctl show "$unit" -p FragmentPath -p DropInPaths -p User -p Group -p ExecStart
    systemctl is-active "$timer"
    systemctl is-enabled "$timer"
+   check_legacy_exec_start "$dropins/20-current-release.conf" || exit 1
    visudo -cf /etc/sudoers.d/polypbase-deployment-backup
    sudo -l -U polypbase
    stat -c '%a %U:%G %n' "$broker" "$config" /var/lib/polypbase/deployment-backups
    ```
 
-2. Stop the timer and wait for any in-flight backup to finish. Keep the path of
-   the root-only rollback directory. Save only the broker and unit files, not
+2. Stop the timer and wait up to 30 minutes for any in-flight backup to finish.
+   A failed wait aborts the step before any file changes. Keep the path of the
+   root-only rollback directory. Save only the broker and unit files, not
    the JSON or anything containing credentials. Install the new broker first:
    the old one still requires `approved_commit` and a SHA argument.
 
    ```bash
-   systemctl stop "$timer"
-   systemctl show "$unit" -p ActiveState -p SubState
+   stop_timer_and_wait_for_backup || exit 1
    saved=$(mktemp -d)
+   printf 'Rollback directory: %s\n' "$saved"
    cp -p -- "$broker" "$fragment" "$dropins/10-isolated-broker.conf" \
      "$dropins/20-current-release.conf" "$saved/"
    install -o root -g root -m 0755 deploy/scripts/trusted_deployment_backup.py "$broker"
@@ -271,6 +299,7 @@ sudo rule, archive directory, and timer schedule unchanged.
    overrides; otherwise the old SHA argument can still take precedence.
 
    ```bash
+   stop_timer_and_wait_for_backup || exit 1
    editor "$config"
    stat -c '%a %U:%G %n' "$config"
    install -o root -g root -m 0644 deploy/systemd/polypbase-backup.service "$fragment"
@@ -315,14 +344,19 @@ sudo rule, archive directory, and timer schedule unchanged.
 #### Roll back the backup configuration
 
 If the cutover fails, leave deployments paused and report the failing step.
-Roll back only with explicit approval. Stop the timer and wait for any backup
-in progress to finish. Use the root-only directory from step 2, and restore the
-legacy `approved_commit` matching the saved nightly SHA without changing any other
-JSON fields. This rolls back only backup configuration, not a release or database.
+Roll back only with explicit approval. If an abort closed the Bash session,
+re-enter the variable and function definitions from step 1 (not the checks) and
+set `saved` to the root-only directory printed in step 2. The commands stop the
+timer, wait up to 30 minutes for any in-flight backup,
+then check the saved `20-current-release.conf`. A failed wait or a mismatched
+`ExecStart` aborts rollback before any file changes. In the editor, restore
+`approved_commit` to `68ca288ef63a37340f3380e67835711be3ab885e` without changing
+any other JSON fields. This rolls back only backup configuration, not a release
+or database.
 
 ```bash
-systemctl stop "$timer"
-systemctl show "$unit" -p ActiveState -p SubState
+stop_timer_and_wait_for_backup || exit 1
+check_legacy_exec_start "$saved/20-current-release.conf" || exit 1
 editor "$config"
 stat -c '%a %U:%G %n' "$config"
 install -o root -g root -m 0755 "$saved/polypbase-deployment-backup" "$broker"
@@ -331,12 +365,10 @@ install -o root -g root -m 0644 "$saved/10-isolated-broker.conf" "$dropins/10-is
 install -o root -g root -m 0644 "$saved/20-current-release.conf" "$dropins/20-current-release.conf"
 systemctl daemon-reload
 systemctl show "$unit" -p DropInPaths -p User -p Group -p ExecStart
-read -r -p 'Restored nightly full SHA: ' target
-[[ "$target" =~ ^[0-9a-f]{40}$ ]]
 started=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl start "$unit"
 journalctl -u "$unit" --since "$started" -o cat --no-pager | grep -Ex \
-  "BACKUP_OK /var/lib/polypbase/deployment-backups/pre-${target:0:8}-[0-9]{8}T[0-9]{6}Z\.dump"
+  "BACKUP_OK /var/lib/polypbase/deployment-backups/pre-${legacy_approval:0:8}-[0-9]{8}T[0-9]{6}Z\.dump"
 systemctl start "$timer"
 systemctl list-timers "$timer" --no-pager
 ```
