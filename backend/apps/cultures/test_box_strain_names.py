@@ -19,31 +19,45 @@ class BoxStrainNameTests(TestCase):
         cls.lab = Organization.objects.create(name="Label test lab")
         cls.other_lab = Organization.objects.create(name="Other label test lab")
         cls.user = get_user_model().objects.create_user(
-            username="label_viewer", email="label_viewer@example.org",
+            username="label_viewer",
+            email="label_viewer@example.org",
         )
         for lab in (cls.lab, cls.other_lab):
             OrganizationMembership.objects.create(
-                user=cls.user, organization=lab, role=OrganizationMembership.Role.VIEWER,
+                user=cls.user,
+                organization=lab,
+                role=OrganizationMembership.Role.VIEWER,
             )
-        cls.species = Species.objects.create(scientific_name="Test species", genus_species_code="TST")
+        cls.species = Species.objects.create(
+            scientific_name="Test species", genus_species_code="TST"
+        )
 
     def box(self, code, *, owner, lab=None, strain=None, number="001"):
         if strain is None:
-            strain = Strain.objects.create(species=self.species, organization=owner, code=code)
+            strain = Strain.objects.create(
+                species=self.species, organization=owner, code=code
+            )
         return Box.objects.create(
             organization=self.lab if lab is None else lab,
-            strain=strain, global_code=f"{code}.{number}", box_number=number,
+            strain=strain,
+            global_code=f"{code}.{number}",
+            box_number=number,
         )
 
     @staticmethod
     def record_name(box, language, name):
         StrainTranslation.objects.create(
-            strain=box.strain, language_code=language, name=name, description="Do not disclose this description",
+            strain=box.strain,
+            language_code=language,
+            name=name,
+            description="Do not disclose this description",
         )
 
     def get(self, route, *args, lab=None, client=None, **query):
         return (client or self.client).get(
-            reverse(route, args=args), query, HTTP_X_ORGANIZATION_ID=str((lab or self.lab).pk),
+            reverse(route, args=args),
+            query,
+            HTTP_X_ORGANIZATION_ID=str((lab or self.lab).pk),
         )
 
     def list_strains(self, *, lab=None):
@@ -74,39 +88,68 @@ class BoxStrainNameTests(TestCase):
 
         for language, name in names.items():
             with self.subTest(language=language):
-                UserPreference.objects.update_or_create(user=self.user, defaults={"interface_language": language})
+                UserPreference.objects.update_or_create(
+                    user=self.user, defaults={"interface_language": language}
+                )
                 listed = self.list_strains()
                 for box, expected in (
-                    (named, name), (fallback, names["ja" if language == "ja" else "fr"]),
-                    (unnamed, None), (blank, None), (missing_preferred, names["ja"]),
+                    (named, name),
+                    (fallback, names["ja" if language == "ja" else "fr"]),
+                    (unnamed, None),
+                    (blank, None),
+                    (missing_preferred, names["ja"]),
                 ):
                     strain = self.detail_strain(box)
                     self.assertEqual(strain, listed[box.pk])
                     self.assertEqual(strain["name"], expected)
-                    self.assertEqual(set(strain), {"id", "code", "name", "number", "origin_code", "species"})
+                    self.assertEqual(
+                        set(strain),
+                        {"id", "code", "name", "number", "origin_code", "species"},
+                    )
 
     def test_only_local_and_box_linked_legacy_names_are_visible(self):
         self.client.force_login(self.user)
         foreign = self.box("TST-EXT-1", owner=self.other_lab, lab=self.other_lab)
-        anomalous = self.box("TST-EXT-1", owner=None, strain=foreign.strain, number="002")
+        anomalous = self.box(
+            "TST-EXT-1", owner=None, strain=foreign.strain, number="002"
+        )
         legacy = self.box("TST-LEG-1", owner=None)
-        shared_legacy = self.box("TST-LEG-1", owner=None, strain=legacy.strain, lab=self.other_lab, number="002")
+        shared_legacy = self.box(
+            "TST-LEG-1",
+            owner=None,
+            strain=legacy.strain,
+            lab=self.other_lab,
+            number="002",
+        )
         foreign_legacy = self.box("TST-LEG-2", owner=None, lab=self.other_lab)
         self.record_name(foreign, "en", "Other institution name")
         self.record_name(legacy, "en", "Shared legacy name")
         self.record_name(foreign_legacy, "en", "Other legacy name")
 
         listed = self.list_strains()
-        self.assertEqual({pk: strain["name"] for pk, strain in listed.items()}, {
-            anomalous.pk: None, legacy.pk: "Shared legacy name",
-        })
+        self.assertEqual(
+            {pk: strain["name"] for pk, strain in listed.items()},
+            {
+                anomalous.pk: None,
+                legacy.pk: "Shared legacy name",
+            },
+        )
         self.assertEqual(self.detail_strain(anomalous), listed[anomalous.pk])
         self.assertEqual(self.detail_strain(legacy), listed[legacy.pk])
         for box in (foreign, shared_legacy, foreign_legacy):
             self.assertEqual(self.get("api_box_detail", box.pk).status_code, 404)
-        self.assertEqual(self.detail_strain(foreign, lab=self.other_lab)["name"], "Other institution name")
-        self.assertEqual(self.detail_strain(shared_legacy, lab=self.other_lab)["name"], "Shared legacy name")
-        self.assertEqual(self.detail_strain(foreign_legacy, lab=self.other_lab)["name"], "Other legacy name")
+        self.assertEqual(
+            self.detail_strain(foreign, lab=self.other_lab)["name"],
+            "Other institution name",
+        )
+        self.assertEqual(
+            self.detail_strain(shared_legacy, lab=self.other_lab)["name"],
+            "Shared legacy name",
+        )
+        self.assertEqual(
+            self.detail_strain(foreign_legacy, lab=self.other_lab)["name"],
+            "Other legacy name",
+        )
 
     def test_detail_by_code_respects_active_institution(self):
         self.client.force_login(self.user)
@@ -140,7 +183,9 @@ class BoxStrainNameTests(TestCase):
         self.record_name(foreign_link, "en", "Other institution name")
         self.record_name(owned, "en", "Sample name")
         with CaptureQueriesContext(connection) as baseline:
-            foreign_response = self.get("api_box_detail", foreign_link.pk, client=client)
+            foreign_response = self.get(
+                "api_box_detail", foreign_link.pk, client=client
+            )
         with self.assertNumQueries(len(baseline) + 1):
             owned_response = self.get("api_box_detail", owned.pk, client=client)
         self.assertEqual(foreign_response.status_code, 200)
@@ -162,4 +207,6 @@ class BoxStrainNameTests(TestCase):
                 rows = response.json()["results"]
                 self.assertEqual(len(rows), size)
                 for row in rows:
-                    self.assertEqual(row["strain"]["name"], row["strain"]["code"] + " name")
+                    self.assertEqual(
+                        row["strain"]["name"], row["strain"]["code"] + " name"
+                    )

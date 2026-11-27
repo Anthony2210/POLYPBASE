@@ -79,7 +79,11 @@ from .location_deletion import (
     delete_unused_thermal_zone,
     thermal_zone_usage_reasons,
 )
-from .historical_location_transitions import merge_zone_history, rule_applies, zone_history_rows
+from .historical_location_transitions import (
+    merge_zone_history,
+    rule_applies,
+    zone_history_rows,
+)
 from .location_history_diagnostics import _read_only_snapshot
 from .models import (
     Box,
@@ -121,11 +125,17 @@ from .serializers import (
     salinity_editable_until,
 )
 from .identity_resolution import (
-    box_local_id_search_ids, resolve_box_identity, resolve_box_local_id,
+    box_local_id_search_ids,
+    resolve_box_identity,
+    resolve_box_local_id,
 )
 from .temperature_history import (
-    box_historical_temperature_queryset, box_temperature_queryset, has_merged_identity,
-    historical_temperature_history_point, temperature_history_point, temperature_support_periods,
+    box_historical_temperature_queryset,
+    box_temperature_queryset,
+    has_merged_identity,
+    historical_temperature_history_point,
+    temperature_history_point,
+    temperature_support_periods,
 )
 from .box_codes import lock_local_id_registry, preview_box_codes
 from .box_identity import box_strain_display_names
@@ -138,7 +148,11 @@ from .automatic_box_creation import (
     inspect_automatic_box_request,
     resolve_automatic_box_request,
 )
-from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
+from .polyp_state import (
+    current_state_prefetches,
+    current_polyp_total,
+    resolve_current_polyp_state,
+)
 from .movement_corrections import (
     BoxMovementConflict,
     BoxMovementForbidden,
@@ -186,61 +200,69 @@ def box_queryset_for_user(user, organization_ids=None, *, include_merged=False):
     queryset = Box.objects.all()
     if not include_merged:
         queryset = queryset.filter(merged_into__isnull=True)
-    return queryset.select_related(
-        "organization",
-        "strain",
-        "strain__species",
-        "strain__origin",
-        "origin",
-        "thermal_zone",
-    ).prefetch_related(
-        *current_state_prefetches(),
-        Prefetch(
-            "biological_measurements",
-            queryset=BiologicalMeasurement.objects.canonical().select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk"),
-        ),
-        Prefetch(
-            "parent_lineages",
-            queryset=BoxLineage.objects.filter(
-                parent_box__organization_id__in=organization_ids,
-            ).select_related(
-                "parent_box",
-                "parent_box__strain",
-                "parent_box__strain__species",
-                "parent_box__thermal_zone",
-                "subculture_event",
-                "subculture_event__user",
+    return (
+        queryset.select_related(
+            "organization",
+            "strain",
+            "strain__species",
+            "strain__origin",
+            "origin",
+            "thermal_zone",
+        )
+        .prefetch_related(
+            *current_state_prefetches(),
+            Prefetch(
+                "biological_measurements",
+                queryset=BiologicalMeasurement.objects.canonical()
+                .select_related("user", "original_observer", "imported_by")
+                .order_by("-week_start", "-created_at", "-pk"),
             ),
-        ),
-        Prefetch(
-            "child_lineages",
-            queryset=BoxLineage.objects.filter(
-                child_box__organization_id__in=organization_ids,
-            ).select_related(
-                "child_box",
-                "child_box__strain",
-                "child_box__strain__species",
-                "child_box__thermal_zone",
-                "subculture_event",
-                "subculture_event__user",
+            Prefetch(
+                "parent_lineages",
+                queryset=BoxLineage.objects.filter(
+                    parent_box__organization_id__in=organization_ids,
+                ).select_related(
+                    "parent_box",
+                    "parent_box__strain",
+                    "parent_box__strain__species",
+                    "parent_box__thermal_zone",
+                    "subculture_event",
+                    "subculture_event__user",
+                ),
             ),
-        ),
-        Prefetch(
-            "locations",
-            queryset=BoxLocation.objects.filter(
-                thermal_zone__organization_id__in=organization_ids,
-            ).select_related("thermal_zone").order_by("-starts_at"),
-        ),
-        Prefetch(
-            "movements",
-            queryset=BoxMovement.objects.select_related(
-                "from_thermal_zone",
-                "to_thermal_zone",
-                "user",
-            ).order_by("-moved_at"),
-        ),
-        "tags",
-    ).filter(organization_id__in=organization_ids)
+            Prefetch(
+                "child_lineages",
+                queryset=BoxLineage.objects.filter(
+                    child_box__organization_id__in=organization_ids,
+                ).select_related(
+                    "child_box",
+                    "child_box__strain",
+                    "child_box__strain__species",
+                    "child_box__thermal_zone",
+                    "subculture_event",
+                    "subculture_event__user",
+                ),
+            ),
+            Prefetch(
+                "locations",
+                queryset=BoxLocation.objects.filter(
+                    thermal_zone__organization_id__in=organization_ids,
+                )
+                .select_related("thermal_zone")
+                .order_by("-starts_at"),
+            ),
+            Prefetch(
+                "movements",
+                queryset=BoxMovement.objects.select_related(
+                    "from_thermal_zone",
+                    "to_thermal_zone",
+                    "user",
+                ).order_by("-moved_at"),
+            ),
+            "tags",
+        )
+        .filter(organization_id__in=organization_ids)
+    )
 
 
 def box_list_queryset_for_user(user, organization_ids=None):
@@ -254,17 +276,21 @@ def box_list_queryset_for_user(user, organization_ids=None):
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     latest_measurements = (
-        BiologicalMeasurement.objects.canonical().select_related("user", "original_observer", "imported_by")
+        BiologicalMeasurement.objects.canonical()
+        .select_related("user", "original_observer", "imported_by")
         .order_by("-week_start", "-created_at", "-pk")[:1]
     )
 
     measurement_dates = (
-        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
-        .order_by().values("box_id")
+        BiologicalMeasurement.objects.canonical()
+        .filter(box_id=OuterRef("pk"))
+        .order_by()
+        .values("box_id")
         .annotate(first=Min("measured_on"), last=Max("measured_on"))
     )
     latest_salinity = Subquery(
-        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
+        BiologicalMeasurement.objects.canonical()
+        .filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
         .order_by("-week_start", "-created_at", "-pk")
         .values("salinity_psu")[:1]
     )
@@ -297,7 +323,11 @@ def box_list_queryset_for_user(user, organization_ids=None):
         )
         .prefetch_related(
             *current_state_prefetches(),
-            Prefetch("biological_measurements", queryset=latest_measurements, to_attr="list_latest_measurements")
+            Prefetch(
+                "biological_measurements",
+                queryset=latest_measurements,
+                to_attr="list_latest_measurements",
+            ),
         )
         .filter(organization_id__in=organization_ids, merged_into__isnull=True)
     )
@@ -308,7 +338,8 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     first_measurement_on = Subquery(
-        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
+        BiologicalMeasurement.objects.canonical()
+        .filter(box_id=OuterRef("pk"))
         .order_by("measured_on", "created_at")
         .values("measured_on")[:1]
     )
@@ -317,19 +348,22 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
         BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
     )
     latest_measurement_on = Subquery(
-        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
+        BiologicalMeasurement.objects.canonical()
+        .filter(box_id=OuterRef("pk"))
         .order_by("-week_start", "-created_at", "-pk")
         .values("measured_on")[:1],
         output_field=DateField(),
     )
 
     latest_measurement_id = Subquery(
-        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("box_id"))
+        BiologicalMeasurement.objects.canonical()
+        .filter(box_id=OuterRef("box_id"))
         .order_by("-week_start", "-created_at", "-pk")
         .values("id")[:1]
     )
     latest_measurements = (
-        BiologicalMeasurement.objects.canonical().filter(id__in=latest_measurement_id)
+        BiologicalMeasurement.objects.canonical()
+        .filter(id__in=latest_measurement_id)
         .select_related("user", "original_observer", "imported_by")
         .order_by("-week_start", "-created_at", "-pk")
     )
@@ -413,43 +447,60 @@ def thermal_zone_summary_queryset(queryset):
         )
         for prefetch in current_state_prefetches()
     ]
-    return queryset.select_related("organization").prefetch_related(
-        Prefetch("boxes", queryset=Box.objects.filter(
-            status=Box.Status.ACTIVE, organization_id=F("thermal_zone__organization_id"),
-        ), to_attr="current_state_boxes"),
-        *state_prefetches,
-        Prefetch(
-            "daily_temperatures",
-            queryset=DailyTemperature.objects.filter(id__in=latest_temperature_id).order_by("-date", "-id"),
-        ),
-        Prefetch(
-            "salinity_measurements",
-            queryset=(
-                SalinityMeasurement.objects.filter(id__in=latest_salinity_id)
-                .select_related("user")
-                .order_by("-measured_on", "-id")
-            ),
-        ),
-        Prefetch(
-            "probes",
-            # Latest reading per probe: one backward step on the (probe, measured_at) index.
-            queryset=Probe.objects.filter(organization_id=F("thermal_zone__organization_id")).annotate(
-                latest_reading_at=Subquery(
-                    TemperatureMeasurement.objects.filter(probe_id=OuterRef("pk"))
-                    .order_by("-measured_at")
-                    .values("measured_at")[:1]
+    return (
+        queryset.select_related("organization")
+        .prefetch_related(
+            Prefetch(
+                "boxes",
+                queryset=Box.objects.filter(
+                    status=Box.Status.ACTIVE,
+                    organization_id=F("thermal_zone__organization_id"),
                 ),
-                latest_bucket_reading_at=Subquery(
-                    ProbeTemperatureBucket.objects.filter(probe_id=OuterRef("pk"))
-                    .order_by("-last_measured_at")
-                    .values("last_measured_at")[:1]
+                to_attr="current_state_boxes",
+            ),
+            *state_prefetches,
+            Prefetch(
+                "daily_temperatures",
+                queryset=DailyTemperature.objects.filter(
+                    id__in=latest_temperature_id
+                ).order_by("-date", "-id"),
+            ),
+            Prefetch(
+                "salinity_measurements",
+                queryset=(
+                    SalinityMeasurement.objects.filter(id__in=latest_salinity_id)
+                    .select_related("user")
+                    .order_by("-measured_on", "-id")
                 ),
             ),
-        ),
-    ).annotate(
-        box_count=Count("boxes", filter=Q(
-            boxes__status=Box.Status.ACTIVE, boxes__organization_id=F("organization_id"),
-        ))
+            Prefetch(
+                "probes",
+                # Latest reading per probe: one backward step on the (probe, measured_at) index.
+                queryset=Probe.objects.filter(
+                    organization_id=F("thermal_zone__organization_id")
+                ).annotate(
+                    latest_reading_at=Subquery(
+                        TemperatureMeasurement.objects.filter(probe_id=OuterRef("pk"))
+                        .order_by("-measured_at")
+                        .values("measured_at")[:1]
+                    ),
+                    latest_bucket_reading_at=Subquery(
+                        ProbeTemperatureBucket.objects.filter(probe_id=OuterRef("pk"))
+                        .order_by("-last_measured_at")
+                        .values("last_measured_at")[:1]
+                    ),
+                ),
+            ),
+        )
+        .annotate(
+            box_count=Count(
+                "boxes",
+                filter=Q(
+                    boxes__status=Box.Status.ACTIVE,
+                    boxes__organization_id=F("organization_id"),
+                ),
+            )
+        )
     )
 
 
@@ -487,16 +538,21 @@ def _dashboard_environment_locations(entries, organization_ids):
     # empty sources so they do not fall back to one query per source box.
     periods_by_box = {
         entry.environment_source_box_id: []
-        for entry in entries if entry.environment_source_box_id is not None
+        for entry in entries
+        if entry.environment_source_box_id is not None
     }
     if not periods_by_box:
         return {}
 
-    locations = BoxLocation.objects.filter(
-        box_id__in=periods_by_box.keys(),
-        box__organization_id__in=organization_ids,
-        thermal_zone__organization_id__in=organization_ids,
-    ).select_related("thermal_zone").order_by("starts_at", "pk")
+    locations = (
+        BoxLocation.objects.filter(
+            box_id__in=periods_by_box.keys(),
+            box__organization_id__in=organization_ids,
+            thermal_zone__organization_id__in=organization_ids,
+        )
+        .select_related("thermal_zone")
+        .order_by("starts_at", "pk")
+    )
     for location in locations:
         periods_by_box[location.box_id].append(location)
     return {
@@ -513,19 +569,27 @@ class DashboardAPIView(APIView):
         organizations = [organization] if organization is not None else []
         organization_ids = [org.pk for org in organizations]
 
-        boxes = Box.objects.filter(organization_id__in=organization_ids, merged_into__isnull=True)
+        boxes = Box.objects.filter(
+            organization_id__in=organization_ids, merged_into__isnull=True
+        )
         box_totals = boxes.aggregate(
             boxes_total=Count("pk"),
             active_boxes=Count("pk", filter=Q(status=Box.Status.ACTIVE)),
             species_count=Count("strain__species", distinct=True),
         )
-        measurements = BiologicalMeasurement.objects.canonical().filter(box__organization_id__in=organization_ids)
-        access_candidates = AuditLog.objects.filter(
-            organization_id__in=organization_ids,
-            user=request.user,
-            action__in=[AuditLog.Action.SCAN, AuditLog.Action.VIEW],
-            object_type="box",
-        ).select_related("user").order_by("-created_at")[:40]
+        measurements = BiologicalMeasurement.objects.canonical().filter(
+            box__organization_id__in=organization_ids
+        )
+        access_candidates = (
+            AuditLog.objects.filter(
+                organization_id__in=organization_ids,
+                user=request.user,
+                action__in=[AuditLog.Action.SCAN, AuditLog.Action.VIEW],
+                object_type="box",
+            )
+            .select_related("user")
+            .order_by("-created_at")[:40]
+        )
         recent_accesses = []
         accessed_box_codes = set()
         for access in access_candidates:
@@ -535,10 +599,15 @@ class DashboardAPIView(APIView):
             accessed_box_codes.add(access.object_id)
             if len(recent_accesses) == 8:
                 break
-        current_totals = current_polyp_total(boxes.filter(status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches()))
+        current_totals = current_polyp_total(
+            boxes.filter(status=Box.Status.ACTIVE).prefetch_related(
+                *current_state_prefetches()
+            )
+        )
         latest_entries = list(
-            measurements.select_related("box", "user", "original_observer", "imported_by")
-            .order_by("-measured_on", "-created_at")[:8]
+            measurements.select_related(
+                "box", "user", "original_observer", "imported_by"
+            ).order_by("-measured_on", "-created_at")[:8]
         )
         measurement_totals = measurements.aggregate(
             polyps=Sum("polyp_count"),
@@ -550,18 +619,25 @@ class DashboardAPIView(APIView):
         # NULL strobilae mean "not measured": never report them as a zero total.
         strobilae_total = (
             None
-            if measurement_totals["measurement_rows"] and not measurement_totals["strobila_known"]
+            if measurement_totals["measurement_rows"]
+            and not measurement_totals["strobila_known"]
             else measurement_totals["strobilae"] or 0
         )
 
         return Response(
             {
-                "organizations": OrganizationSummarySerializer(organizations, many=True).data,
+                "organizations": OrganizationSummarySerializer(
+                    organizations, many=True
+                ).data,
                 "stats": {
                     **box_totals,
-                    "thermal_zones": ThermalZone.objects.filter(organization_id__in=organization_ids).count(),
+                    "thermal_zones": ThermalZone.objects.filter(
+                        organization_id__in=organization_ids
+                    ).count(),
                     "current_polyps": current_totals["polyp_count"],
-                    "current_polyps_unknown_box_count": current_totals["unknown_box_count"],
+                    "current_polyps_unknown_box_count": current_totals[
+                        "unknown_box_count"
+                    ],
                     "measured_polyps": measurement_totals["polyps"] or 0,
                     "measured_ephyrae": measurement_totals["ephyrae"] or 0,
                     "measured_strobilae": strobilae_total,
@@ -571,10 +647,14 @@ class DashboardAPIView(APIView):
                     many=True,
                     context={
                         "request": request,
-                        "environment_locations_by_box": _dashboard_environment_locations(latest_entries, organization_ids),
+                        "environment_locations_by_box": _dashboard_environment_locations(
+                            latest_entries, organization_ids
+                        ),
                     },
                 ).data,
-                "recent_accesses": AuditLogAccessSerializer(recent_accesses, many=True).data,
+                "recent_accesses": AuditLogAccessSerializer(
+                    recent_accesses, many=True
+                ).data,
             }
         )
 
@@ -605,12 +685,17 @@ class OverviewActiveBoxesAPIView(APIView):
             )
             .select_related("strain__species", "thermal_zone")
             .only(
-                "global_code", "strain__code", "strain__species__scientific_name",
-                "thermal_zone__name", "polyp_state_revision",
+                "global_code",
+                "strain__code",
+                "strain__species__scientific_name",
+                "thermal_zone__name",
+                "polyp_state_revision",
             )
             .prefetch_related(
                 *current_state_prefetches(),
-                Prefetch("locations", queryset=location_history, to_attr="overview_locations"),
+                Prefetch(
+                    "locations", queryset=location_history, to_attr="overview_locations"
+                ),
             )
             .order_by("strain__species__scientific_name", "global_code")
         )
@@ -619,11 +704,14 @@ class OverviewActiveBoxesAPIView(APIView):
         measurements_by_box = defaultdict(list)
         app_tracked_box_ids = set()
         earliest_measurement_by_box = {}
-        measurements = BiologicalMeasurement.objects.canonical().filter(box_id__in=box_ids)
+        measurements = BiologicalMeasurement.objects.canonical().filter(
+            box_id__in=box_ids
+        )
         if not complete_history:
             # Metadata still covers the entire canonical history in a windowed response.
             metadata = (
-                measurements.order_by().values("box_id")
+                measurements.order_by()
+                .values("box_id")
                 .annotate(earliest=Min("measured_on"), tracked_count=Count("user_id"))
                 .values_list("box_id", "earliest", "tracked_count")
             )
@@ -633,10 +721,24 @@ class OverviewActiveBoxesAPIView(APIView):
                     app_tracked_box_ids.add(box_id)
             measurements = measurements.filter(measured_on__gte=history_start_date)
 
-        points = measurements.order_by("box_id", "measured_on", "created_at").values_list(
-            "box_id", "measured_on", "polyp_count", "ephyrae_count", "salinity_psu", "user_id"
+        points = measurements.order_by(
+            "box_id", "measured_on", "created_at"
+        ).values_list(
+            "box_id",
+            "measured_on",
+            "polyp_count",
+            "ephyrae_count",
+            "salinity_psu",
+            "user_id",
         )
-        for box_id, measured_on, polyp_count, ephyrae_count, salinity_psu, user_id in points:
+        for (
+            box_id,
+            measured_on,
+            polyp_count,
+            ephyrae_count,
+            salinity_psu,
+            user_id,
+        ) in points:
             if complete_history:
                 # The first chart point is also the earliest canonical measurement.
                 earliest_measurement_by_box.setdefault(box_id, measured_on)
@@ -678,7 +780,9 @@ class OverviewActiveBoxesAPIView(APIView):
                     self._box_payload(
                         box,
                         measurements_by_box[box.id],
-                        temperatures_by_zone[box.thermal_zone_id] if box.thermal_zone_id else [],
+                        temperatures_by_zone[box.thermal_zone_id]
+                        if box.thermal_zone_id
+                        else [],
                         box.id in app_tracked_box_ids,
                         earliest_measurement_by_box.get(box.id),
                     )
@@ -694,7 +798,9 @@ class OverviewActiveBoxesAPIView(APIView):
             months = 3
         return max(1, min(months, 12))
 
-    def _box_payload(self, box, measurements, temperatures, tracked_in_app, earliest_measurement_on):
+    def _box_payload(
+        self, box, measurements, temperatures, tracked_in_app, earliest_measurement_on
+    ):
         return {
             "id": box.id,
             "global_code": box.global_code,
@@ -702,7 +808,9 @@ class OverviewActiveBoxesAPIView(APIView):
             "strain_code": box.strain.code,
             "tracked_in_app": tracked_in_app,
             "earliest_biological_measurement_on": (
-                earliest_measurement_on.isoformat() if earliest_measurement_on is not None else None
+                earliest_measurement_on.isoformat()
+                if earliest_measurement_on is not None
+                else None
             ),
             "thermal_zone": (
                 {
@@ -720,7 +828,9 @@ class OverviewActiveBoxesAPIView(APIView):
                         "name": location["thermal_zone"]["name"],
                     },
                 }
-                for location in BoxLocationSerializer(box.overview_locations, many=True).data
+                for location in BoxLocationSerializer(
+                    box.overview_locations, many=True
+                ).data
             ],
             "current_polyp_state": resolve_current_polyp_state(box),
             "measurements": measurements,
@@ -735,13 +845,24 @@ class AutomaticBoxIntentAPIView(APIView):
 
     def post(self, request):
         organization = get_required_active_organization_from_request(request)
-        receipt = self.operation(organization=organization, actor=request.user, data=request.data)
+        receipt = self.operation(
+            organization=organization, actor=request.user, data=request.data
+        )
         if receipt.box_id is not None:
             box = get_object_or_404(
-                box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+                box_queryset_for_user(
+                    request.user,
+                    organization_ids=[organization.pk],
+                    include_merged=True,
+                ),
                 pk=receipt.box_id,
             )
-            return Response({"status": "created", "box": BoxDetailSerializer(box, context={"request": request}).data})
+            return Response(
+                {
+                    "status": "created",
+                    "box": BoxDetailSerializer(box, context={"request": request}).data,
+                }
+            )
         if receipt.failure is not None:
             return Response({"status": "rejected", "errors": receipt.failure})
         return Response({"status": "cancelled" if receipt.cancelled else "pending"})
@@ -761,17 +882,19 @@ class AutomaticBoxCreateAPIView(APIView):
     def post(self, request):
         organization = get_required_active_organization_from_request(request)
         box, created = create_automatic_box(
-            organization=organization, actor=request.user, data=request.data,
+            organization=organization,
+            actor=request.user,
+            data=request.data,
         )
         # Serialize only after the service's transaction has committed.
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=[organization.pk]), pk=box.pk,
+            box_queryset_for_user(request.user, organization_ids=[organization.pk]),
+            pk=box.pk,
         )
         return Response(
             BoxDetailSerializer(box, context={"request": request}).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
-
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -780,7 +903,9 @@ class AutomaticBoxStrainOptionsAPIView(APIView):
 
     def get(self, request):
         organization = get_required_active_organization_from_request(request)
-        return Response(automatic_box_strain_options(organization=organization, actor=request.user))
+        return Response(
+            automatic_box_strain_options(organization=organization, actor=request.user)
+        )
 
 
 @method_decorator(never_cache, name="dispatch")
@@ -790,34 +915,46 @@ class AutomaticBoxResolveAPIView(APIView):
     def get(self, request):
         organization = get_required_active_organization_from_request(request)
         outcome, box = inspect_automatic_box_request(
-            organization=organization, actor=request.user, data=request.query_params.dict(),
+            organization=organization,
+            actor=request.user,
+            data=request.query_params.dict(),
         )
         if box is None:
             return Response({"status": outcome})
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+            box_queryset_for_user(
+                request.user, organization_ids=[organization.pk], include_merged=True
+            ),
             pk=box.pk,
         )
-        return Response({
-            "status": "created",
-            "box": BoxDetailSerializer(box, context={"request": request}).data,
-        })
+        return Response(
+            {
+                "status": "created",
+                "box": BoxDetailSerializer(box, context={"request": request}).data,
+            }
+        )
 
     def post(self, request):
         organization = get_required_active_organization_from_request(request)
         box = resolve_automatic_box_request(
-            organization=organization, actor=request.user, data=request.data,
+            organization=organization,
+            actor=request.user,
+            data=request.data,
         )
         if box is None:
             return Response({"status": "cancelled"})
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+            box_queryset_for_user(
+                request.user, organization_ids=[organization.pk], include_merged=True
+            ),
             pk=box.pk,
         )
-        return Response({
-            "status": "created",
-            "box": BoxDetailSerializer(box, context={"request": request}).data,
-        })
+        return Response(
+            {
+                "status": "created",
+                "box": BoxDetailSerializer(box, context={"request": request}).data,
+            }
+        )
 
 
 class BoxListAPIView(generics.ListAPIView):
@@ -847,11 +984,15 @@ class BoxListAPIView(generics.ListAPIView):
         if not locations_by_source:
             return locations_by_source
 
-        locations = BoxLocation.objects.filter(
-            box_id__in={source_id for source_id, _ in locations_by_source},
-            box__organization_id__in={org_id for _, org_id in locations_by_source},
-            thermal_zone__organization_id=F("box__organization_id"),
-        ).select_related("thermal_zone").order_by("starts_at", "pk")
+        locations = (
+            BoxLocation.objects.filter(
+                box_id__in={source_id for source_id, _ in locations_by_source},
+                box__organization_id__in={org_id for _, org_id in locations_by_source},
+                thermal_zone__organization_id=F("box__organization_id"),
+            )
+            .select_related("thermal_zone")
+            .order_by("starts_at", "pk")
+        )
         serializer = BoxLocationSerializer()
         for location in locations:
             key = (location.box_id, location.thermal_zone.organization_id)
@@ -879,9 +1020,12 @@ class BoxListAPIView(generics.ListAPIView):
         search = self.request.query_params.get("q")
         if search:
             queryset = queryset.filter(
-                Q(pk__in=box_local_id_search_ids(
-                    Box.objects.filter(organization_id__in=organization_ids), search,
-                ))
+                Q(
+                    pk__in=box_local_id_search_ids(
+                        Box.objects.filter(organization_id__in=organization_ids),
+                        search,
+                    )
+                )
                 | Q(local_code__icontains=search)
                 | Q(box_number__icontains=search)
                 | Q(strain__code__icontains=search)
@@ -894,6 +1038,7 @@ class BoxListAPIView(generics.ListAPIView):
         if value.isdigit():
             return queryset.filter(organization_id=int(value))
         return queryset.filter(organization__slug=value)
+
 
 class BoxInventoryPagination(LimitOffsetPagination):
     default_limit = 24
@@ -915,7 +1060,9 @@ def _box_inventory_filter_state(request):
         try:
             reference_date = date.fromisoformat(raw_reference_date)
         except ValueError as error:
-            raise DRFValidationError({"reference_date": "Invalid reference date."}) from error
+            raise DRFValidationError(
+                {"reference_date": "Invalid reference date."}
+            ) from error
 
     creation_year = None
     raw_creation_year = request.query_params.get("creation_year", "").strip()
@@ -923,7 +1070,9 @@ def _box_inventory_filter_state(request):
         try:
             creation_year = int(raw_creation_year)
         except ValueError as error:
-            raise DRFValidationError({"creation_year": "Invalid creation year."}) from error
+            raise DRFValidationError(
+                {"creation_year": "Invalid creation year."}
+            ) from error
         if creation_year < 1 or creation_year > 9999:
             raise DRFValidationError({"creation_year": "Invalid creation year."})
 
@@ -937,7 +1086,9 @@ def _box_inventory_filter_state(request):
         try:
             age_months = int(raw_age_months)
         except ValueError as error:
-            raise DRFValidationError({"age_months": "Enter a valid number of months."}) from error
+            raise DRFValidationError(
+                {"age_months": "Enter a valid number of months."}
+            ) from error
         if age_months < 1 or age_months > 1200:
             raise DRFValidationError({"age_months": "Enter between 1 and 1200 months."})
 
@@ -975,9 +1126,12 @@ def _apply_box_inventory_filters(queryset, request, organization_ids, filter_sta
     search = request.query_params.get("q", "").strip()
     if search:
         queryset = queryset.filter(
-            Q(pk__in=box_local_id_search_ids(
-                Box.objects.filter(organization_id__in=organization_ids), search,
-            ))
+            Q(
+                pk__in=box_local_id_search_ids(
+                    Box.objects.filter(organization_id__in=organization_ids),
+                    search,
+                )
+            )
             | Q(local_code__icontains=search)
             | Q(strain__species__scientific_name__icontains=search)
         )
@@ -1024,14 +1178,19 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
 
         # Institution-wide counters, independent of the current page and filters.
         self.inventory_summary = Box.objects.filter(
-            organization_id__in=organization_ids, merged_into__isnull=True,
+            organization_id__in=organization_ids,
+            merged_into__isnull=True,
         ).aggregate(
-            pending_review_count=Count("pk", filter=Q(status=Box.Status.PENDING_REVIEW)),
+            pending_review_count=Count(
+                "pk", filter=Q(status=Box.Status.PENDING_REVIEW)
+            ),
             active_without_location_count=Count(
-                "pk", filter=Q(status=Box.Status.ACTIVE, thermal_zone__isnull=True),
+                "pk",
+                filter=Q(status=Box.Status.ACTIVE, thermal_zone__isnull=True),
             ),
             pending_without_location_count=Count(
-                "pk", filter=Q(status=Box.Status.PENDING_REVIEW, thermal_zone__isnull=True),
+                "pk",
+                filter=Q(status=Box.Status.PENDING_REVIEW, thermal_zone__isnull=True),
             ),
         )
         queryset = box_inventory_queryset_for_user(
@@ -1080,7 +1239,9 @@ class AdminBoxInventorySelectionAPIView(APIView):
 
         filter_state = _box_inventory_filter_state(request)
         queryset = _apply_box_inventory_filters(
-            box_inventory_queryset_for_user(request.user, organization_ids=organization_ids),
+            box_inventory_queryset_for_user(
+                request.user, organization_ids=organization_ids
+            ),
             request,
             organization_ids,
             filter_state,
@@ -1108,7 +1269,9 @@ class AdminBoxInventorySelectionAPIView(APIView):
             )
 
         selected_boxes = list(
-            _order_box_inventory(queryset.filter(status=Box.Status.PENDING_REVIEW)).values(
+            _order_box_inventory(
+                queryset.filter(status=Box.Status.PENDING_REVIEW)
+            ).values(
                 "id",
                 "global_code",
                 "status",
@@ -1161,7 +1324,11 @@ class AdminBoxInventoryBatchQualifyAPIView(APIView):
                     lock_local_id_registry()
                     box = (
                         Box.objects.select_for_update()
-                        .filter(id=box_id, organization_id__in=organization_ids, merged_into__isnull=True)
+                        .filter(
+                            id=box_id,
+                            organization_id__in=organization_ids,
+                            merged_into__isnull=True,
+                        )
                         .first()
                     )
                     if box is None:
@@ -1268,7 +1435,10 @@ class AdminBoxInitialLocationAPIView(APIView):
             box_queryset_for_user(request.user, organization_ids=organization_ids),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class BoxDetailAPIView(generics.RetrieveAPIView):
@@ -1302,7 +1472,9 @@ class BoxDetailByCodeAPIView(BoxDetailAPIView):
     def get_queryset(self):
         organization = get_required_active_organization_from_request(self.request)
         return box_queryset_for_user(
-            self.request.user, organization_ids=[organization.pk], include_merged=True,
+            self.request.user,
+            organization_ids=[organization.pk],
+            include_merged=True,
         )
 
     def get_object(self):
@@ -1325,23 +1497,30 @@ class BoxTemperatureHistoryAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         organization = get_required_active_organization_from_request(request)
-        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
+        box = resolve_box_identity(
+            Box.objects.filter(organization=organization), box_id
+        )
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         # Narrow the date scan to recorded zones before checking day-level occupancy.
         # Keep retired identities in scope so their historical zones are not lost.
-        recorded_zones = BoxLocation.objects.filter(
-            Q(box_id=box.pk) | Q(box__merged_into_id=box.pk),
-            box__organization_id=organization.pk,
-        ).order_by().values("thermal_zone_id").distinct()
+        recorded_zones = (
+            BoxLocation.objects.filter(
+                Q(box_id=box.pk) | Q(box__merged_into_id=box.pk),
+                box__organization_id=organization.pk,
+            )
+            .order_by()
+            .values("thermal_zone_id")
+            .distinct()
+        )
         temperatures = box_temperature_queryset(box, **query.validated_data).filter(
             thermal_zone_id__in=recorded_zones,
         )
         page = self.paginate_queryset(temperatures)
         support = temperature_support_periods(box) if has_merged_identity(box) else None
-        return self.get_paginated_response([
-            temperature_history_point(temperature, support) for temperature in page
-        ])
+        return self.get_paginated_response(
+            [temperature_history_point(temperature, support) for temperature in page]
+        )
 
 
 class BoxHistoricalTemperatureAPIView(generics.GenericAPIView):
@@ -1353,14 +1532,16 @@ class BoxHistoricalTemperatureAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         organization = get_required_active_organization_from_request(request)
-        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
+        box = resolve_box_identity(
+            Box.objects.filter(organization=organization), box_id
+        )
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         readings = box_historical_temperature_queryset(box, **query.validated_data)
         page = self.paginate_queryset(readings)
-        return self.get_paginated_response([
-            historical_temperature_history_point(reading) for reading in page
-        ])
+        return self.get_paginated_response(
+            [historical_temperature_history_point(reading) for reading in page]
+        )
 
 
 class BoxScanAPIView(APIView):
@@ -1370,7 +1551,9 @@ class BoxScanAPIView(APIView):
 
     def post(self, request, box_id):
         organization = get_required_active_organization_from_request(request)
-        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
+        box = resolve_box_identity(
+            Box.objects.filter(organization=organization), box_id
+        )
         AuditLog.objects.create(
             organization=box.organization,
             user=request.user,
@@ -1378,9 +1561,16 @@ class BoxScanAPIView(APIView):
             object_type="box",
             object_id=box.global_code,
             description=f"QR scan of {box.global_code}",
-            metadata={"box_id": box.id, "requested_box_id": box_id, "source": "qr_link"},
+            metadata={
+                "box_id": box.id,
+                "requested_box_id": box_id,
+                "source": "qr_link",
+            },
         )
-        return Response({"id": box.id, "global_code": box.global_code}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"id": box.id, "global_code": box.global_code},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BoxGlobalIdResolveAPIView(APIView):
@@ -1396,9 +1586,17 @@ class BoxGlobalIdResolveAPIView(APIView):
         organization = get_required_active_organization_from_request(request)
         box = get_object_or_404(
             Box.objects.only("id", "global_code", "global_identity"),
-            organization=organization, global_identity_id=global_id, merged_into__isnull=True,
+            organization=organization,
+            global_identity_id=global_id,
+            merged_into__isnull=True,
         )
-        return Response({"id": box.id, "global_id": str(box.global_identity_id), "global_code": box.global_code})
+        return Response(
+            {
+                "id": box.id,
+                "global_id": str(box.global_identity_id),
+                "global_code": box.global_code,
+            }
+        )
 
 
 class BoxAccessAPIView(APIView):
@@ -1406,7 +1604,9 @@ class BoxAccessAPIView(APIView):
 
     def post(self, request, box_id):
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         AuditLog.objects.create(
@@ -1426,7 +1626,9 @@ class BoxDeactivateAPIView(APIView):
 
     def post(self, request, box_id):
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
@@ -1443,10 +1645,15 @@ class BoxDeactivateAPIView(APIView):
             raise DRFValidationError(exc.messages) from exc
 
         updated_box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class BoxActivateAPIView(APIView):
@@ -1454,7 +1661,9 @@ class BoxActivateAPIView(APIView):
 
     def post(self, request, box_id):
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
@@ -1475,10 +1684,15 @@ class BoxActivateAPIView(APIView):
             raise DRFValidationError(exc.messages) from exc
 
         updated_box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class BoxQualifyAPIView(APIView):
@@ -1486,7 +1700,9 @@ class BoxQualifyAPIView(APIView):
 
     def post(self, request, box_id):
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
@@ -1508,10 +1724,15 @@ class BoxQualifyAPIView(APIView):
             raise DRFValidationError(exc.messages) from exc
 
         updated_box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class MeasurementPermissionDenied(PermissionDenied):
@@ -1523,7 +1744,9 @@ def _measurement_write_error_response(error):
     if isinstance(error, MeasurementNotFound):
         raise Http404(error.detail) from error
     if isinstance(error, MeasurementWriteForbidden):
-        raise MeasurementPermissionDenied(error.detail, error_code=error.error_code) from error
+        raise MeasurementPermissionDenied(
+            error.detail, error_code=error.error_code
+        ) from error
     if isinstance(error, MeasurementWriteInvalid):
         raise DRFValidationError(error.detail) from error
     if isinstance(error, MeasurementWeekConflict):
@@ -1544,7 +1767,11 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         box = self._get_box(request, box_id)
-        queryset = box.biological_measurements.canonical().select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk")
+        queryset = (
+            box.biological_measurements.canonical()
+            .select_related("user", "original_observer", "imported_by")
+            .order_by("-week_start", "-created_at", "-pk")
+        )
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -1631,16 +1858,20 @@ class BoxSubcultureCodePreviewAPIView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         try:
-            codes = preview_box_codes(parent_box.strain.code, serializer.validated_data["count"])
+            codes = preview_box_codes(
+                parent_box.strain.code, serializer.validated_data["count"]
+            )
         except DjangoValidationError as error:
             raise DRFValidationError(error.messages) from error
-        return Response({
-            "reserved": False,
-            "children": [
-                {"position": position, "global_code": code, "box_number": number}
-                for position, (code, number) in enumerate(codes)
-            ],
-        })
+        return Response(
+            {
+                "reserved": False,
+                "children": [
+                    {"position": position, "global_code": code, "box_number": number}
+                    for position, (code, number) in enumerate(codes)
+                ],
+            }
+        )
 
 
 class BoxSubcultureCreateAPIView(generics.GenericAPIView):
@@ -1648,7 +1879,9 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
 
     def post(self, request, box_id):
         parent_box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         if not user_can_write_lab_data(request.user, parent_box.organization):
@@ -1667,10 +1900,18 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
                 **serializer.validated_data,
             )
         except SubcultureStateChanged as error:
-            return Response({"code": "subculture_current_state_changed", "detail": error.messages[0],
-                             "current_polyp_state": error.current_state}, status=status.HTTP_409_CONFLICT)
+            return Response(
+                {
+                    "code": "subculture_current_state_changed",
+                    "detail": error.messages[0],
+                    "current_polyp_state": error.current_state,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except SubcultureInvalid as error:
-            raise DRFValidationError({"code": error.error_code, "detail": error.messages[0]}) from error
+            raise DRFValidationError(
+                {"code": error.error_code, "detail": error.messages[0]}
+            ) from error
         except DjangoValidationError as error:
             raise DRFValidationError(error.messages) from error
         response_serializer = SubcultureEventSerializer(
@@ -1685,7 +1926,9 @@ class BoxMoveAPIView(generics.GenericAPIView):
 
     def post(self, request, box_id):
         box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box_id,
         )
         if not user_can_write_lab_data(request.user, box.organization):
@@ -1721,10 +1964,15 @@ class BoxMoveAPIView(generics.GenericAPIView):
             raise DRFValidationError(error.messages) from error
 
         updated_box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 def _box_movement_week_conflict_response(*, movement_id, iso_week_start, detail):
@@ -1772,9 +2020,13 @@ class BoxMovementDetailAPIView(generics.GenericAPIView):
         except BoxMovementNotFound as error:
             raise Http404(error.detail) from error
         except BoxMovementForbidden as error:
-            raise BoxMovementPermissionDenied(error.detail, error_code=error.error_code) from error
+            raise BoxMovementPermissionDenied(
+                error.detail, error_code=error.error_code
+            ) from error
         except BoxMovementInvalid as error:
-            raise BoxMovementValidationError(error.detail, error_code=error.error_code) from error
+            raise BoxMovementValidationError(
+                error.detail, error_code=error.error_code
+            ) from error
         except BoxMovementConflict as error:
             if error.error_code == "box_movement_week_conflict":
                 return _box_movement_week_conflict_response(
@@ -1791,7 +2043,10 @@ class BoxMovementDetailAPIView(generics.GenericAPIView):
             box_queryset_for_user(request.user, organization_ids=organization_ids),
             id=box_id,
         )
-        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class BoxLineageGraphAPIView(APIView):
@@ -1853,22 +2108,39 @@ def _thermal_zone_event_querysets(zone):
         "related_zone_id",
         "related_zone_name",
     )
-    arrivals = locations.order_by().annotate(
-        event_type=Value("arrival", output_field=CharField()),
-        occurred_at=F("starts_at"),
-        box_code=F("box__global_code"),
-        box_status=F("box__status"),
-        related_zone_id=Subquery(arrival_movement.values("from_thermal_zone_id")[:1]),
-        related_zone_name=Subquery(arrival_movement.values("from_thermal_zone__name")[:1]),
-    ).values(*shared_values)
-    departures = locations.filter(ends_at__isnull=False).order_by().annotate(
-        event_type=Value("departure", output_field=CharField()),
-        occurred_at=F("ends_at"),
-        box_code=F("box__global_code"),
-        box_status=F("box__status"),
-        related_zone_id=Subquery(departure_movement.values("to_thermal_zone_id")[:1]),
-        related_zone_name=Subquery(departure_movement.values("to_thermal_zone__name")[:1]),
-    ).values(*shared_values)
+    arrivals = (
+        locations.order_by()
+        .annotate(
+            event_type=Value("arrival", output_field=CharField()),
+            occurred_at=F("starts_at"),
+            box_code=F("box__global_code"),
+            box_status=F("box__status"),
+            related_zone_id=Subquery(
+                arrival_movement.values("from_thermal_zone_id")[:1]
+            ),
+            related_zone_name=Subquery(
+                arrival_movement.values("from_thermal_zone__name")[:1]
+            ),
+        )
+        .values(*shared_values)
+    )
+    departures = (
+        locations.filter(ends_at__isnull=False)
+        .order_by()
+        .annotate(
+            event_type=Value("departure", output_field=CharField()),
+            occurred_at=F("ends_at"),
+            box_code=F("box__global_code"),
+            box_status=F("box__status"),
+            related_zone_id=Subquery(
+                departure_movement.values("to_thermal_zone_id")[:1]
+            ),
+            related_zone_name=Subquery(
+                departure_movement.values("to_thermal_zone__name")[:1]
+            ),
+        )
+        .values(*shared_values)
+    )
     return arrivals, departures
 
 
@@ -1903,7 +2175,9 @@ class ThermalZoneMovementHistoryAPIView(generics.ListAPIView):
                 "event_type",
             )
         historical = _historical_zone_rows(zone, direction)
-        return merge_zone_history(operational, historical) if historical else operational
+        return (
+            merge_zone_history(operational, historical) if historical else operational
+        )
 
 
 class ThermalZoneMovementHistorySummaryAPIView(APIView):
@@ -1914,8 +2188,12 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
         zone = _thermal_zone_for_history(request, pk)
         arrivals, departures = _thermal_zone_event_querysets(zone)
         historical = _historical_zone_rows(zone, None)
-        historical_arrivals = [row for row in historical if row["event_type"] == "arrival"]
-        historical_departures = [row for row in historical if row["event_type"] == "departure"]
+        historical_arrivals = [
+            row for row in historical if row["event_type"] == "arrival"
+        ]
+        historical_departures = [
+            row for row in historical if row["event_type"] == "departure"
+        ]
         recent_arrivals = merge_zone_history(
             arrivals.order_by("-occurred_at", "-id")[: self.recent_limit],
             historical_arrivals,
@@ -1942,22 +2220,34 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
             thermal_zone=zone,
             box__organization_id=zone.organization_id,
         )
-        arrival_counts = scoped_locations.filter(
-            starts_at__gte=window_start,
-            starts_at__lt=window_end,
-        ).annotate(
-            week=TruncWeek("starts_at", tzinfo=current_timezone),
-        ).values("week").annotate(
-            count=Count("id"),
-        ).order_by("week")
-        departure_counts = scoped_locations.filter(
-            ends_at__gte=window_start,
-            ends_at__lt=window_end,
-        ).annotate(
-            week=TruncWeek("ends_at", tzinfo=current_timezone),
-        ).values("week").annotate(
-            count=Count("id"),
-        ).order_by("week")
+        arrival_counts = (
+            scoped_locations.filter(
+                starts_at__gte=window_start,
+                starts_at__lt=window_end,
+            )
+            .annotate(
+                week=TruncWeek("starts_at", tzinfo=current_timezone),
+            )
+            .values("week")
+            .annotate(
+                count=Count("id"),
+            )
+            .order_by("week")
+        )
+        departure_counts = (
+            scoped_locations.filter(
+                ends_at__gte=window_start,
+                ends_at__lt=window_end,
+            )
+            .annotate(
+                week=TruncWeek("ends_at", tzinfo=current_timezone),
+            )
+            .values("week")
+            .annotate(
+                count=Count("id"),
+            )
+            .order_by("week")
+        )
 
         entries_by_week = {
             timezone.localtime(item["week"], current_timezone).date(): item["count"]
@@ -2004,7 +2294,9 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
 def _save_thermal_zone(serializer, **kwargs):
     """Save a zone, reporting a name taken concurrently as a validation error."""
     instance = serializer.instance
-    organization = kwargs.get("organization") or serializer.validated_data.get("organization")
+    organization = kwargs.get("organization") or serializer.validated_data.get(
+        "organization"
+    )
     name = serializer.validated_data.get("name", getattr(instance, "name", None))
     try:
         with transaction.atomic():
@@ -2038,7 +2330,9 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         # Creating a zone is reserved to administrators of the owning organization.
         organization = serializer.validated_data["organization"]
         if organization.id not in get_active_admin_organization_ids(self.request):
-            raise PermissionDenied("Ce compte ne peut pas créer de zone pour cette structure.")
+            raise PermissionDenied(
+                "Ce compte ne peut pas créer de zone pour cette structure."
+            )
         zone = _save_thermal_zone(serializer)
         AuditLog.objects.create(
             organization=zone.organization,
@@ -2106,7 +2400,9 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             )
         except ThermalZoneDeletionForbidden as error:
             # Membership changed after the request started: refused under lock.
-            raise PermissionDenied("Ce compte ne peut pas supprimer cet emplacement.") from error
+            raise PermissionDenied(
+                "Ce compte ne peut pas supprimer cet emplacement."
+            ) from error
         except ThermalZone.DoesNotExist as error:
             raise NotFound() from error
         except ThermalZoneInUse as error:
@@ -2141,19 +2437,22 @@ class ThermalZoneDeletionAPIView(APIView):
 
     def get(self, request, pk):
         zone = ThermalZone.objects.filter(
-            pk=pk, organization_id__in=get_active_organization_ids(request),
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
         ).first()
         if zone is None:
             raise NotFound()
         if zone.organization_id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("Ce compte ne peut pas supprimer cet emplacement.")
         reasons = thermal_zone_usage_reasons(zone)
-        return Response({
-            "thermal_zone_id": zone.id,
-            "deletable": not reasons,
-            "reasons": reasons,
-            "box_count": zone.boxes.filter(status=Box.Status.ACTIVE).count(),
-        })
+        return Response(
+            {
+                "thermal_zone_id": zone.id,
+                "deletable": not reasons,
+                "reasons": reasons,
+                "box_count": zone.boxes.filter(status=Box.Status.ACTIVE).count(),
+            }
+        )
 
 
 class ProbeTemperatureEntryConflict(APIException):
@@ -2176,7 +2475,9 @@ class ThermalZoneManualTemperatureAPIView(APIView):
             organization_id__in=get_active_organization_ids(request),
         )
         if not user_can_write_lab_data(request.user, zone.organization):
-            raise PermissionDenied("Ce compte ne peut pas saisir de température pour cet emplacement.")
+            raise PermissionDenied(
+                "Ce compte ne peut pas saisir de température pour cet emplacement."
+            )
         if not zone_probe_monitoring(zone)["manual_entry_available"]:
             raise ProbeTemperatureEntryConflict()
 
@@ -2185,15 +2486,17 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         measured_on = serializer.validated_data["measured_on"]
         temperature_c = serializer.validated_data["temperature_c"]
 
-        daily_temperature, created = DailyTemperature.objects.select_for_update().get_or_create(
-            thermal_zone=zone,
-            date=measured_on,
-            defaults={
-                "min_temperature_c": temperature_c,
-                "average_temperature_c": temperature_c,
-                "max_temperature_c": temperature_c,
-                "measurement_count": 1,
-            },
+        daily_temperature, created = (
+            DailyTemperature.objects.select_for_update().get_or_create(
+                thermal_zone=zone,
+                date=measured_on,
+                defaults={
+                    "min_temperature_c": temperature_c,
+                    "average_temperature_c": temperature_c,
+                    "max_temperature_c": temperature_c,
+                    "measurement_count": 1,
+                },
+            )
         )
         if not created:
             previous_count = daily_temperature.measurement_count or 1
@@ -2285,7 +2588,9 @@ class ThermalZoneManualSalinityAPIView(APIView):
             organization_id__in=get_active_organization_ids(request),
         )
         if not user_can_write_lab_data(request.user, zone.organization):
-            raise PermissionDenied("Ce compte ne peut pas saisir de salinité pour cet emplacement.")
+            raise PermissionDenied(
+                "Ce compte ne peut pas saisir de salinité pour cet emplacement."
+            )
 
         serializer = ManualSalinityCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2338,7 +2643,9 @@ class ThermalZoneManualSalinityAPIView(APIView):
             organization_id__in=get_active_organization_ids(request),
         )
         if not user_can_write_lab_data(request.user, zone.organization):
-            raise PermissionDenied("Ce compte ne peut pas modifier la salinité de cet emplacement.")
+            raise PermissionDenied(
+                "Ce compte ne peut pas modifier la salinité de cet emplacement."
+            )
 
         measurement = get_object_or_404(
             SalinityMeasurement.objects.select_for_update(),
@@ -2346,10 +2653,12 @@ class ThermalZoneManualSalinityAPIView(APIView):
             thermal_zone=zone,
         )
         if timezone.now() >= salinity_editable_until(measurement):
-            raise PermissionDenied({
-                "detail": "La période de correction de 24 heures est terminée.",
-                "code": "salinity_edit_window_expired",
-            })
+            raise PermissionDenied(
+                {
+                    "detail": "La période de correction de 24 heures est terminée.",
+                    "code": "salinity_edit_window_expired",
+                }
+            )
 
         serializer = ManualSalinityUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2365,7 +2674,9 @@ class ThermalZoneManualSalinityAPIView(APIView):
             refreshed_zone = thermal_zone_summary_queryset(
                 ThermalZone.objects.filter(pk=zone.pk)
             ).get()
-            return Response(ThermalZoneSerializer(refreshed_zone, context={"request": request}).data)
+            return Response(
+                ThermalZoneSerializer(refreshed_zone, context={"request": request}).data
+            )
         measurement.save(update_fields=update_fields)
 
         AuditLog.objects.create(
@@ -2388,7 +2699,9 @@ class ThermalZoneManualSalinityAPIView(APIView):
         refreshed_zone = thermal_zone_summary_queryset(
             ThermalZone.objects.filter(pk=zone.pk)
         ).get()
-        return Response(ThermalZoneSerializer(refreshed_zone, context={"request": request}).data)
+        return Response(
+            ThermalZoneSerializer(refreshed_zone, context={"request": request}).data
+        )
 
 
 class ProbeCreateAPIView(generics.CreateAPIView):
@@ -2400,7 +2713,9 @@ class ProbeCreateAPIView(generics.CreateAPIView):
         # organization's admins may register it.
         zone = serializer.validated_data["thermal_zone"]
         if zone.organization_id not in get_active_admin_organization_ids(self.request):
-            raise PermissionDenied("Ce compte ne peut pas ajouter de sonde à cette zone.")
+            raise PermissionDenied(
+                "Ce compte ne peut pas ajouter de sonde à cette zone."
+            )
         probe = serializer.save(organization=zone.organization)
         AuditLog.objects.create(
             organization=zone.organization,
@@ -2429,7 +2744,9 @@ class BoxTransferCreateAPIView(APIView):
     def post(self, request):
         if not get_active_admin_organization_ids(request):
             raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
-        return Response({"code": "box_transfer_create_retired"}, status=status.HTTP_410_GONE)
+        return Response(
+            {"code": "box_transfer_create_retired"}, status=status.HTTP_410_GONE
+        )
 
 
 class BoxTransferImportAPIView(APIView):
@@ -2439,5 +2756,9 @@ class BoxTransferImportAPIView(APIView):
 
     def post(self, request):
         if not get_active_admin_organization_ids(request):
-            raise PermissionDenied("Ce compte ne peut pas importer dans cette structure.")
-        return Response({"code": "box_transfer_import_retired"}, status=status.HTTP_410_GONE)
+            raise PermissionDenied(
+                "Ce compte ne peut pas importer dans cette structure."
+            )
+        return Response(
+            {"code": "box_transfer_import_retired"}, status=status.HTTP_410_GONE
+        )

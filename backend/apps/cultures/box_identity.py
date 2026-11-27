@@ -21,7 +21,11 @@ import re
 from django.db.models import Prefetch, prefetch_related_objects
 from django.utils.translation import get_language
 
-from apps.taxonomy.models import LocalStrainIdentity, OrganizationSpeciesCode, StrainTranslation
+from apps.taxonomy.models import (
+    LocalStrainIdentity,
+    OrganizationSpeciesCode,
+    StrainTranslation,
+)
 
 # Same strict shape as the reviewed historical importer (STRICT_IDENTIFIER).
 CANONICAL_STRAIN_CODE = re.compile(r"^([A-Z]{3})-([A-Z]{3})-([0-9]+)$")
@@ -50,7 +54,8 @@ def institution_species_codes(organization, species_ids):
         return {}
     return dict(
         OrganizationSpeciesCode.objects.filter(
-            organization=organization, species_id__in=species_ids,
+            organization=organization,
+            species_id__in=species_ids,
         ).values_list("species_id", "code")
     )
 
@@ -122,7 +127,9 @@ def strain_display_name(strain):
     """Localized strain name when one was recorded, otherwise an empty string."""
     translations = {item.language_code: item.name for item in strain.translations.all()}
     language = (get_language() or "").split("-")[0]
-    return translations.get(language) or next((name for name in translations.values() if name), "")
+    return translations.get(language) or next(
+        (name for name in translations.values() if name), ""
+    )
 
 
 def box_strain_display_names(boxes):
@@ -136,6 +143,11 @@ def box_strain_display_names(boxes):
     }
     prefetch_related_objects(
         list(strains.values()),
-        Prefetch("translations", queryset=StrainTranslation.objects.only("strain_id", "language_code", "name")),
+        Prefetch(
+            "translations",
+            queryset=StrainTranslation.objects.only(
+                "strain_id", "language_code", "name"
+            ),
+        ),
     )
     return {pk: strain_display_name(strain) or None for pk, strain in strains.items()}
