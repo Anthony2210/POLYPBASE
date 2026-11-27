@@ -74,27 +74,28 @@ Backups are stored in `/srv/polypbase/backups`, with access restricted to the
 - original Neon backup
 - copy of the staging database before cleanup
 - cleaned backup used to create the production database
-- daily production backups
+- historical daily production backups from the old backup service
 
 The deployment backup broker's private archives are separate:
 `/var/lib/polypbase/deployment-backups` must be under a root:root ancestor with
 mode 0755, and the directory itself must be owned by
 `polypbase_backup:polypbase_backup` with mode 0700. Never make these archives
-readable by `polypbase`. Daily backups and their retention remain under
-`/srv/polypbase/backups`.
+readable by `polypbase`. The broker does not apply automatic retention; this
+procedure does not move or prune existing archives.
 
-The `polypbase-backup.timer` timer runs a verified backup each night at about
-2:30 a.m. and keeps 14 days of backups with the `polypbase` prefix.
+The `polypbase-backup.timer` timer runs the isolated broker each night at about
+2:30 a.m., with up to 15 minutes of randomized delay. The service passes no
+commit, so the broker writes `nightly-<YYYYMMDDTHHMMSSZ>.dump` in the private
+directory. Release backups keep the `pre-<8-char-sha>-<YYYYMMDDTHHMMSSZ>.dump`
+name. Both timestamps are UTC. See the [one-time cutover](#one-time-root-cutover-for-backup-approval).
 
 The operational script `deploy/scripts/backup_database.py` now requires
 `/usr/lib/postgresql/18/bin/pg_dump` and `pg_restore`, with no fallback to `pg_wrapper`.
 Both clients and their parent directories must be owned by root, must not be
 symlinks, and must not be writable by the group or others. The binaries must be
 executable and report PostgreSQL 18. Any rejection stops the backup before the
-archive is created and without applying retention. The existing systemd unit
-uses this behavior as soon as the script is updated, without any change to its
-`ExecStart`. Confirm the presence and permissions of both clients on the VM
-before that update. The old PCA campaign helpers are no longer part of this
+archive is created. Confirm the presence and permissions of both clients on the
+VM before the cutover. The old PCA campaign helpers are no longer part of this
 procedure; see the [archived PCA folder](../archive/2026-10-pca/).
 
 ```bash
@@ -103,13 +104,9 @@ systemctl list-timers polypbase-backup.timer --no-pager
 journalctl -u polypbase-backup.service -n 50 --no-pager
 ```
 
-A manual backup can be run with:
-
-```bash
-cd /srv/polypbase/app/backend
-sudo -u polypbase ../.venv/bin/python \
-  ../deploy/scripts/backup_database.py --label manual
-```
+With explicit operator approval, run a manual backup through the same isolated
+service with `sudo systemctl start polypbase-backup.service` and check the journal
+for the new `BACKUP_OK` line.
 
 Arrange for an off-VM copy as well: a backup on the same disk does not protect
 against complete machine failure.
@@ -194,11 +191,14 @@ The command performs the following steps itself:
 
 The runner invokes the broker installed by root at
 `/usr/local/libexec/polypbase-deployment-backup` via `sudo -n -u polypbase_backup`,
-passing only the full target SHA. The operator pins the approved SHA and the
-fingerprints of the two reviewed helpers in the broker's protected
-configuration. The broker uses system Python and the dedicated PostgreSQL login
+passing only the full target SHA as a filename label. The deployment runner
+still checks the target against `origin/main`; the broker does not look up or
+approve commits. It checks the SHA-256 of the two installed helpers against the
+root-owned configuration on every run. Root only needs to repin the bundle when
+its reviewed bytes change, independently of application releases. The broker
+uses system Python and the dedicated peer-authenticated PostgreSQL login
 `box1902_backup`, never the web checkout, its virtual environment, or its `.env`.
-See the [installation and verification contract](#reprise-par-migrateur-dédié).
+See the [broker installation contract](../../deploy/scripts/trusted_deployment_backup.py).
 
 Before fast-forwarding, the release requires `BACKUP_OK` output with the expected
 private path for that commit. The broker creates and checks the archive with the
@@ -217,6 +217,147 @@ To run only the local checks without contacting the VM:
 ```powershell
 .\deploy\deploy_vm.ps1 -PreflightOnly
 ```
+
+### One-time root cutover for backup approval
+
+Run only after explicit production approval, as root in Bash from an independently
+reviewed, root-controlled snapshot (not `/srv/polypbase/app`). Pause deployments
+until verification succeeds. Run each command in order and stop on failure or
+unexpected output. Leave the pinned helper files, database settings, peer mapping,
+sudo rule, archive directory, and timer schedule unchanged.
+
+1. Confirm the base unit is a regular file at the path below and only the two
+   named drop-ins apply. Review the drop-ins privately for any extra hardening
+   or site-specific settings. If present, stop and reconcile them before removal.
+   Confirm the timer is active and enabled. Record the legacy `approved_commit`
+   and the SHA in `20-current-release.conf` privately, without exporting or
+   copying the JSON. They must match for rollback; if not, resolve the mismatch
+   in the rollback plan before proceeding.
+
+   ```bash
+   unit=polypbase-backup.service
+   timer=polypbase-backup.timer
+   fragment=/etc/systemd/system/$unit
+   dropins=$fragment.d
+   broker=/usr/local/libexec/polypbase-deployment-backup
+   config=/etc/polypbase/deployment-backup.json
+
+   systemctl show "$unit" -p FragmentPath -p DropInPaths -p User -p Group -p ExecStart
+   systemctl is-active "$timer"
+   systemctl is-enabled "$timer"
+   visudo -cf /etc/sudoers.d/polypbase-deployment-backup
+   sudo -l -U polypbase
+   stat -c '%a %U:%G %n' "$broker" "$config" /var/lib/polypbase/deployment-backups
+   ```
+
+2. Stop the timer and wait for any in-flight backup to finish. Keep the path of
+   the root-only rollback directory. Save only the broker and unit files, not
+   the JSON or anything containing credentials. Install the new broker first:
+   the old one still requires `approved_commit` and a SHA argument.
+
+   ```bash
+   systemctl stop "$timer"
+   systemctl show "$unit" -p ActiveState -p SubState
+   saved=$(mktemp -d)
+   cp -p -- "$broker" "$fragment" "$dropins/10-isolated-broker.conf" \
+     "$dropins/20-current-release.conf" "$saved/"
+   install -o root -g root -m 0755 deploy/scripts/trusted_deployment_backup.py "$broker"
+   ```
+
+3. Remove just `approved_commit` from the JSON with a root editor that leaves
+   no backup or swap copies. Keep the SHA-256 manifest and database settings
+   intact. The new broker accepts either config, so this cleanup can also wait
+   until after the unit switch. Install the versioned base unit and remove both
+   overrides; otherwise the old SHA argument can still take precedence.
+
+   ```bash
+   editor "$config"
+   stat -c '%a %U:%G %n' "$config"
+   install -o root -g root -m 0644 deploy/systemd/polypbase-backup.service "$fragment"
+   rm -- "$dropins/10-isolated-broker.conf" "$dropins/20-current-release.conf"
+   systemd-analyze verify "$fragment"
+   systemctl daemon-reload
+   systemctl show "$unit" -p FragmentPath -p DropInPaths -p User -p Group -p ExecStart -p EnvironmentFiles
+   ```
+
+   Expect JSON permissions `640 root:polypbase_backup` and archive directory
+   permissions `700 polypbase_backup:polypbase_backup`. Confirm the service uses
+   the dedicated user and group, with no drop-ins or environment file and a
+   single `ExecStart` pointing to the broker without arguments.
+
+4. Start the service once and require a fresh `BACKUP_OK`. Paste only the path
+   from that line when prompted. Confirm the file is nonempty, mode `600`, and
+   owned by `polypbase_backup`. The web account must not be able to read the
+   archive or the config. Then check the deploy-time sudo call with a reviewed
+   full SHA (a second backup, not a deployment). Start the timer again only
+   after both checks succeed.
+
+   ```bash
+   started=$(date '+%Y-%m-%d %H:%M:%S')
+   systemctl start "$unit"
+   journalctl -u "$unit" --since "$started" -o cat --no-pager | \
+     grep -Ex 'BACKUP_OK /var/lib/polypbase/deployment-backups/nightly-[0-9]{8}T[0-9]{6}Z\.dump'
+   read -r -p 'Nightly archive path: ' archive
+   stat -c '%a %U:%G %s %n' "$archive"
+   sudo -u polypbase -- test ! -r "$archive"
+   sudo -u polypbase -- test ! -r "$config"
+
+   read -r -p 'Reviewed full SHA: ' target
+   [[ "$target" =~ ^[0-9a-f]{40}$ ]]
+   result=$(sudo -u polypbase -- /usr/bin/sudo -n -u polypbase_backup "$broker" "$target")
+   printf '%s\n' "$result" | grep -Ex \
+     "BACKUP_OK /var/lib/polypbase/deployment-backups/pre-${target:0:8}-[0-9]{8}T[0-9]{6}Z\.dump"
+
+   systemctl start "$timer"
+   systemctl list-timers "$timer" --no-pager
+   ```
+
+#### Roll back the backup configuration
+
+If the cutover fails, leave deployments paused and report the failing step.
+Roll back only with explicit approval. Stop the timer and wait for any backup
+in progress to finish. Use the root-only directory from step 2, and restore the
+legacy `approved_commit` matching the saved nightly SHA without changing any other
+JSON fields. This rolls back only backup configuration, not a release or database.
+
+```bash
+systemctl stop "$timer"
+systemctl show "$unit" -p ActiveState -p SubState
+editor "$config"
+stat -c '%a %U:%G %n' "$config"
+install -o root -g root -m 0755 "$saved/polypbase-deployment-backup" "$broker"
+install -o root -g root -m 0644 "$saved/$unit" "$fragment"
+install -o root -g root -m 0644 "$saved/10-isolated-broker.conf" "$dropins/10-isolated-broker.conf"
+install -o root -g root -m 0644 "$saved/20-current-release.conf" "$dropins/20-current-release.conf"
+systemctl daemon-reload
+systemctl show "$unit" -p DropInPaths -p User -p Group -p ExecStart
+read -r -p 'Restored nightly full SHA: ' target
+[[ "$target" =~ ^[0-9a-f]{40}$ ]]
+started=$(date '+%Y-%m-%d %H:%M:%S')
+systemctl start "$unit"
+journalctl -u "$unit" --since "$started" -o cat --no-pager | grep -Ex \
+  "BACKUP_OK /var/lib/polypbase/deployment-backups/pre-${target:0:8}-[0-9]{8}T[0-9]{6}Z\.dump"
+systemctl start "$timer"
+systemctl list-timers "$timer" --no-pager
+```
+
+The old broker again requires a matching approval key for releases. Never
+make an archive web-readable or fall back to backing up with the web role.
+
+#### Security impact
+
+Before the cutover, a compromised web identity could use the existing narrow
+sudo rule to request backups only with the approved SHA. Afterward it can
+request backups with any valid SHA or no label. Labels do not prove that a
+release or the timer initiated a backup. Repeated requests can consume database,
+CPU, or disk capacity; the old check did not prevent repeat requests for an
+approved SHA. This change adds no throttling and does not change retention.
+
+The web identity still cannot select the database, credentials, helpers, or
+output directory. The sudo rule, pinned helper checks, isolated OS identity,
+scrubbed environment, and peer-authenticated PostgreSQL role remain in place.
+The web identity receives only an attested path, not access to the private
+archive or the root-owned configuration.
 
 ### Fast resume after verified GitHub CI (`-UseVerifiedGitHubCi`)
 
