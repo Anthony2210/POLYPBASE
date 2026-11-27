@@ -97,6 +97,7 @@ _BOX_FIELDS = {
     "statut",
     "raison_arret",
     "note",
+    "planned_weekday",
 }
 _ENVIRONMENT_FIELDS = {
     "nom",

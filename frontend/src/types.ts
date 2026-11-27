@@ -188,7 +188,11 @@ export type BoxItem = {
   latest_measurement: BiologicalMeasurement | null;
   current_polyp_state: CurrentPolypState;
   latest_salinity_psu: string | null;
+  // ISO weekday planned for the weekly record (1 = Monday ... 7 = Sunday); null when none.
+  readonly planned_weekday?: PlannedWeekday | null;
 };
+
+export type PlannedWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type BoxInventoryItem = {
   id: number;
@@ -313,6 +317,7 @@ export type OverviewBox = {
   global_code: string;
   species_name: string;
   strain_code: string;
+  readonly planned_weekday?: PlannedWeekday | null;
   tracked_in_app: boolean;
   current_polyp_state: CurrentPolypState;
   thermal_zone: {
@@ -472,6 +477,8 @@ export type SubcultureChildPayload = {
   thermal_zone_id: number;
   allocated_polyps?: number | null;
   copy_origin: boolean;
+  // Omitted means true: the child inherits the parent's planned weekday.
+  copy_planned_weekday?: boolean;
   notes: string;
 };
 

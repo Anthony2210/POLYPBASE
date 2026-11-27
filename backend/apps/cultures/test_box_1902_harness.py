@@ -114,9 +114,7 @@ class Box1902HarnessTests(SimpleTestCase):
         self.assertIn(harness.MIGRATION, old_plan)
         targets, plan = self.baseline_plan(loader)
         self.assertNotIn(later, plan)
-        self.assertIn(
-            ("cultures", "0025_merge_local_id_hardening_and_donations"), targets
-        )
+        self.assertIn(("cultures", "0026_box_planned_weekday"), targets)
         for name in (
             "0019_global_box_identity",
             "0020_box_donation_proposal",

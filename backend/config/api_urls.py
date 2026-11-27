@@ -56,6 +56,7 @@ from apps.cultures.api_views import (
     BoxMeasurementListCreateAPIView,
     BoxMoveAPIView,
     BoxMovementDetailAPIView,
+    BoxPlannedWeekdayAPIView,
     BoxQualifyAPIView,
     BoxScanAPIView,
     BoxGlobalIdResolveAPIView,
@@ -334,6 +335,11 @@ urlpatterns = [
         "boxes/<int:box_id>/activate/",
         BoxActivateAPIView.as_view(),
         name="api_box_activate",
+    ),
+    path(
+        "boxes/<int:box_id>/planned-weekday/",
+        BoxPlannedWeekdayAPIView.as_view(),
+        name="api_box_planned_weekday",
     ),
     path(
         "boxes/<int:box_id>/qualify/",

@@ -59,10 +59,13 @@ class BoxAdmin(admin.ModelAdmin):
         ) and super().has_delete_permission(request, obj)
 
     def get_readonly_fields(self, request, obj=None):
-        # The current location changes only through the movement services.
+        # The current location changes only through the movement services, and
+        # the planned weekday only through its audited service.
         readonly_fields = tuple(super().get_readonly_fields(request, obj))
         return (
-            readonly_fields + ("thermal_zone",) if obj is not None else readonly_fields
+            readonly_fields + ("thermal_zone", "planned_weekday")
+            if obj is not None
+            else readonly_fields
         )
 
 

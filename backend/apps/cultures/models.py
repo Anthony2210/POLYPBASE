@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import models, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Cast, TruncWeek
@@ -207,6 +207,13 @@ class Box(models.Model):
     stop_reason_missing_from_history = models.BooleanField(default=False)
     deactivated_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    # ISO weekday planned for the weekly record (1 = Monday ... 7 = Sunday).
+    # NULL means no day is planned, never "any day".
+    planned_weekday = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+    )
     polyp_state_revision = models.PositiveBigIntegerField(default=0, editable=False)
     merged_into = models.ForeignKey(
         "self",
@@ -404,6 +411,11 @@ class Box(models.Model):
                     & ~Q(merged_into=models.F("pk"))
                 ),
                 name="merged_box_is_retired",
+            ),
+            models.CheckConstraint(
+                condition=Q(planned_weekday__isnull=True)
+                | Q(planned_weekday__gte=1, planned_weekday__lte=7),
+                name="box_planned_weekday_iso_range",
             ),
             # One live record per physical Box within an institution; retired
             # merge aliases may share the identity of their terminal record.

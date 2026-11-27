@@ -38,7 +38,20 @@ CULTURES_0022 = ("cultures", "0022_box_global_identity")
 CULTURES_0023 = ("cultures", "0023_box_local_id_alias")
 CULTURES_0024_HARDENING = ("cultures", "0024_local_id_guard_search_path")
 TAXONOMY_0012 = ("taxonomy", "0012_institution_species_foundation")
+CULTURES_0026 = ("cultures", "0026_box_planned_weekday")
 Reason = BoxGlobalIdentity.AllocationReason
+
+
+def without_planned_weekday(snapshot):
+    """Expected state after also undoing 0026, which only drops its own column."""
+    columns = snapshot["columns"]["cultures_box"]
+    return {
+        **snapshot,
+        "columns": {
+            **snapshot["columns"],
+            "cultures_box": [name for name in columns if name != "planned_weekday"],
+        },
+    }
 
 
 def sqlstate(error):
@@ -181,6 +194,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
         self.assertEqual(
             names(CULTURES_0021),
             [
+                "cultures.0026_box_planned_weekday",
                 "cultures.0025_merge_local_id_hardening_and_donations",
                 "cultures.0024_merge_donation_and_local_identity",
                 "cultures.0024_local_id_guard_search_path",
@@ -299,6 +313,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
                 for migration, backwards in plan
             ],
             [
+                (*CULTURES_0026, True),
                 ("cultures", "0025_merge_local_id_hardening_and_donations", True),
                 ("cultures", "0024_merge_donation_and_local_identity", True),
                 ("cultures", "0024_local_id_guard_search_path", True),
@@ -317,24 +332,25 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
                 for migration, backwards in plan
             ],
             [
+                (*CULTURES_0026, True),
                 ("cultures", "0025_merge_local_id_hardening_and_donations", True),
             ],
         )
         before = self.snapshot()
         self.migrate(target)
         after = self.snapshot()
+        removed = {(migration.app_label, migration.name) for migration, _ in plan}
         self.assertEqual(
             after.pop("migrations"),
-            [
-                row
-                for row in before.pop("migrations")
-                if row[:2]
-                != ("cultures", "0025_merge_local_id_hardening_and_donations")
-            ],
+            [row for row in before.pop("migrations") if row[:2] not in removed],
         )
-        self.assertEqual(after, before)
+        self.assertEqual(after, without_planned_weekday(before))
+        # The current model would select the planned weekday column 0026 just removed.
         self.assertEqual(
-            Box.objects.get(pk=box.pk).global_identity_id, identity.global_id
+            Box.objects.filter(pk=box.pk)
+            .values_list("global_identity_id", flat=True)
+            .get(),
+            identity.global_id,
         )
         if connection.vendor == "postgresql":
             self.assertFalse(self.holds_registry_key())
@@ -349,6 +365,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
                 for migration, backwards in plan
             ],
             [
+                (*CULTURES_0026, True),
                 ("cultures", "0025_merge_local_id_hardening_and_donations", True),
                 ("cultures", "0024_local_id_guard_search_path", True),
                 ("cultures", "0024_merge_donation_and_local_identity", True),
@@ -363,7 +380,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
             after.pop("migrations"),
             [row for row in before.pop("migrations") if row[:2] not in removed],
         )
-        self.assertEqual(after, before)
+        self.assertEqual(after, without_planned_weekday(before))
         plan = MigrationExecutor(connection).migration_plan([CULTURES_0022])
         self.assertEqual(
             [

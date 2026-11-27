@@ -64,7 +64,9 @@ class DnaValidationMigrationTests(TransactionTestCase):
             model = apps.get_model(*label)
             historical_fields = tuple(rows[0])
             added_fields = (
-                {"global_identity_id"} if label == ("cultures", "Box") else set()
+                {"global_identity_id", "planned_weekday"}
+                if label == ("cultures", "Box")
+                else set()
             )
             self.assertEqual(
                 {field.attname for field in model._meta.concrete_fields},
@@ -111,5 +113,5 @@ class DnaValidationMigrationTests(TransactionTestCase):
                 )
         self.assertEqual(
             executor.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0025_merge_local_id_hardening_and_donations")],
+            [("cultures", "0026_box_planned_weekday")],
         )

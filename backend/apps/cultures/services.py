@@ -355,6 +355,41 @@ def reactivate_box(*, box, thermal_zone, user, notes=""):
     return box
 
 
+@transaction.atomic
+def set_box_planned_weekday(*, box, planned_weekday, user):
+    """Set or clear the planned ISO weekday under the Box lock and audit the change.
+
+    The caller authorizes the actor. An unchanged value writes nothing, so the
+    audit log only records real before/after transitions.
+    """
+    box = _locked_box(box)
+    before = box.planned_weekday
+    if before == planned_weekday:
+        return box
+    # Field validators reject values outside 1..7 for non-API callers too.
+    box.planned_weekday = Box._meta.get_field("planned_weekday").clean(
+        planned_weekday, box
+    )
+    box.save(update_fields=["planned_weekday"])
+    AuditLog.objects.create(
+        organization=box.organization,
+        user=user,
+        action=AuditLog.Action.UPDATE,
+        object_type="box",
+        object_id=box.global_code,
+        description=f"Box planned weekday updated: {box.global_code}",
+        metadata={
+            "event": "box_planned_weekday_updated",
+            "box_id": box.id,
+            # Same before/after shape as other audited box field changes.
+            "modifications": {
+                "planned_weekday": {"avant": before, "apres": box.planned_weekday}
+            },
+        },
+    )
+    return box
+
+
 class SubcultureStateChanged(ValidationError):
     def __init__(self, current_state):
         self.current_state = current_state
@@ -489,6 +524,11 @@ def create_subculture(
             volume_liters=parent_box.volume_liters
             if child_data.get("copy_volume_liters", True)
             else None,
+            planned_weekday=(
+                parent_box.planned_weekday
+                if child_data.get("copy_planned_weekday", True)
+                else None
+            ),
             thermal_zone=thermal_zone,
             entered_on=event_date,
             notes=child_data.get("notes", ""),

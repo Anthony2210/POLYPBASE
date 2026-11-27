@@ -540,10 +540,11 @@ class BoxGlobalIdentityMigrationTests(
                 {
                     key: value
                     for key, value in after[pk].items()
-                    if key != "global_identity_id"
+                    if key not in {"global_identity_id", "planned_weekday"}
                 },
                 row,
             )
+            self.assertIsNone(after[pk]["planned_weekday"])
         identities = {pk: row["global_identity_id"] for pk, row in after.items()}
         Identity = apps.get_model("cultures", "BoxGlobalIdentity")
         self.assertEqual(

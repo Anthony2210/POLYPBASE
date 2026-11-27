@@ -627,10 +627,12 @@ class BoxLocalIdAliasMigrationTests(DisposablePostgresFlushMixin, TransactionTes
                 "official": donor.pk,
             },
         )
-        self.assertEqual(
-            list(apps.get_model("cultures", "Box").objects.order_by("pk").values()),
-            rows,
+        # 0026 adds an empty planned weekday; every historical column is unchanged.
+        upgraded = list(
+            apps.get_model("cultures", "Box").objects.order_by("pk").values()
         )
+        self.assertEqual({row.pop("planned_weekday") for row in upgraded}, {None})
+        self.assertEqual(upgraded, rows)
         # Unchanged legacy conflicts remain inspectable and scientifically editable.
         HistoricalBox.objects.filter(pk=conflict.pk).update(notes="review pending")
         with self.assertRaises(DatabaseError), transaction.atomic():

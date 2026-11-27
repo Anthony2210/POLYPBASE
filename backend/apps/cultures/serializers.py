@@ -318,6 +318,8 @@ class BoxListSerializer(serializers.ModelSerializer):
     # Permanent physical identity; NULL until initialized. Read-only: no API
     # accepts a Global ID as input to create, reassign or merge a Box.
     global_id = serializers.UUIDField(source="global_identity_id", read_only=True)
+    # Read-only here: admins change it through the dedicated planned weekday endpoint.
+    planned_weekday = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Box
@@ -341,6 +343,7 @@ class BoxListSerializer(serializers.ModelSerializer):
             "latest_salinity_psu",
             "current_location_started_at",
             "current_polyp_state",
+            "planned_weekday",
         ]
 
     @cached_property
@@ -777,6 +780,28 @@ class BoxDeactivateSerializer(serializers.Serializer):
     )
 
 
+class BoxPlannedWeekdaySerializer(serializers.Serializer):
+    """Validate one ISO weekday (1 = Monday ... 7 = Sunday), or null to clear it."""
+
+    planned_weekday = serializers.IntegerField(
+        min_value=1, max_value=7, allow_null=True
+    )
+
+    def to_internal_value(self, data):
+        if isinstance(data, Mapping):
+            value = data.get("planned_weekday")
+            # Strict JSON integers only: reject booleans, strings and floats.
+            if value is not None and type(value) is not int:
+                raise serializers.ValidationError(
+                    {
+                        "planned_weekday": [
+                            self.fields["planned_weekday"].error_messages["invalid"]
+                        ]
+                    }
+                )
+        return super().to_internal_value(data)
+
+
 class BoxActivateSerializer(serializers.Serializer):
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
@@ -983,6 +1008,7 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
     )
     copy_origin = serializers.BooleanField(default=True)
     copy_volume_liters = serializers.BooleanField(default=True, required=False)
+    copy_planned_weekday = serializers.BooleanField(default=True, required=False)
     allocated_polyps = serializers.IntegerField(
         min_value=0, max_value=2147483647, required=False, allow_null=True, default=None
     )
