@@ -90,7 +90,9 @@ class BoxPlannedWeekdayMigrationTests(TransactionTestCase):
         # Direct executor use skips the preflight; the migration's own guard
         # still refuses before dropping anything.
         with self.assertRaisesRegex(
-            IrreversibleError, r"planned weekday of 1 box\(es\).*audit log"
+            IrreversibleError,
+            r"planned weekday of 1 box\(es\)\..*explicit edits only.*inherited on transplant"
+            r".*Export the current assignments",
         ):
             self.migrate(BEFORE)
         self.assertIn("planned_weekday", self.box_columns())

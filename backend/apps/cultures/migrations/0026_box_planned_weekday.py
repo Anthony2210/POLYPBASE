@@ -50,8 +50,10 @@ def refuse_planned_weekday_loss(apps, schema_editor):
     if count:
         raise IrreversibleError(
             f"Rollback would discard the planned weekday of {count} box(es). "
-            "Every value is kept in the audit log (event "
-            "box_planned_weekday_updated). Clear them or retain migration 0026."
+            "The audit log (event box_planned_weekday_updated) records explicit "
+            "edits only: a value inherited on transplant has no audit event of "
+            "its own. Export the current assignments before clearing them for a "
+            "rollback, or retain migration 0026."
         )
 
 

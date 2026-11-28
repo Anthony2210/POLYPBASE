@@ -327,7 +327,9 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
         )
         self.assert_refused_without_change(
             CULTURES_0025,
-            r"planned weekday of 2 box\(es\)\. Every value is kept in the audit log",
+            r"planned weekday of 2 box\(es\)\. The audit log .* records explicit edits only: "
+            r"a value inherited on transplant has no audit event of its own\. "
+            r"Export the current assignments before clearing them",
         )
         self.assertIn(
             CULTURES_0026, MigrationExecutor(connection).loader.applied_migrations
