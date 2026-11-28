@@ -24,7 +24,10 @@ from apps.cultures.box_donation_api import (
     BoxDonationPreflightAPIView,
 )
 from apps.cultures.history_api import BoxHistoryAPIView
-from apps.cultures.dna_validation_api import BoxDnaValidationAPIView, BoxDnaValidationRevokeAPIView
+from apps.cultures.dna_validation_api import (
+    BoxDnaValidationAPIView,
+    BoxDnaValidationRevokeAPIView,
+)
 from apps.cultures.history_preview_api import BoxHistoryPreviewAPIView
 from apps.measurements.probe_views import (
     ThermalZoneProbeReadingsAPIView,
@@ -53,6 +56,7 @@ from apps.cultures.api_views import (
     BoxMeasurementListCreateAPIView,
     BoxMoveAPIView,
     BoxMovementDetailAPIView,
+    BoxPlannedWeekdayAPIView,
     BoxQualifyAPIView,
     BoxScanAPIView,
     BoxGlobalIdResolveAPIView,
@@ -83,8 +87,10 @@ from apps.exports.views import (
     WeeklyMeasurementPreviewAPIView,
 )
 from apps.measurements.import_api import (
-    MeasurementImportInspectAPIView, MeasurementImportPreviewAPIView,
-    MeasurementImportApplyAPIView, MeasurementImportReceiptAPIView,
+    MeasurementImportInspectAPIView,
+    MeasurementImportPreviewAPIView,
+    MeasurementImportApplyAPIView,
+    MeasurementImportReceiptAPIView,
     MeasurementImportSourceAPIView,
 )
 from apps.organizations.api_views import OrganizationDetailAPIView
@@ -127,14 +133,42 @@ from apps.taxonomy.api_views import (
 )
 
 urlpatterns = [
-    path("boxes/<int:box_id>/dna-validation/", BoxDnaValidationAPIView.as_view(), name="api_box_dna_validation"),
-    path("boxes/<int:box_id>/dna-validation/revoke/", BoxDnaValidationRevokeAPIView.as_view(), name="api_box_dna_validation_revoke"),
+    path(
+        "boxes/<int:box_id>/dna-validation/",
+        BoxDnaValidationAPIView.as_view(),
+        name="api_box_dna_validation",
+    ),
+    path(
+        "boxes/<int:box_id>/dna-validation/revoke/",
+        BoxDnaValidationRevokeAPIView.as_view(),
+        name="api_box_dna_validation_revoke",
+    ),
     path("health/", HealthAPIView.as_view(), name="api_health"),
-    path("measurement-import/inspect/", MeasurementImportInspectAPIView.as_view(), name="api_measurement_import_inspect"),
-    path("measurement-import/preview/", MeasurementImportPreviewAPIView.as_view(), name="api_measurement_import_preview"),
-    path("measurement-import/apply/", MeasurementImportApplyAPIView.as_view(), name="api_measurement_import_apply"),
-    path("measurement-import/receipts/<uuid:receipt_id>/", MeasurementImportReceiptAPIView.as_view(), name="api_measurement_import_receipt"),
-    path("measurement-import/receipts/<uuid:receipt_id>/source/", MeasurementImportSourceAPIView.as_view(), name="api_measurement_import_source"),
+    path(
+        "measurement-import/inspect/",
+        MeasurementImportInspectAPIView.as_view(),
+        name="api_measurement_import_inspect",
+    ),
+    path(
+        "measurement-import/preview/",
+        MeasurementImportPreviewAPIView.as_view(),
+        name="api_measurement_import_preview",
+    ),
+    path(
+        "measurement-import/apply/",
+        MeasurementImportApplyAPIView.as_view(),
+        name="api_measurement_import_apply",
+    ),
+    path(
+        "measurement-import/receipts/<uuid:receipt_id>/",
+        MeasurementImportReceiptAPIView.as_view(),
+        name="api_measurement_import_receipt",
+    ),
+    path(
+        "measurement-import/receipts/<uuid:receipt_id>/source/",
+        MeasurementImportSourceAPIView.as_view(),
+        name="api_measurement_import_source",
+    ),
     path("auth/session/", SessionLoginAPIView.as_view(), name="api_session_login"),
     path("auth/logout/", SessionLogoutAPIView.as_view(), name="api_session_logout"),
     path(
@@ -148,7 +182,11 @@ urlpatterns = [
         name="api_password_reset_confirm",
     ),
     path("dashboard/", DashboardAPIView.as_view(), name="api_dashboard"),
-    path("overview/active-boxes/", OverviewActiveBoxesAPIView.as_view(), name="api_overview_active_boxes"),
+    path(
+        "overview/active-boxes/",
+        OverviewActiveBoxesAPIView.as_view(),
+        name="api_overview_active_boxes",
+    ),
     path(
         "admin/box-inventory/",
         AdminBoxInventoryListAPIView.as_view(),
@@ -169,11 +207,31 @@ urlpatterns = [
         AdminBoxInventoryBatchQualifyAPIView.as_view(),
         name="api_admin_box_inventory_batch_qualify",
     ),
-    path("admin/box-shares/", BoxShareListCreateAPIView.as_view(), name="api_admin_box_shares"),
-    path("admin/box-shares/options/", BoxShareOptionsAPIView.as_view(), name="api_admin_box_share_options"),
-    path("admin/box-shares/preview/", BoxSharePreviewAPIView.as_view(), name="api_admin_box_share_preview"),
-    path("admin/box-shares/<int:pk>/", BoxShareDetailAPIView.as_view(), name="api_admin_box_share_detail"),
-    path("admin/box-shares/<int:pk>/revoke/", BoxShareRevokeAPIView.as_view(), name="api_admin_box_share_revoke"),
+    path(
+        "admin/box-shares/",
+        BoxShareListCreateAPIView.as_view(),
+        name="api_admin_box_shares",
+    ),
+    path(
+        "admin/box-shares/options/",
+        BoxShareOptionsAPIView.as_view(),
+        name="api_admin_box_share_options",
+    ),
+    path(
+        "admin/box-shares/preview/",
+        BoxSharePreviewAPIView.as_view(),
+        name="api_admin_box_share_preview",
+    ),
+    path(
+        "admin/box-shares/<int:pk>/",
+        BoxShareDetailAPIView.as_view(),
+        name="api_admin_box_share_detail",
+    ),
+    path(
+        "admin/box-shares/<int:pk>/revoke/",
+        BoxShareRevokeAPIView.as_view(),
+        name="api_admin_box_share_revoke",
+    ),
     path(
         "admin/box-shares/<int:pk>/reissue-invitation/",
         BoxShareInvitationReissueAPIView.as_view(),
@@ -190,19 +248,58 @@ urlpatterns = [
         SharedBoxInvitationAcceptAPIView.as_view(),
         name="api_shared_box_invitation_accept",
     ),
-    path("shared-boxes/<uuid:public_id>/", SharedBoxDetailAPIView.as_view(), name="api_shared_box_detail"),
+    path(
+        "shared-boxes/<uuid:public_id>/",
+        SharedBoxDetailAPIView.as_view(),
+        name="api_shared_box_detail",
+    ),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
-    path("boxes/automatic/", AutomaticBoxCreateAPIView.as_view(), name="api_box_automatic"),
-    path("boxes/automatic/resolve/", AutomaticBoxResolveAPIView.as_view(), name="api_box_automatic_resolve"),
-
-    path("boxes/automatic/strains/", AutomaticBoxStrainOptionsAPIView.as_view(), name="api_box_automatic_strains"),
-    path("boxes/automatic/intents/", AutomaticBoxIntentAPIView.as_view(), name="api_box_automatic_intent"),
-    path("boxes/automatic/intents/execute/", AutomaticBoxIntentExecuteAPIView.as_view(), name="api_box_automatic_intent_execute"),
-    path("boxes/automatic/intents/cancel/", AutomaticBoxIntentCancelAPIView.as_view(), name="api_box_automatic_intent_cancel"),
-    path("boxes/by-code/<path:code>/", BoxDetailByCodeAPIView.as_view(), name="api_box_detail_by_code"),
+    path(
+        "boxes/automatic/",
+        AutomaticBoxCreateAPIView.as_view(),
+        name="api_box_automatic",
+    ),
+    path(
+        "boxes/automatic/resolve/",
+        AutomaticBoxResolveAPIView.as_view(),
+        name="api_box_automatic_resolve",
+    ),
+    path(
+        "boxes/automatic/strains/",
+        AutomaticBoxStrainOptionsAPIView.as_view(),
+        name="api_box_automatic_strains",
+    ),
+    path(
+        "boxes/automatic/intents/",
+        AutomaticBoxIntentAPIView.as_view(),
+        name="api_box_automatic_intent",
+    ),
+    path(
+        "boxes/automatic/intents/execute/",
+        AutomaticBoxIntentExecuteAPIView.as_view(),
+        name="api_box_automatic_intent_execute",
+    ),
+    path(
+        "boxes/automatic/intents/cancel/",
+        AutomaticBoxIntentCancelAPIView.as_view(),
+        name="api_box_automatic_intent_cancel",
+    ),
+    path(
+        "boxes/by-code/<path:code>/",
+        BoxDetailByCodeAPIView.as_view(),
+        name="api_box_detail_by_code",
+    ),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
-    path("boxes/<int:box_id>/history/", BoxHistoryAPIView.as_view(), name="api_box_history"),
-    path("boxes/<int:box_id>/history/preview/", BoxHistoryPreviewAPIView.as_view(), name="api_box_history_preview"),
+    path(
+        "boxes/<int:box_id>/history/",
+        BoxHistoryAPIView.as_view(),
+        name="api_box_history",
+    ),
+    path(
+        "boxes/<int:box_id>/history/preview/",
+        BoxHistoryPreviewAPIView.as_view(),
+        name="api_box_history_preview",
+    ),
     path(
         "boxes/global/<uuid:global_id>/",
         BoxGlobalIdResolveAPIView.as_view(),
@@ -238,6 +335,11 @@ urlpatterns = [
         "boxes/<int:box_id>/activate/",
         BoxActivateAPIView.as_view(),
         name="api_box_activate",
+    ),
+    path(
+        "boxes/<int:box_id>/planned-weekday/",
+        BoxPlannedWeekdayAPIView.as_view(),
+        name="api_box_planned_weekday",
     ),
     path(
         "boxes/<int:box_id>/qualify/",
@@ -279,8 +381,16 @@ urlpatterns = [
         BoxLineageGraphAPIView.as_view(),
         name="api_box_lineage",
     ),
-    path("thermal-zones/", ThermalZoneListCreateAPIView.as_view(), name="api_thermal_zone_list"),
-    path("thermal-zones/<int:pk>/", ThermalZoneDetailAPIView.as_view(), name="api_thermal_zone_detail"),
+    path(
+        "thermal-zones/",
+        ThermalZoneListCreateAPIView.as_view(),
+        name="api_thermal_zone_list",
+    ),
+    path(
+        "thermal-zones/<int:pk>/",
+        ThermalZoneDetailAPIView.as_view(),
+        name="api_thermal_zone_detail",
+    ),
     path(
         "thermal-zones/<int:pk>/deletion/",
         ThermalZoneDeletionAPIView.as_view(),
@@ -332,12 +442,36 @@ urlpatterns = [
         name="api_thermal_zone_salinity_detail",
     ),
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
-    path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
-    path("box-transfer-imports/", BoxTransferImportAPIView.as_view(), name="api_box_transfer_import"),
-    path("box-donations/destinations/", BoxDonationDestinationsAPIView.as_view(), name="api_box_donation_destinations"),
-    path("box-donations/preflight/", BoxDonationPreflightAPIView.as_view(), name="api_box_donation_preflight"),
-    path("box-donations/outgoing/", BoxDonationOutgoingAPIView.as_view(), name="api_box_donation_outgoing"),
-    path("box-donations/incoming/", BoxDonationIncomingAPIView.as_view(), name="api_box_donation_incoming"),
+    path(
+        "box-transfers/",
+        BoxTransferCreateAPIView.as_view(),
+        name="api_box_transfer_create",
+    ),
+    path(
+        "box-transfer-imports/",
+        BoxTransferImportAPIView.as_view(),
+        name="api_box_transfer_import",
+    ),
+    path(
+        "box-donations/destinations/",
+        BoxDonationDestinationsAPIView.as_view(),
+        name="api_box_donation_destinations",
+    ),
+    path(
+        "box-donations/preflight/",
+        BoxDonationPreflightAPIView.as_view(),
+        name="api_box_donation_preflight",
+    ),
+    path(
+        "box-donations/outgoing/",
+        BoxDonationOutgoingAPIView.as_view(),
+        name="api_box_donation_outgoing",
+    ),
+    path(
+        "box-donations/incoming/",
+        BoxDonationIncomingAPIView.as_view(),
+        name="api_box_donation_incoming",
+    ),
     path(
         "box-donations/<uuid:proposal_id>/",
         BoxDonationDetailAPIView.as_view(),
@@ -348,8 +482,16 @@ urlpatterns = [
         BoxDonationCancelAPIView.as_view(),
         name="api_box_donation_cancel",
     ),
-    path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
-    path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),
+    path(
+        "organizations/<int:pk>/",
+        OrganizationDetailAPIView.as_view(),
+        name="api_organization_detail",
+    ),
+    path(
+        "taxonomy/references/",
+        TaxonomyReferenceListAPIView.as_view(),
+        name="api_taxonomy_references",
+    ),
     path(
         "admin/species-catalog/",
         SpeciesCatalogAPIView.as_view(),
@@ -420,13 +562,21 @@ urlpatterns = [
         ProvenanceCodeListAPIView.as_view(),
         name="api_taxonomy_provenance_codes",
     ),
-    path("taxonomy/species-codes/", SpeciesCodeListAPIView.as_view(), name="api_taxonomy_species_codes"),
+    path(
+        "taxonomy/species-codes/",
+        SpeciesCodeListAPIView.as_view(),
+        name="api_taxonomy_species_codes",
+    ),
     path(
         "taxonomy/species-codes/<int:pk>/",
         SpeciesCodeDetailAPIView.as_view(),
         name="api_taxonomy_species_codes_detail",
     ),
-    path("taxonomy/strains/", StrainReferenceListCreateAPIView.as_view(), name="api_taxonomy_strains"),
+    path(
+        "taxonomy/strains/",
+        StrainReferenceListCreateAPIView.as_view(),
+        name="api_taxonomy_strains",
+    ),
     path(
         "taxonomy/strains/<int:pk>/",
         StrainReferenceDetailAPIView.as_view(),

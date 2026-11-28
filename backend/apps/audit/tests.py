@@ -19,8 +19,12 @@ from .services import AUDIT_FAMILIES, classify_audit_log, impactful_audit_logs
 
 class BusinessAuditApiTests(TestCase):
     def setUp(self):
-        self.organization = Organization.objects.create(name="Paris Lab", slug="paris-lab")
-        self.other_organization = Organization.objects.create(name="Partner Lab", slug="partner-lab")
+        self.organization = Organization.objects.create(
+            name="Paris Lab", slug="paris-lab"
+        )
+        self.other_organization = Organization.objects.create(
+            name="Partner Lab", slug="partner-lab"
+        )
         self.user = get_user_model().objects.create_user(
             username="internal_audit_admin",
             email="audit-admin@example.org",
@@ -118,7 +122,9 @@ class BusinessAuditApiTests(TestCase):
                 object_type="measurements",
                 object_id="export.csv",
             ),
-            "environment": self._log(object_type="thermal_zone", object_id="Cabinet 15"),
+            "environment": self._log(
+                object_type="thermal_zone", object_id="Cabinet 15"
+            ),
             "accounts": self._log(object_type="account", object_id=self.user.username),
             "references": self._log(object_type="species", object_id="1"),
         }
@@ -126,7 +132,9 @@ class BusinessAuditApiTests(TestCase):
         response = self._admin()
 
         self.assertEqual(response.status_code, 200)
-        families_by_id = {entry["id"]: entry["family"] for entry in response.json()["results"]}
+        families_by_id = {
+            entry["id"]: entry["family"] for entry in response.json()["results"]
+        }
         self.assertEqual(
             {family: families_by_id[log.id] for family, log in logs.items()},
             {family: family for family in AUDIT_FAMILIES},
@@ -245,17 +253,23 @@ class BusinessAuditApiTests(TestCase):
     def test_family_filter_is_applied_before_pagination(self):
         wanted = self._log(action=AuditLog.Action.ENTRY)
         for index in range(3):
-            self._log(action=AuditLog.Action.CREATION, description=f"Newer box action {index}")
+            self._log(
+                action=AuditLog.Action.CREATION, description=f"Newer box action {index}"
+            )
 
         response = self._admin("?family=measurements&limit=1")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([entry["id"] for entry in response.json()["results"]], [wanted.id])
+        self.assertEqual(
+            [entry["id"] for entry in response.json()["results"]], [wanted.id]
+        )
         self.assertFalse(response.json()["has_more"])
 
     def test_family_filter_combines_with_date_without_changing_date_semantics(self):
         old = self._log(action=AuditLog.Action.ENTRY)
-        AuditLog.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=2))
+        AuditLog.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=2)
+        )
         today = self._log(action=AuditLog.Action.ENTRY)
         self._log(action=AuditLog.Action.CREATION)
         today_value = timezone.localdate().isoformat()
@@ -263,7 +277,9 @@ class BusinessAuditApiTests(TestCase):
         response = self._admin(f"?family=measurements&date={today_value}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([entry["id"] for entry in response.json()["results"]], [today.id])
+        self.assertEqual(
+            [entry["id"] for entry in response.json()["results"]], [today.id]
+        )
 
     def test_invalid_family_is_explicit(self):
         response = self._admin("?family=not-a-family")
@@ -275,7 +291,9 @@ class BusinessAuditApiTests(TestCase):
         today_measurement = self._log(action=AuditLog.Action.ENTRY)
         second_measurement = self._log(action=AuditLog.Action.ENTRY)
         old_box = self._log(action=AuditLog.Action.CREATION)
-        AuditLog.objects.filter(pk=old_box.pk).update(created_at=timezone.now() - timedelta(days=2))
+        AuditLog.objects.filter(pk=old_box.pk).update(
+            created_at=timezone.now() - timedelta(days=2)
+        )
         foreign = self._log(
             action=AuditLog.Action.ENTRY,
             organization=self.other_organization,
@@ -291,7 +309,9 @@ class BusinessAuditApiTests(TestCase):
         counts = {option["key"]: option["count"] for option in options}
         self.assertEqual(counts["measurements"], 2)
         self.assertEqual(counts["boxes"], 0)
-        self.assertNotIn(foreign.id, [entry["id"] for entry in response.json()["results"]])
+        self.assertNotIn(
+            foreign.id, [entry["id"] for entry in response.json()["results"]]
+        )
         self.assertEqual(
             {entry["id"] for entry in response.json()["results"]},
             {today_measurement.id, second_measurement.id},
@@ -303,34 +323,46 @@ class BusinessAuditApiTests(TestCase):
 
         response = self._admin("?family=measurements&action=entry")
 
-        self.assertEqual([entry["id"] for entry in response.json()["results"]], [measurement.id])
+        self.assertEqual(
+            [entry["id"] for entry in response.json()["results"]], [measurement.id]
+        )
 
     def test_partial_subculture_details_preserve_unknown_and_zero(self):
         codes = ["ATL-AAU-1.002", "ATL-AAU-1.003", "ATL-AAU-1.004"]
-        log = self._log(action=AuditLog.Action.SUBCULTURE, metadata={
-            "occurred_at": "2026-10-05T10:00:00+00:00",
-            "parent_polyp_count_before": 100,
-            "allocated_polyp_count": None,
-            "parent_polyp_count_after": None,
-            "child_global_codes": codes,
-            "allocations": [
-                {"child_global_code": code, "allocated_polyps": count}
-                for code, count in zip(codes, [30, 0, None])
-            ],
-        })
+        log = self._log(
+            action=AuditLog.Action.SUBCULTURE,
+            metadata={
+                "occurred_at": "2026-10-05T10:00:00+00:00",
+                "parent_polyp_count_before": 100,
+                "allocated_polyp_count": None,
+                "parent_polyp_count_after": None,
+                "child_global_codes": codes,
+                "allocations": [
+                    {"child_global_code": code, "allocated_polyps": count}
+                    for code, count in zip(codes, [30, 0, None])
+                ],
+            },
+        )
         response = self._admin()
         self.assertEqual(response.status_code, 200)
-        entry = next(item for item in response.json()["results"] if item["id"] == log.id)
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == log.id
+        )
         details = entry["business_details"]
         self.assertEqual(details["parent_polyp_count_before"], 100)
         self.assertIsNone(details["allocated_polyp_count"])
         self.assertIsNone(details["parent_polyp_count_after"])
-        self.assertEqual(details["allocations"], [
-            {"child_global_code": code, "allocated_polyps": count}
-            for code, count in zip(codes, [30, 0, None])
-        ])
+        self.assertEqual(
+            details["allocations"],
+            [
+                {"child_global_code": code, "allocated_polyps": count}
+                for code, count in zip(codes, [30, 0, None])
+            ],
+        )
         self.assertEqual(details["initial_polyp_counts"], {codes[0]: 30, codes[1]: 0})
-        self.assertIsNone(entry["context"]["subculture"]["children"][2]["initial_polyp_count"])
+        self.assertIsNone(
+            entry["context"]["subculture"]["children"][2]["initial_polyp_count"]
+        )
 
     def test_business_details_normalize_known_metadata_and_preserve_zero(self):
         subculture = self._log(
@@ -494,7 +526,9 @@ class BusinessAuditApiTests(TestCase):
         )
         self.assertNotIn("user_id", str(entries[current.id]["business_details"]))
 
-    def test_subculture_children_use_current_codes_without_losing_count_association(self):
+    def test_subculture_children_use_current_codes_without_losing_count_association(
+        self,
+    ):
         children = [
             Box.objects.create(
                 organization=self.organization,
@@ -530,7 +564,9 @@ class BusinessAuditApiTests(TestCase):
         )
 
         for response in (self._admin(), self._personal()):
-            entry = next(item for item in response.json()["results"] if item["id"] == action.id)
+            entry = next(
+                item for item in response.json()["results"] if item["id"] == action.id
+            )
             self.assertEqual(
                 entry["business_details"],
                 {
@@ -645,7 +681,9 @@ class BusinessAuditApiTests(TestCase):
             )
             # The parent box stays resolvable so the legacy relation fallback can
             # render it instead of collapsing to a generic summary.
-            self.assertEqual(entry["box_reference"]["global_code"], self.box.global_code)
+            self.assertEqual(
+                entry["box_reference"]["global_code"], self.box.global_code
+            )
 
     def test_subculture_unresolved_child_ids_keep_the_stored_historical_code(self):
         action = self._log(
@@ -711,7 +749,9 @@ class BusinessAuditApiTests(TestCase):
             },
         )
 
-        admin_entries = {entry["id"]: entry for entry in self._admin().json()["results"]}
+        admin_entries = {
+            entry["id"]: entry for entry in self._admin().json()["results"]
+        }
         personal_entries = {
             entry["id"]: entry for entry in self._personal().json()["results"]
         }
@@ -733,6 +773,29 @@ class BusinessAuditApiTests(TestCase):
         self.assertEqual(
             personal_entries[creation.id]["details"]["values"]["statut"],
             "inactive",
+        )
+
+    def test_generic_box_field_changes_use_the_box_detail_type(self):
+        change = self._log(
+            description=f"Box updated: {self.box.global_code}",
+            metadata={
+                "modifications": {"volume_litres": {"avant": "0.50", "apres": "0.00"}}
+            },
+        )
+
+        entry = next(
+            entry
+            for entry in self._admin().json()["results"]
+            if entry["id"] == change.id
+        )
+
+        # The frontend renders generic box changes only for this exact type.
+        self.assertEqual(
+            entry["business_details"],
+            {
+                "type": "box",
+                "changes": {"volume_litres": {"before": "0.50", "after": "0.00"}},
+            },
         )
 
     def test_box_reference_is_safe_for_admin_and_personal_histories(self):
@@ -785,7 +848,9 @@ class BusinessAuditApiTests(TestCase):
         )
 
         entry = next(
-            item for item in self._personal().json()["results"] if item["id"] == action.id
+            item
+            for item in self._personal().json()["results"]
+            if item["id"] == action.id
         )
 
         self.assertNotIn("metadata", entry)
@@ -837,7 +902,10 @@ class BusinessAuditApiTests(TestCase):
             entry["id"]: entry for entry in self._personal().json()["results"]
         }
 
-        self.assertEqual(entries[measurement_log.id]["context"], {"measurement": {"id": measurement.id}})
+        self.assertEqual(
+            entries[measurement_log.id]["context"],
+            {"measurement": {"id": measurement.id}},
+        )
         self.assertEqual(
             personal_entries[measurement_log.id]["context"],
             {"measurement": {"id": measurement.id}},
@@ -880,10 +948,14 @@ class BusinessAuditApiTests(TestCase):
         )
 
         admin_entry = next(
-            entry for entry in self._admin().json()["results"] if entry["id"] == action.id
+            entry
+            for entry in self._admin().json()["results"]
+            if entry["id"] == action.id
         )
         personal_entry = next(
-            entry for entry in self._personal().json()["results"] if entry["id"] == action.id
+            entry
+            for entry in self._personal().json()["results"]
+            if entry["id"] == action.id
         )
 
         self.assertEqual(admin_entry["context"], {})

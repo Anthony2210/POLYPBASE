@@ -105,6 +105,7 @@ from .serializers import (
     BoxInventorySerializer,
     BoxLocationSerializer,
     BoxMoveCreateSerializer,
+    BoxPlannedWeekdaySerializer,
     BoxQualifySerializer,
     BoxTemperatureHistoryQuerySerializer,
     ManualSalinityCreateSerializer,
@@ -172,6 +173,7 @@ from .services import (
     move_box_to_thermal_zone,
     qualify_pending_box,
     reactivate_box,
+    set_box_planned_weekday,
 )
 
 
@@ -690,6 +692,7 @@ class OverviewActiveBoxesAPIView(APIView):
                 "strain__species__scientific_name",
                 "thermal_zone__name",
                 "polyp_state_revision",
+                "planned_weekday",
             )
             .prefetch_related(
                 *current_state_prefetches(),
@@ -806,6 +809,7 @@ class OverviewActiveBoxesAPIView(APIView):
             "global_code": box.global_code,
             "species_name": box.strain.species.scientific_name,
             "strain_code": box.strain.code,
+            "planned_weekday": box.planned_weekday,
             "tracked_in_app": tracked_in_app,
             "earliest_biological_measurement_on": (
                 earliest_measurement_on.isoformat()
@@ -1641,6 +1645,46 @@ class BoxDeactivateAPIView(APIView):
                 user=request.user,
                 reason=serializer.validated_data["reason"],
             )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages) from exc
+
+        updated_box = get_object_or_404(
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
+            id=box.id,
+        )
+        return Response(
+            BoxDetailSerializer(updated_box, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class BoxPlannedWeekdayAPIView(APIView):
+    """Set or clear the planned weekly record day of one box (admins only)."""
+
+    def patch(self, request, box_id):
+        # SECURITY: Scope the lookup first: another institution's box is a 404.
+        box = get_object_or_404(
+            box_queryset_for_user(
+                request.user, organization_ids=get_active_organization_ids(request)
+            ),
+            id=box_id,
+        )
+        if box.organization_id not in get_active_admin_organization_ids(request):
+            raise PermissionDenied()
+        serializer = BoxPlannedWeekdaySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            # SECURITY: The write is scoped to the institution authorized above.
+            set_box_planned_weekday(
+                box=box,
+                organization=box.organization,
+                planned_weekday=serializer.validated_data["planned_weekday"],
+                user=request.user,
+            )
+        except Box.DoesNotExist as exc:
+            raise Http404 from exc
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages) from exc
 

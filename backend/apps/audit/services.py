@@ -65,7 +65,12 @@ _BOX_OBJECT_TYPES = {"box", "box_inventory_initialization"}
 
 # Object types whose stored object id is a database primary key rather than a
 # business-readable label, so it must never reach a user-facing resource label.
-_PRIMARY_KEY_RESOURCE_OBJECT_TYPES = {"alert", "species", "strain", "salinity_measurement"}
+_PRIMARY_KEY_RESOURCE_OBJECT_TYPES = {
+    "alert",
+    "species",
+    "strain",
+    "salinity_measurement",
+}
 
 # Pre-migration box statuses that no longer exist in the canonical lifecycle.
 # They are inactive-like and must be presented as the canonical inactive value.
@@ -92,6 +97,7 @@ _BOX_FIELDS = {
     "statut",
     "raison_arret",
     "note",
+    "planned_weekday",
 }
 _ENVIRONMENT_FIELDS = {
     "nom",
@@ -164,7 +170,9 @@ def impactful_audit_logs(*, organization_id, actor=None, exclude_technical=False
         queryset = queryset.filter(user=actor)
     if exclude_technical:
         queryset = queryset.exclude(
-            pk__in=technical_activity_logs(organization_id=organization_id).values("pk"),
+            pk__in=technical_activity_logs(organization_id=organization_id).values(
+                "pk"
+            ),
         )
     return annotate_business_family(queryset)
 
@@ -327,7 +335,9 @@ def resolve_audit_box_references(logs, *, organization_id):
         return {}
 
     return resolve_box_local_ids(
-        Box.objects.filter(organization_id=organization_id).select_related("strain__species"),
+        Box.objects.filter(organization_id=organization_id).select_related(
+            "strain__species"
+        ),
         global_codes,
     )
 
@@ -345,8 +355,7 @@ def resolve_audit_subculture_children(logs, *, organization_id):
         if not isinstance(raw_ids, list):
             continue
         child_ids = [
-            value if type(value) is int and value > 0 else None
-            for value in raw_ids
+            value if type(value) is int and value > 0 else None for value in raw_ids
         ]
         child_ids_by_log_id[log.id] = child_ids
         all_child_ids.update(child_id for child_id in child_ids if child_id is not None)
@@ -359,7 +368,10 @@ def resolve_audit_subculture_children(logs, *, organization_id):
         ).select_related("strain__species")
     }
     return {
-        log_id: [boxes_by_id.get(child_id) if child_id is not None else None for child_id in child_ids]
+        log_id: [
+            boxes_by_id.get(child_id) if child_id is not None else None
+            for child_id in child_ids
+        ]
         for log_id, child_ids in child_ids_by_log_id.items()
     }
 
@@ -575,7 +587,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         return _compact_details(
             "measurement",
             values=values,
-            changes=_allowlisted_changes(metadata.get("modifications"), _MEASUREMENT_FIELDS),
+            changes=_allowlisted_changes(
+                metadata.get("modifications"), _MEASUREMENT_FIELDS
+            ),
         )
 
     if family == "subcultures":
@@ -587,11 +601,20 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         if _safe_string(metadata.get("occurred_at")):
             quantitative = {
                 "occurred_at": _safe_string(metadata.get("occurred_at")),
-                "parent_polyp_count_before": _safe_number(metadata.get("parent_polyp_count_before")),
-                "allocated_polyp_count": _safe_number(metadata.get("allocated_polyp_count")),
-                "parent_polyp_count_after": _safe_number(metadata.get("parent_polyp_count_after")),
+                "parent_polyp_count_before": _safe_number(
+                    metadata.get("parent_polyp_count_before")
+                ),
+                "allocated_polyp_count": _safe_number(
+                    metadata.get("allocated_polyp_count")
+                ),
+                "parent_polyp_count_after": _safe_number(
+                    metadata.get("parent_polyp_count_after")
+                ),
                 "allocations": [
-                    {"child_global_code": child["global_code"], "allocated_polyps": child["initial_polyp_count"]}
+                    {
+                        "child_global_code": child["global_code"],
+                        "allocated_polyps": child["initial_polyp_count"],
+                    }
                     for child in children
                 ],
             }
@@ -641,6 +664,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         )
 
     if family == "boxes" and _is_box_movement(metadata):
+        # fmt: off
+        # COMPAT: frontend/scripts/test-audit-presentation.mjs matches the
+        # from_zone line verbatim; keep it on one line.
         return _compact_details(
             "box_movement",
             from_zone=_safe_string(metadata.get("from_thermal_zone_name"), allow_empty=True),
@@ -648,6 +674,7 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
             moved_at=_safe_string(metadata.get("moved_at")),
             note=_safe_string(metadata.get("note"), allow_empty=True),
         )
+        # fmt: on
 
     if family == "boxes" and isinstance(metadata.get("transition"), str):
         after_candidate = metadata.get("after")
@@ -655,7 +682,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         transition = metadata["transition"].split("->", 1)
         return _compact_details(
             "box_status",
-            transition={"from": transition[0], "to": transition[1]} if len(transition) == 2 else None,
+            transition={"from": transition[0], "to": transition[1]}
+            if len(transition) == 2
+            else None,
             stop_reason=_safe_string(after.get("stop_reason"), allow_empty=True),
             stop_reason_missing_from_history=(
                 after.get("stop_reason_missing_from_history")
@@ -692,7 +721,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         # the canonical display value so no raw English token reaches the UI.
         values = _normalized_box_status_values(values)
         changes = _normalized_box_status_changes(changes)
-    return _compact_details(family.rstrip("s"), values=values, changes=changes)
+    # "boxes" must map to "box", the type the frontend contract expects.
+    detail_type = "box" if family == "boxes" else family.rstrip("s")
+    return _compact_details(detail_type, values=values, changes=changes)
 
 
 def serialize_box_reference(box):
@@ -736,13 +767,17 @@ def serialize_audit_context(log, *, measurement=None, subculture_children=None):
     elif log.action == AuditLog.Action.IMPORT and log.object_type == "box":
         context["transfer"] = {
             "source_organization": _safe_string(metadata.get("source_organization")),
-            "destination_organization": log.organization.name if log.organization else None,
+            "destination_organization": log.organization.name
+            if log.organization
+            else None,
             "source_global_code": _safe_string(metadata.get("source_global_code")),
         }
 
     if _is_box_movement(metadata):
         context["movement"] = {
-            "from_zone": _safe_string(metadata.get("from_thermal_zone_name"), allow_empty=True),
+            "from_zone": _safe_string(
+                metadata.get("from_thermal_zone_name"), allow_empty=True
+            ),
             "to_zone": _safe_string(metadata.get("to_thermal_zone_name")),
         }
 
@@ -762,8 +797,7 @@ def _normalized_subculture_children(metadata, *, resolved_children=None):
 
     if resolved_children is None:
         indexed_children = [
-            (index, code, None)
-            for index, code in enumerate(stored_codes)
+            (index, code, None) for index, code in enumerate(stored_codes)
         ]
     else:
         indexed_children = [
@@ -905,7 +939,9 @@ def _measurement_values(measurement):
         "polypes": measurement.polyp_count,
         "ephyrules": measurement.ephyrae_count,
         "strobiles": measurement.strobila_count,
-        "salinite_psu": str(measurement.salinity_psu) if measurement.salinity_psu is not None else None,
+        "salinite_psu": str(measurement.salinity_psu)
+        if measurement.salinity_psu is not None
+        else None,
         "statut_culture": measurement.culture_status,
         "a_verifier": measurement.needs_attention,
         "note": measurement.notes,

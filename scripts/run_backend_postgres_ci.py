@@ -24,20 +24,60 @@ MOVEMENT_LABELS = (
 BOX_LABELS = ("apps.cultures.test_box_1902_correction_v2_postgres",)
 SPECIES_REQUIRED = {
     f"{SPECIES_LABELS[0]}.RetiredResolutionTests.test_retired_resolve_never_creates_profile_code_or_audit",
-    *(f"{SPECIES_LABELS[1]}.ExistingSpeciesConcurrencyTests.{method}" for method in (
-        "test_concurrent_first_association_creates_one_profile_and_one_registration",
-        "test_concurrent_retries_of_one_request_create_one_strain",
-        "test_concurrent_edit_and_strain_creation_never_overwrite_or_duplicate",
-    )),
+    *(
+        f"{SPECIES_LABELS[1]}.ExistingSpeciesConcurrencyTests.{method}"
+        for method in (
+            "test_concurrent_first_association_creates_one_profile_and_one_registration",
+            "test_concurrent_retries_of_one_request_create_one_strain",
+            "test_concurrent_edit_and_strain_creation_never_overwrite_or_duplicate",
+        )
+    ),
 }
 BOX_REQUIRED = {
-    f"{BOX_LABELS[0]}.Box1902CorrectionV2PostgreSQLTests.{method}" for method in (
+    f"{BOX_LABELS[0]}.Box1902CorrectionV2PostgreSQLTests.{method}"
+    for method in (
         "test_installation_on_populated_history_rejects_runtime_owner_then_preserves_rows",
         "test_exact_correction_preserves_all_41_confirmations",
     )
 }
-SQLITE_ONLY = ("apps.cultures.test_history_audit_lookup.HistoryAuditLookupTests."
-               "test_synthetic_before_after_sqlite_full_identity_index_plans")
+SQLITE_ONLY = (
+    "apps.cultures.test_history_audit_lookup.HistoryAuditLookupTests."
+    "test_synthetic_before_after_sqlite_full_identity_index_plans"
+)
+# Migration 0026: constraint, rollback refusal and reversal, and the reverse
+# guard's isolation check and table lock (including a contended table).
+PLANNED_WEEKDAY_PREFLIGHT = (
+    "apps.cultures.test_rollback_plan_preflight.RollbackPlanPreflightTests"
+)
+PLANNED_WEEKDAY_GUARD = (
+    "apps.cultures.test_box_planned_weekday_migrations."
+    "BoxPlannedWeekdayRollbackGuardPostgresTests"
+)
+PLANNED_WEEKDAY_LABELS = (
+    "apps.cultures.test_box_planned_weekday_migrations",
+    "apps.cultures.test_box_planned_weekday.PlannedWeekdayConstraintTests",
+    f"{PLANNED_WEEKDAY_PREFLIGHT}.test_planned_weekday_rollback_is_refused_while_any_box_has_one",
+    f"{PLANNED_WEEKDAY_PREFLIGHT}.test_planned_weekday_rollback_reverses_when_every_value_is_null",
+)
+PLANNED_WEEKDAY_REQUIRED = {
+    *PLANNED_WEEKDAY_LABELS[2:],
+    (
+        "apps.cultures.test_box_planned_weekday_migrations.BoxPlannedWeekdayMigrationTests."
+        "test_applies_without_data_changes_enforces_range_and_reverses"
+    ),
+    (
+        "apps.cultures.test_box_planned_weekday.PlannedWeekdayConstraintTests."
+        "test_database_never_stores_a_fractional_weekday"
+    ),
+    *(
+        f"{PLANNED_WEEKDAY_GUARD}.{method}"
+        for method in (
+            "test_guard_requires_an_atomic_read_committed_migration",
+            "test_empty_guard_keeps_box_writers_out_until_the_rollback_ends",
+            "test_busy_box_table_is_refused_at_once_without_any_downgrade",
+        )
+    ),
+}
 
 
 def prepare_environment():
@@ -46,17 +86,34 @@ def prepare_environment():
     from config.backend_postgres_ci import SERVICE_ENV
 
     for name in list(os.environ):
-        if name not in SERVICE_ENV and name.upper().startswith((
-            "DJANGO_", "EMAIL_", "DEMO_", "POLYPBASE_", "IMINILIDE_", "BOX_SHARING_", "PUBLIC_BASE_URL",
-        )):
+        if name not in SERVICE_ENV and name.upper().startswith(
+            (
+                "DJANGO_",
+                "EMAIL_",
+                "DEMO_",
+                "POLYPBASE_",
+                "IMINILIDE_",
+                "BOX_SHARING_",
+                "PUBLIC_BASE_URL",
+            )
+        ):
             del os.environ[name]
-    os.environ.update(DJANGO_SETTINGS_MODULE=SETTINGS, PYTHON_DOTENV_DISABLED="1",
-                      POLYPBASE_TEST_POSTGRES="0", POLYPBASE_DEMO="0", EMAIL_DELIVERY_ENABLED="0")
-    sys.argv.append("test")  # Application settings distinguish test from production mode.
+    os.environ.update(
+        DJANGO_SETTINGS_MODULE=SETTINGS,
+        PYTHON_DOTENV_DISABLED="1",
+        POLYPBASE_TEST_POSTGRES="0",
+        POLYPBASE_DEMO="0",
+        EMAIL_DELIVERY_ENABLED="0",
+    )
+    sys.argv.append(
+        "test"
+    )  # Application settings distinguish test from production mode.
 
 
 def write_evidence(directory, name, data):
-    (directory / f"{name}.json").write_text(json.dumps(data, indent=2, default=str) + "\n", encoding="utf-8")
+    (directory / f"{name}.json").write_text(
+        json.dumps(data, indent=2, default=str) + "\n", encoding="utf-8"
+    )
 
 
 @contextmanager
@@ -82,9 +139,15 @@ def migrate_full_graph(service, name):
 
     service.use_django_database(name, contract.RUNTIME)
     executor = MigrationExecutor(connection)
-    executor.migrate(historical_targets(executor.loader, {"measurements"}, [
-        ("measurements", "0017_bucket_probe_last_measured_index"),
-    ]))
+    executor.migrate(
+        historical_targets(
+            executor.loader,
+            {"measurements"},
+            [
+                ("measurements", "0017_bucket_probe_last_measured_index"),
+            ],
+        )
+    )
     connection.close()
     service.provision_box_roles(name)
     service.use_django_database(name, contract.MIGRATOR, role=contract.OWNER)
@@ -103,40 +166,64 @@ def rehearse_history(evidence_dir):
     from validate_history_revision_ci import M19, M20, MERGE
 
     def plan(executor, targets):
-        return [((migration.app_label, migration.name), backwards)
-                for migration, backwards in executor.migration_plan(targets)]
+        return [
+            ((migration.app_label, migration.name), backwards)
+            for migration, backwards in executor.migration_plan(targets)
+        ]
 
     def applied():
         return set(MigrationRecorder(connection).applied_migrations())
 
     executor = MigrationExecutor(connection)
     forward = plan(executor, TARGETS)
-    require(len(forward) == len(APPROVED) and set(forward) == {(node, False) for node in APPROVED},
-            "The historical rehearsal must apply exactly the approved closure, not later descendants.")
+    require(
+        len(forward) == len(APPROVED)
+        and set(forward) == {(node, False) for node in APPROVED},
+        "The historical rehearsal must apply exactly the approved closure, not later descendants.",
+    )
     executor.migrate(TARGETS)
     require(applied() == APPROVED, "Unexpected initial historical migration state.")
     initial = installed_schema(connection, guarded=True)
     write_evidence(evidence_dir, "history-schema-initial", initial)
 
     executor = MigrationExecutor(connection)
-    require(plan(executor, [M19]) == [(MERGE, True), (M20, True)],
-            "History reversal must remove only the empty merge and the guard migration.")
+    require(
+        plan(executor, [M19]) == [(MERGE, True), (M20, True)],
+        "History reversal must remove only the empty merge and the guard migration.",
+    )
     merge = executor.loader.disk_migrations[MERGE]
-    require(not merge.operations and not merge.run_before and not merge.replaces,
-            "The history merge must remain empty and independent of later migrations.")
+    require(
+        not merge.operations and not merge.run_before and not merge.replaces,
+        "The history merge must remain empty and independent of later migrations.",
+    )
     executor.migrate([M19])
-    require(applied() == APPROVED - {MERGE, M20}, "History reversal modified storage migrations.")
-    write_evidence(evidence_dir, "history-schema-reversed", installed_schema(connection, guarded=False))
+    require(
+        applied() == APPROVED - {MERGE, M20},
+        "History reversal modified storage migrations.",
+    )
+    write_evidence(
+        evidence_dir,
+        "history-schema-reversed",
+        installed_schema(connection, guarded=False),
+    )
 
     executor = MigrationExecutor(connection)
-    require(plan(executor, TARGETS) == [(M20, False), (MERGE, False)], "Unexpected history reapplication plan.")
+    require(
+        plan(executor, TARGETS) == [(M20, False), (MERGE, False)],
+        "Unexpected history reapplication plan.",
+    )
     executor.migrate(TARGETS)
     restored = installed_schema(connection, guarded=True)
-    require(applied() == APPROVED and restored == initial, "History reapplication did not restore the catalogs.")
+    require(
+        applied() == APPROVED and restored == initial,
+        "History reapplication did not restore the catalogs.",
+    )
     write_evidence(evidence_dir, "history-schema-restored", restored)
 
 
-def test_suite(service, labels, *, template=None, suffix=None, required=(), allowed_skips=()):
+def test_suite(
+    service, labels, *, template=None, suffix=None, required=(), allowed_skips=()
+):
     from django.core.management import call_command
 
     service.test_template = template
@@ -172,11 +259,40 @@ def run(service, evidence_dir):
             service.create_runtime_role()
             with database(service, "full_template", owner="polypbase") as template:
                 migrate_full_graph(service, template)
-                write_evidence(evidence_dir, "historical-movements-schema", schema_findings(connections["default"]))
+                write_evidence(
+                    evidence_dir,
+                    "historical-movements-schema",
+                    schema_findings(connections["default"]),
+                )
                 connections.close_all()
-                test_suite(service, SPECIES_LABELS, template=template, suffix="species", required=SPECIES_REQUIRED)
-                test_suite(service, MOVEMENT_LABELS, template=template, suffix="movements", allowed_skips=[SQLITE_ONLY])
-                test_suite(service, HISTORY_LABELS, template=template, suffix="revisions", required=REQUIRED_TEST_IDS)
+                test_suite(
+                    service,
+                    SPECIES_LABELS,
+                    template=template,
+                    suffix="species",
+                    required=SPECIES_REQUIRED,
+                )
+                test_suite(
+                    service,
+                    MOVEMENT_LABELS,
+                    template=template,
+                    suffix="movements",
+                    allowed_skips=[SQLITE_ONLY],
+                )
+                test_suite(
+                    service,
+                    HISTORY_LABELS,
+                    template=template,
+                    suffix="revisions",
+                    required=REQUIRED_TEST_IDS,
+                )
+                test_suite(
+                    service,
+                    PLANNED_WEEKDAY_LABELS,
+                    template=template,
+                    suffix="planned_weekday",
+                    required=PLANNED_WEEKDAY_REQUIRED,
+                )
             service.drop_roles()
             service.use_django_database(bootstrap)
             test_suite(service, BOX_LABELS, required=BOX_REQUIRED)

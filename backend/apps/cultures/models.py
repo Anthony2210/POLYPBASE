@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import models, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Cast, TruncWeek
@@ -19,25 +19,33 @@ class BoxDnaValidationQuerySet(models.QuerySet):
 
 class BoxDnaValidation(models.Model):
     box = models.ForeignKey(
-        "cultures.Box", on_delete=models.PROTECT, related_name="dna_validations",
+        "cultures.Box",
+        on_delete=models.PROTECT,
+        related_name="dna_validations",
     )
     evidence_url = models.URLField(
-        max_length=2000, validators=[URLValidator(schemes=["http", "https"])],
+        max_length=2000,
+        validators=[URLValidator(schemes=["http", "https"])],
     )
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
         related_name="created_box_dna_validations",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
         related_name="updated_box_dna_validations",
     )
     updated_at = models.DateTimeField(auto_now=True)
     revision = models.PositiveBigIntegerField(default=1)
     revoked_at = models.DateTimeField(null=True, blank=True)
     revoked_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="revoked_box_dna_validations",
     )
 
@@ -46,15 +54,19 @@ class BoxDnaValidation(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["box"], condition=Q(revoked_at__isnull=True),
+                fields=["box"],
+                condition=Q(revoked_at__isnull=True),
                 name="unique_active_box_dna_validation",
             ),
             models.CheckConstraint(
-                condition=Q(revision__gte=1), name="box_dna_revision_positive",
+                condition=Q(revision__gte=1),
+                name="box_dna_revision_positive",
             ),
             models.CheckConstraint(
-                condition=(Q(revoked_at__isnull=True, revoked_by__isnull=True)
-                           | Q(revoked_at__isnull=False, revoked_by__isnull=False)),
+                condition=(
+                    Q(revoked_at__isnull=True, revoked_by__isnull=True)
+                    | Q(revoked_at__isnull=False, revoked_by__isnull=False)
+                ),
                 name="box_dna_revocation_attribution",
             ),
         ]
@@ -81,13 +93,19 @@ class ThermalZone(models.Model):
         related_name="thermal_zones",
     )
     name = models.CharField(max_length=120)
-    zone_type = models.CharField(max_length=30, choices=ZoneType.choices, default=ZoneType.CABINET)
-    target_temperature_c = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    zone_type = models.CharField(
+        max_length=30, choices=ZoneType.choices, default=ZoneType.CABINET
+    )
+    target_temperature_c = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True
+    )
     capacity = models.PositiveIntegerField(null=True, blank=True)
     # Salinity of the water in this zone, maintained by hand like the capacity.
     # It is the reference shown on every box sheet of the zone; each measurement
     # can still record the salinity actually read for one box.
-    salinity_psu = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    salinity_psu = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
 
@@ -120,12 +138,18 @@ class BoxGlobalIdentity(models.Model):
         AUTOMATIC_CREATION = "automatic_creation", "Automatic creation"
         SUBCULTURE = "subculture", "Subculture child"
         INITIALIZED_AUTOMATIC_CREATION = (
-            "initialized_automatic_creation", "Initialized from an automatic creation receipt"
+            "initialized_automatic_creation",
+            "Initialized from an automatic creation receipt",
         )
-        INITIALIZED_SUBCULTURE = "initialized_subculture", "Initialized from a subculture allocation"
+        INITIALIZED_SUBCULTURE = (
+            "initialized_subculture",
+            "Initialized from a subculture allocation",
+        )
 
     global_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    allocation_reason = models.CharField(max_length=40, choices=AllocationReason.choices, editable=False)
+    allocation_reason = models.CharField(
+        max_length=40, choices=AllocationReason.choices, editable=False
+    )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = BoxGlobalIdentityQuerySet.as_manager()
@@ -158,8 +182,12 @@ class Box(models.Model):
     global_code = models.CharField(max_length=100, unique=True)
     local_code = models.CharField(max_length=100, blank=True)
     box_number = models.CharField(max_length=80)
-    strain = models.ForeignKey("taxonomy.Strain", on_delete=models.PROTECT, related_name="boxes")
-    origin = models.ForeignKey("taxonomy.Origin", on_delete=models.SET_NULL, null=True, blank=True)
+    strain = models.ForeignKey(
+        "taxonomy.Strain", on_delete=models.PROTECT, related_name="boxes"
+    )
+    origin = models.ForeignKey(
+        "taxonomy.Origin", on_delete=models.SET_NULL, null=True, blank=True
+    )
     thermal_zone = models.ForeignKey(
         ThermalZone,
         on_delete=models.SET_NULL,
@@ -167,26 +195,47 @@ class Box(models.Model):
         blank=True,
         related_name="boxes",
     )
-    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
+    status = models.CharField(
+        max_length=30, choices=Status.choices, default=Status.ACTIVE
+    )
     created_on = models.DateField(auto_now_add=True)
     entered_on = models.DateField(null=True, blank=True)
-    volume_liters = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    volume_liters = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
     stop_reason = models.CharField(max_length=250, blank=True)
     stop_reason_missing_from_history = models.BooleanField(default=False)
     deactivated_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    # ISO weekday planned for the weekly record (1 = Monday ... 7 = Sunday).
+    # NULL means no day is planned, never "any day".
+    planned_weekday = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(7)],
+    )
     polyp_state_revision = models.PositiveBigIntegerField(default=0, editable=False)
     merged_into = models.ForeignKey(
-        "self", on_delete=models.PROTECT, null=True, blank=True,
-        related_name="merged_sources", editable=False,
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="merged_sources",
+        editable=False,
     )
     previous_global_code = models.CharField(max_length=100, blank=True, editable=False)
     # Despite its name, global_code is the institutional Local ID. The Global ID
     # is this permanent physical identity; NULL means not yet initialized, never
     # "a distinct Box". Once set it never changes (guarded in save and in SQL).
     global_identity = models.ForeignKey(
-        BoxGlobalIdentity, on_delete=models.PROTECT, null=True, blank=True,
-        to_field="global_id", db_column="global_id", related_name="boxes", editable=False,
+        BoxGlobalIdentity,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        to_field="global_id",
+        db_column="global_id",
+        related_name="boxes",
+        editable=False,
     )
 
     _reviewed_identity_codes = frozenset(
@@ -200,19 +249,31 @@ class Box(models.Model):
         instance = super().from_db(db, field_names, values)
         # Read the loaded dictionary only: deferred descriptors query recursively.
         if {"global_code", "strain_id"} <= instance.__dict__.keys():
-            instance._loaded_identity = (instance.__dict__["global_code"], instance.__dict__["strain_id"])
+            instance._loaded_identity = (
+                instance.__dict__["global_code"],
+                instance.__dict__["strain_id"],
+            )
         else:
             instance._loaded_identity = None
         return instance
 
     def refresh_from_db(self, using=None, fields=None, **kwargs):
         super().refresh_from_db(using=using, fields=fields, **kwargs)
-        if fields is None or ("global_code" in fields and ("strain" in fields or "strain_id" in fields)):
+        if fields is None or (
+            "global_code" in fields and ("strain" in fields or "strain_id" in fields)
+        ):
             if {"global_code", "strain_id"} <= self.__dict__.keys():
-                self._loaded_identity = (self.__dict__["global_code"], self.__dict__["strain_id"])
+                self._loaded_identity = (
+                    self.__dict__["global_code"],
+                    self.__dict__["strain_id"],
+                )
 
     def save(self, *args, **kwargs):
-        from .box_codes import lock_local_id_registry, register_box_code, reserve_reconciled_box_identity
+        from .box_codes import (
+            lock_local_id_registry,
+            register_box_code,
+            reserve_reconciled_box_identity,
+        )
 
         # Recheck retirement after waiting for the same lock as laboratory
         # writers. A stale model instance must never resurrect an alias.
@@ -220,46 +281,76 @@ class Box(models.Model):
             lock_local_id_registry(using=kwargs.get("using"))
             current = None
             if not self._state.adding or self.pk is not None:
-                rows = type(self).objects.select_for_update().only(
-                    "merged_into", "previous_global_code", "global_code", "strain_id",
-                    "global_identity", "organization_id",
+                rows = (
+                    type(self)
+                    .objects.select_for_update()
+                    .only(
+                        "merged_into",
+                        "previous_global_code",
+                        "global_code",
+                        "strain_id",
+                        "global_identity",
+                        "organization_id",
+                    )
                 )
-                current = rows.filter(pk=self.pk).first() if self._state.adding else rows.get(pk=self.pk)
+                current = (
+                    rows.filter(pk=self.pk).first()
+                    if self._state.adding
+                    else rows.get(pk=self.pk)
+                )
             adding = current is None
             if not adding:
                 if current.merged_into_id is not None:
                     raise ValidationError(_("A merged identity is read-only."))
                 if current.previous_global_code != self.previous_global_code:
-                    raise ValidationError(_("The culture identity changed. Reload the culture."))
+                    raise ValidationError(
+                        _("The culture identity changed. Reload the culture.")
+                    )
             update_fields = kwargs.get("update_fields")
             if not adding and update_fields is None:
-                # A stale instance must never clear or replace a Global ID.
-                update_fields = {field.name for field in self._meta.concrete_fields
-                                 if not field.primary_key
-                                 and field.name not in {"polyp_state_revision", "global_identity"}}
+                # A stale instance must never clear or replace a Global ID, nor
+                # restore an older planned weekday: that field changes only
+                # through set_box_planned_weekday, with explicit update_fields.
+                update_fields = {
+                    field.name
+                    for field in self._meta.concrete_fields
+                    if not field.primary_key
+                    and field.name
+                    not in {
+                        "polyp_state_revision",
+                        "global_identity",
+                        "planned_weekday",
+                    }
+                }
                 kwargs["update_fields"] = update_fields
-            if not adding and {"global_identity", "global_identity_id"}.intersection(update_fields):
-                if (current.global_identity_id is not None
-                        and self.global_identity_id != current.global_identity_id):
+            if not adding and {"global_identity", "global_identity_id"}.intersection(
+                update_fields
+            ):
+                if (
+                    current.global_identity_id is not None
+                    and self.global_identity_id != current.global_identity_id
+                ):
                     raise ValidationError("A box Global ID is permanent.")
             if not adding:
-                reassigns = (
-                    {"organization", "organization_id"}.intersection(update_fields)
-                    and self.organization_id != current.organization_id
-                )
-                becomes_alias = (
-                    {"merged_into", "merged_into_id"}.intersection(update_fields)
-                    and self.merged_into_id is not None
-                )
+                reassigns = {"organization", "organization_id"}.intersection(
+                    update_fields
+                ) and self.organization_id != current.organization_id
+                becomes_alias = {"merged_into", "merged_into_id"}.intersection(
+                    update_fields
+                ) and self.merged_into_id is not None
                 if (reassigns or becomes_alias) and BoxOwnershipEpisode.objects.filter(
                     local_box_id=self.pk,
                 ).exists():
                     # A representation in a global ownership chain keeps its
                     # institution and stays a living Box; a new owner receives
                     # its own local Box. Technical guard (admin/ORM only).
-                    raise ValidationError("A Box in an ownership history cannot change institution or become an alias.")
+                    raise ValidationError(
+                        "A Box in an ownership history cannot change institution or become an alias."
+                    )
             identity_fields = {"global_code", "strain", "strain_id"}
-            writes_identity = adding or bool(identity_fields.intersection(update_fields))
+            writes_identity = adding or bool(
+                identity_fields.intersection(update_fields)
+            )
             if not adding and writes_identity:
                 persisted_identity = (current.global_code, current.strain_id)
                 loaded_identity = getattr(self, "_loaded_identity", None)
@@ -271,14 +362,20 @@ class Box(models.Model):
                     # has no trusted original: only unchanged identity writes are safe.
                     if loaded_identity is None:
                         proposed_identity = (
-                            self.global_code if "global_code" in update_fields else current.global_code,
-                            self.strain_id if {"strain", "strain_id"}.intersection(update_fields) else current.strain_id,
+                            self.global_code
+                            if "global_code" in update_fields
+                            else current.global_code,
+                            self.strain_id
+                            if {"strain", "strain_id"}.intersection(update_fields)
+                            else current.strain_id,
                         )
                         changed = proposed_identity != persisted_identity
                     else:
                         changed = loaded_identity != persisted_identity
                     if changed:
-                        raise ValidationError(_("The culture identity changed. Reload the culture."))
+                        raise ValidationError(
+                            _("The culture identity changed. Reload the culture.")
+                        )
             if adding or "global_code" in update_fields:
                 if adding or self.global_code != current.global_code:
                     reserve_reconciled_box_identity(self.global_code)
@@ -288,27 +385,45 @@ class Box(models.Model):
 
                     # Keep duplicate-current-code errors on the existing unique
                     # constraint; the advisory guard covers historical claims.
-                    validate_local_id_claim(self.global_code, box=self, check_current=False)
+                    validate_local_id_claim(
+                        self.global_code, box=self, check_current=False
+                    )
             result = super().save(*args, **kwargs)
             if writes_identity:
                 saved_identity = (
-                    self.global_code if adding or "global_code" in update_fields else current.global_code,
-                    self.strain_id if adding or {"strain", "strain_id"}.intersection(update_fields) else current.strain_id,
+                    self.global_code
+                    if adding or "global_code" in update_fields
+                    else current.global_code,
+                    self.strain_id
+                    if adding or {"strain", "strain_id"}.intersection(update_fields)
+                    else current.strain_id,
                 )
                 # A partial write must not bless conflicting unsaved attributes.
                 # Read the dictionary without loading any deferred identity field.
-                instance_identity = (self.__dict__.get("global_code"), self.__dict__.get("strain_id"))
-                self._loaded_identity = saved_identity if instance_identity == saved_identity else None
+                instance_identity = (
+                    self.__dict__.get("global_code"),
+                    self.__dict__.get("strain_id"),
+                )
+                self._loaded_identity = (
+                    saved_identity if instance_identity == saved_identity else None
+                )
             return result
 
     class Meta:
         constraints = [
             models.CheckConstraint(
-                condition=Q(merged_into__isnull=True) | (
+                condition=Q(merged_into__isnull=True)
+                | (
                     Q(status="inactive", thermal_zone__isnull=True)
                     & ~Q(merged_into=models.F("pk"))
                 ),
                 name="merged_box_is_retired",
+            ),
+            # Explicit membership, not a range: SQLite would keep 1.5 as REAL.
+            models.CheckConstraint(
+                condition=Q(planned_weekday__isnull=True)
+                | Q(planned_weekday__in=[1, 2, 3, 4, 5, 6, 7]),
+                name="box_planned_weekday_iso_range",
             ),
             # One live record per physical Box within an institution; retired
             # merge aliases may share the identity of their terminal record.
@@ -345,14 +460,18 @@ class BoxLocalIdAlias(models.Model):
     """
 
     code = models.CharField(max_length=100, unique=True, editable=False)
-    box = models.ForeignKey(Box, on_delete=models.PROTECT, related_name="local_id_aliases", editable=False)
+    box = models.ForeignKey(
+        Box, on_delete=models.PROTECT, related_name="local_id_aliases", editable=False
+    )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = BoxLocalIdAliasQuerySet.as_manager()
 
     class Meta:
         constraints = [
-            models.CheckConstraint(condition=~Q(code=""), name="box_local_id_alias_not_empty"),
+            models.CheckConstraint(
+                condition=~Q(code=""), name="box_local_id_alias_not_empty"
+            ),
         ]
 
     @property
@@ -372,15 +491,23 @@ class BoxLocalIdAlias(models.Model):
 
 
 class AutomaticBoxCreationRequest(models.Model):
-    organization = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT
+    )
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     request_id = models.UUIDField()
     intent = models.JSONField(null=True, blank=True)
-    resume_token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    resume_token_hash = models.CharField(
+        max_length=64, unique=True, null=True, blank=True
+    )
     failure = models.JSONField(null=True, blank=True)
     cancelled = models.BooleanField(default=False)
     box = models.OneToOneField(
-        Box, on_delete=models.PROTECT, related_name="automatic_creation_request", null=True, blank=True,
+        Box,
+        on_delete=models.PROTECT,
+        related_name="automatic_creation_request",
+        null=True,
+        blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -392,14 +519,22 @@ class AutomaticBoxCreationRequest(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    (Q(resume_token_hash__isnull=True, failure__isnull=True) & (
-                        Q(cancelled=True, box__isnull=True, intent__isnull=True)
-                        | Q(cancelled=False, box__isnull=False, intent__isnull=False)
-                    ))
-                    | (Q(resume_token_hash__isnull=False, intent__isnull=False) & (
-                        Q(cancelled=False, failure__isnull=True)
-                        | Q(cancelled=True, box__isnull=True)
-                    ))
+                    (
+                        Q(resume_token_hash__isnull=True, failure__isnull=True)
+                        & (
+                            Q(cancelled=True, box__isnull=True, intent__isnull=True)
+                            | Q(
+                                cancelled=False, box__isnull=False, intent__isnull=False
+                            )
+                        )
+                    )
+                    | (
+                        Q(resume_token_hash__isnull=False, intent__isnull=False)
+                        & (
+                            Q(cancelled=False, failure__isnull=True)
+                            | Q(cancelled=True, box__isnull=True)
+                        )
+                    )
                 ),
                 name="automatic_box_request_coherent_state",
             ),
@@ -408,7 +543,9 @@ class AutomaticBoxCreationRequest(models.Model):
 
 class BoxLocation(models.Model):
     box = models.ForeignKey(Box, on_delete=models.CASCADE, related_name="locations")
-    thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="box_locations")
+    thermal_zone = models.ForeignKey(
+        ThermalZone, on_delete=models.PROTECT, related_name="box_locations"
+    )
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField(null=True, blank=True)
     end_date_unknown = models.BooleanField(default=False)
@@ -431,7 +568,9 @@ class BoxLocation(models.Model):
         if self.ends_at and self.ends_at <= self.starts_at:
             raise ValidationError("The end date must be after the start date.")
         if self.ends_at and self.end_date_unknown:
-            raise ValidationError("A location with an unknown end date cannot also have an end date.")
+            raise ValidationError(
+                "A location with an unknown end date cannot also have an end date."
+            )
 
     def __str__(self):
         return f"{self.box} in {self.thermal_zone}"
@@ -448,17 +587,29 @@ class HistoricalBoxMovementQuerySet(models.QuerySet):
 class HistoricalBoxMovement(models.Model):
     """Reviewed week-only reconstruction, never an exact physical timestamp."""
 
-    box = models.ForeignKey(Box, on_delete=models.PROTECT, related_name="historical_movements")
+    box = models.ForeignKey(
+        Box, on_delete=models.PROTECT, related_name="historical_movements"
+    )
     iso_year = models.PositiveSmallIntegerField()
     iso_week = models.PositiveSmallIntegerField()
-    from_thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="historical_departures")
-    to_thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="historical_arrivals")
-    origin_location = models.ForeignKey(BoxLocation, on_delete=models.PROTECT, related_name="historical_departures")
-    destination_location = models.ForeignKey(BoxLocation, on_delete=models.PROTECT, related_name="historical_arrivals")
+    from_thermal_zone = models.ForeignKey(
+        ThermalZone, on_delete=models.PROTECT, related_name="historical_departures"
+    )
+    to_thermal_zone = models.ForeignKey(
+        ThermalZone, on_delete=models.PROTECT, related_name="historical_arrivals"
+    )
+    origin_location = models.ForeignKey(
+        BoxLocation, on_delete=models.PROTECT, related_name="historical_departures"
+    )
+    destination_location = models.ForeignKey(
+        BoxLocation, on_delete=models.PROTECT, related_name="historical_arrivals"
+    )
     candidate_key = models.CharField(max_length=64, unique=True, editable=False)
     plan_fingerprint = models.CharField(max_length=64, editable=False)
     evidence = models.JSONField(default=dict, editable=False)
-    accepted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False
+    )
     accepted_at = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(blank=True)
 
@@ -466,10 +617,22 @@ class HistoricalBoxMovement(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["box", "iso_year", "iso_week"], name="unique_historical_box_movement_week"),
-            models.CheckConstraint(condition=Q(iso_year__gte=1, iso_year__lte=9999), name="historical_movement_year_valid"),
-            models.CheckConstraint(condition=Q(iso_week__gte=1, iso_week__lte=53), name="historical_movement_week_valid"),
-            models.CheckConstraint(condition=~Q(from_thermal_zone=F("to_thermal_zone")), name="historical_movement_distinct_zones"),
+            models.UniqueConstraint(
+                fields=["box", "iso_year", "iso_week"],
+                name="unique_historical_box_movement_week",
+            ),
+            models.CheckConstraint(
+                condition=Q(iso_year__gte=1, iso_year__lte=9999),
+                name="historical_movement_year_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(iso_week__gte=1, iso_week__lte=53),
+                name="historical_movement_week_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(from_thermal_zone=F("to_thermal_zone")),
+                name="historical_movement_distinct_zones",
+            ),
         ]
 
     def clean(self):
@@ -482,10 +645,17 @@ class HistoricalBoxMovement(models.Model):
             raise ValidationError("A valid ISO week is required.") from exc
         for zone in (self.from_thermal_zone, self.to_thermal_zone):
             if zone.organization_id != self.box.organization_id:
-                raise ValidationError("Historical movement zones must belong to the box institution.")
-        for location, zone_id in ((self.origin_location, self.from_thermal_zone_id), (self.destination_location, self.to_thermal_zone_id)):
+                raise ValidationError(
+                    "Historical movement zones must belong to the box institution."
+                )
+        for location, zone_id in (
+            (self.origin_location, self.from_thermal_zone_id),
+            (self.destination_location, self.to_thermal_zone_id),
+        ):
             if location.box_id != self.box_id or location.thermal_zone_id != zone_id:
-                raise ValidationError("Historical movement period evidence does not match.")
+                raise ValidationError(
+                    "Historical movement period evidence does not match."
+                )
 
     def save(self, *args, **kwargs):
         if not self._state.adding:
@@ -567,9 +737,13 @@ class BoxMovement(models.Model):
         related_name="incoming_box_movements",
     )
     moved_at = models.DateTimeField(default=timezone.now)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
     notes = models.TextField(blank=True)
-    kind = models.CharField(max_length=30, choices=Kind.choices, default=Kind.UNCLASSIFIED)
+    kind = models.CharField(
+        max_length=30, choices=Kind.choices, default=Kind.UNCLASSIFIED
+    )
     # Paris-local Monday of moved_at, stored for ordinary movements only.
     iso_week_start = models.DateField(null=True, blank=True, editable=False)
     # Incremented by each correction; clients send it back to detect stale forms.
@@ -599,9 +773,15 @@ class BoxMovement(models.Model):
         ordering = ["-moved_at"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(kind__in=[
-                    "ordinary", "initial_location", "qualification", "reactivation", "unclassified",
-                ]),
+                condition=Q(
+                    kind__in=[
+                        "ordinary",
+                        "initial_location",
+                        "qualification",
+                        "reactivation",
+                        "unclassified",
+                    ]
+                ),
                 name="box_movement_kind_valid",
             ),
             models.CheckConstraint(
@@ -636,7 +816,9 @@ class BoxMovement(models.Model):
 
     def save(self, *args, **kwargs):
         self.iso_week_start = (
-            self.week_start_for(self.moved_at) if self.kind == self.Kind.ORDINARY else None
+            self.week_start_for(self.moved_at)
+            if self.kind == self.Kind.ORDINARY
+            else None
         )
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
@@ -666,7 +848,9 @@ class SubcultureEvent(models.Model):
         related_name="source_subculture_events",
     )
     event_date = models.DateField(default=timezone.localdate)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
     reason = models.CharField(max_length=180, blank=True)
     notes = models.TextField(blank=True)
     # NULL denotes legacy unknown history, never a reconstructed occurrence.
@@ -681,7 +865,12 @@ class SubcultureEvent(models.Model):
     objects = ProtectedSubcultureQuerySet.as_manager()
 
     def save(self, *args, **kwargs):
-        if self.pk and type(self).objects.filter(pk=self.pk, occurred_at__isnull=False).exists():
+        if (
+            self.pk
+            and type(self)
+            .objects.filter(pk=self.pk, occurred_at__isnull=False)
+            .exists()
+        ):
             raise ValidationError("Quantitative subculture history is immutable.")
         return super().save(*args, **kwargs)
 
@@ -695,16 +884,32 @@ class SubcultureEvent(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    Q(occurred_at__isnull=True, parent_state_sequence__isnull=True,
-                      parent_polyp_count_before__isnull=True, allocated_polyp_count__isnull=True,
-                      parent_polyp_count_after__isnull=True, parent_state_snapshot__isnull=True)
-                    | Q(occurred_at__isnull=False, parent_state_sequence__isnull=False,
-                        parent_polyp_count_before__isnull=False, allocated_polyp_count__isnull=False,
-                        parent_polyp_count_after__isnull=False, parent_state_snapshot__isnull=False,
-                        parent_polyp_count_before=models.F("allocated_polyp_count") + models.F("parent_polyp_count_after"))
-                    | Q(occurred_at__isnull=False, parent_state_sequence__isnull=False,
-                        parent_polyp_count_before__isnull=False, allocated_polyp_count__isnull=True,
-                        parent_polyp_count_after__isnull=True, parent_state_snapshot__isnull=False)
+                    Q(
+                        occurred_at__isnull=True,
+                        parent_state_sequence__isnull=True,
+                        parent_polyp_count_before__isnull=True,
+                        allocated_polyp_count__isnull=True,
+                        parent_polyp_count_after__isnull=True,
+                        parent_state_snapshot__isnull=True,
+                    )
+                    | Q(
+                        occurred_at__isnull=False,
+                        parent_state_sequence__isnull=False,
+                        parent_polyp_count_before__isnull=False,
+                        allocated_polyp_count__isnull=False,
+                        parent_polyp_count_after__isnull=False,
+                        parent_state_snapshot__isnull=False,
+                        parent_polyp_count_before=models.F("allocated_polyp_count")
+                        + models.F("parent_polyp_count_after"),
+                    )
+                    | Q(
+                        occurred_at__isnull=False,
+                        parent_state_sequence__isnull=False,
+                        parent_polyp_count_before__isnull=False,
+                        allocated_polyp_count__isnull=True,
+                        parent_polyp_count_after__isnull=True,
+                        parent_state_snapshot__isnull=False,
+                    )
                 ),
                 name="subculture_absolute_polyp_balance",
             ),
@@ -723,8 +928,12 @@ class ImmutableAllocationQuerySet(models.QuerySet):
 
 
 class SubcultureAllocation(models.Model):
-    event = models.ForeignKey(SubcultureEvent, on_delete=models.PROTECT, related_name="allocations")
-    child_box = models.OneToOneField(Box, on_delete=models.PROTECT, related_name="subculture_initialization")
+    event = models.ForeignKey(
+        SubcultureEvent, on_delete=models.PROTECT, related_name="allocations"
+    )
+    child_box = models.OneToOneField(
+        Box, on_delete=models.PROTECT, related_name="subculture_initialization"
+    )
     position = models.PositiveIntegerField()
     allocated_polyps = models.PositiveIntegerField(null=True)
     child_state_sequence = models.PositiveBigIntegerField(default=1, editable=False)
@@ -735,7 +944,10 @@ class SubcultureAllocation(models.Model):
     class Meta:
         ordering = ["position"]
         constraints = [
-            models.UniqueConstraint(fields=["event", "position"], name="unique_subculture_allocation_position"),
+            models.UniqueConstraint(
+                fields=["event", "position"],
+                name="unique_subculture_allocation_position",
+            ),
         ]
 
     def save(self, *args, **kwargs):
@@ -839,10 +1051,14 @@ class PortableLineageEdge(models.Model):
     )
     edge_id = models.UUIDField(default=uuid.uuid4, editable=False)
     source_node = models.ForeignKey(
-        PortableLineageNode, on_delete=models.PROTECT, related_name="outgoing_edges",
+        PortableLineageNode,
+        on_delete=models.PROTECT,
+        related_name="outgoing_edges",
     )
     target_node = models.ForeignKey(
-        PortableLineageNode, on_delete=models.PROTECT, related_name="incoming_edges",
+        PortableLineageNode,
+        on_delete=models.PROTECT,
+        related_name="incoming_edges",
     )
     relationship_type = models.CharField(
         max_length=40,
@@ -870,14 +1086,24 @@ class PortableLineageEdge(models.Model):
                 name="portable_edge_not_self",
             ),
             models.CheckConstraint(
-                condition=Q(relationship_type__in=[
-                    "subculture", "sexual_reproduction", "historical_import", "other", "transfer",
-                ]),
+                condition=Q(
+                    relationship_type__in=[
+                        "subculture",
+                        "sexual_reproduction",
+                        "historical_import",
+                        "other",
+                        "transfer",
+                    ]
+                ),
                 name="portable_edge_type_valid",
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(relationship_type="transfer", transfer_id__isnull=False, item_id__isnull=False)
+                    Q(
+                        relationship_type="transfer",
+                        transfer_id__isnull=False,
+                        item_id__isnull=False,
+                    )
                     | (
                         ~Q(relationship_type="transfer")
                         & Q(transfer_id__isnull=True, item_id__isnull=True)
@@ -886,7 +1112,8 @@ class PortableLineageEdge(models.Model):
                 name="portable_edge_provenance_valid",
             ),
             models.CheckConstraint(
-                condition=~Q(relationship_type="transfer") | Q(local_lineage__isnull=True),
+                condition=~Q(relationship_type="transfer")
+                | Q(local_lineage__isnull=True),
                 name="portable_transfer_no_local_lineage",
             ),
         ]
@@ -898,7 +1125,9 @@ class IdentificationTag(models.Model):
         NFC = "nfc", "NFC"
         RFID = "rfid", "RFID"
 
-    tag_type = models.CharField(max_length=20, choices=TagType.choices, default=TagType.QR)
+    tag_type = models.CharField(
+        max_length=20, choices=TagType.choices, default=TagType.QR
+    )
     code = models.CharField(max_length=160, unique=True)
     url = models.URLField(blank=True)
     box = models.ForeignKey(
@@ -953,8 +1182,12 @@ class BoxTransfer(models.Model):
     transfer_date = models.DateField(default=timezone.localdate)
     # Nullable for historical transfers; the API requires it for every new one.
     polyp_count = models.PositiveIntegerField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNED)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PLANNED
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -969,21 +1202,30 @@ class TransferEnvelope(models.Model):
 
     transfer_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     source_organization = models.ForeignKey(
-        "organizations.Organization", on_delete=models.PROTECT,
-        related_name="transfer_envelopes", editable=False,
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="transfer_envelopes",
+        editable=False,
     )
     source_institution_id = models.UUIDField(editable=False)
     source_institution_name = models.CharField(max_length=150, editable=False)
     destination_institution_id = models.UUIDField(null=True, blank=True, editable=False)
     destination_institution_name = models.CharField(
-        max_length=150, blank=True, default="", editable=False,
+        max_length=150,
+        blank=True,
+        default="",
+        editable=False,
     )
     protocol_major = models.PositiveIntegerField(default=2, editable=False)
     protocol_minor = models.PositiveIntegerField(default=0, editable=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="transfer_envelopes", editable=False,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transfer_envelopes",
+        editable=False,
     )
 
 
@@ -991,23 +1233,32 @@ class TransferItem(models.Model):
     """One source selection; portable identity is (transfer_id, item_id)."""
 
     envelope = models.ForeignKey(
-        TransferEnvelope, on_delete=models.PROTECT, related_name="items", editable=False,
+        TransferEnvelope,
+        on_delete=models.PROTECT,
+        related_name="items",
+        editable=False,
     )
     item_id = models.UUIDField(default=uuid.uuid4, editable=False)
     source_box = models.ForeignKey(
-        Box, on_delete=models.PROTECT, related_name="transfer_items", editable=False,
+        Box,
+        on_delete=models.PROTECT,
+        related_name="transfer_items",
+        editable=False,
     )
     source_box_code = models.CharField(max_length=100, editable=False)
     source_strain_code = models.CharField(max_length=80, editable=False)
     species_scientific_name = models.CharField(max_length=150, editable=False)
     global_strain_id = models.UUIDField(editable=False)
     declared_polyp_quantity = models.PositiveIntegerField(editable=False)
-    lineage_snapshot = models.JSONField(null=True, blank=True, editable=False, default=None)
+    lineage_snapshot = models.JSONField(
+        null=True, blank=True, editable=False, default=None
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["envelope", "item_id"], name="unique_transfer_item_per_envelope",
+                fields=["envelope", "item_id"],
+                name="unique_transfer_item_per_envelope",
             ),
             models.CheckConstraint(
                 condition=Q(declared_polyp_quantity__gte=0),
@@ -1050,7 +1301,9 @@ class GlobalBoxIdentity(models.Model):
 
 class ProtectedOwnershipEpisodeQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        raise ValidationError("Box ownership episodes change only through validated saves.")
+        raise ValidationError(
+            "Box ownership episodes change only through validated saves."
+        )
 
     def delete(self):
         raise ValidationError("Box ownership history is protected.")
@@ -1067,16 +1320,23 @@ class BoxOwnershipEpisode(models.Model):
     """
 
     identity = models.ForeignKey(
-        GlobalBoxIdentity, on_delete=models.PROTECT,
-        related_name="ownership_episodes", editable=False,
+        GlobalBoxIdentity,
+        on_delete=models.PROTECT,
+        related_name="ownership_episodes",
+        editable=False,
     )
     sequence = models.PositiveIntegerField(editable=False)
     organization = models.ForeignKey(
-        "organizations.Organization", on_delete=models.PROTECT,
-        related_name="box_ownership_episodes", editable=False,
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="box_ownership_episodes",
+        editable=False,
     )
     local_box = models.OneToOneField(
-        Box, on_delete=models.PROTECT, related_name="ownership_episode", editable=False,
+        Box,
+        on_delete=models.PROTECT,
+        related_name="ownership_episode",
+        editable=False,
     )
     # NULL means unknown, never reconstructed: an origin episode recorded for
     # an existing Box does not know when that institution acquired it.
@@ -1096,10 +1356,12 @@ class BoxOwnershipEpisode(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["identity", "sequence"], name="box_ownership_sequence_unique",
+                fields=["identity", "sequence"],
+                name="box_ownership_sequence_unique",
             ),
             models.UniqueConstraint(
-                fields=["identity"], condition=Q(ended_at__isnull=True),
+                fields=["identity"],
+                condition=Q(ended_at__isnull=True),
                 name="box_ownership_single_current",
             ),
             models.UniqueConstraint(
@@ -1108,18 +1370,28 @@ class BoxOwnershipEpisode(models.Model):
                 name="box_ownership_arrival_unique",
             ),
             models.CheckConstraint(
-                condition=Q(sequence__gte=1), name="box_ownership_sequence_positive",
+                condition=Q(sequence__gte=1),
+                name="box_ownership_sequence_positive",
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(sequence=1, arrival_transfer_id__isnull=True, arrival_item_id__isnull=True)
-                    | Q(sequence__gt=1, arrival_transfer_id__isnull=False,
-                        arrival_item_id__isnull=False, started_at__isnull=False)
+                    Q(
+                        sequence=1,
+                        arrival_transfer_id__isnull=True,
+                        arrival_item_id__isnull=True,
+                    )
+                    | Q(
+                        sequence__gt=1,
+                        arrival_transfer_id__isnull=False,
+                        arrival_item_id__isnull=False,
+                        started_at__isnull=False,
+                    )
                 ),
                 name="box_ownership_arrival_provenance",
             ),
             models.CheckConstraint(
-                condition=Q(started_at__isnull=True) | Q(ended_at__isnull=True)
+                condition=Q(started_at__isnull=True)
+                | Q(ended_at__isnull=True)
                 | Q(ended_at__gte=F("started_at")),
                 name="box_ownership_chronology",
             ),
@@ -1129,7 +1401,9 @@ class BoxOwnershipEpisode(models.Model):
     def save(self, *args, **kwargs):
         with transaction.atomic(using=kwargs.get("using")):
             # One identity lock serializes every writer of the same chain.
-            GlobalBoxIdentity.objects.select_for_update().only("pk").get(pk=self.identity_id)
+            GlobalBoxIdentity.objects.select_for_update().only("pk").get(
+                pk=self.identity_id
+            )
             if self._state.adding:
                 self._validate_new_episode()
             else:
@@ -1140,28 +1414,49 @@ class BoxOwnershipEpisode(models.Model):
         raise ValidationError("Box ownership history is protected.")
 
     def _validate_new_episode(self):
-        box = Box.objects.select_for_update().only("organization_id", "merged_into_id").get(pk=self.local_box_id)
+        box = (
+            Box.objects.select_for_update()
+            .only("organization_id", "merged_into_id")
+            .get(pk=self.local_box_id)
+        )
         if box.organization_id != self.organization_id:
-            raise ValidationError("A local representation must belong to the episode institution.")
+            raise ValidationError(
+                "A local representation must belong to the episode institution."
+            )
         if box.merged_into_id is not None:
-            raise ValidationError("A merged identity alias cannot represent a biological Box.")
+            raise ValidationError(
+                "A merged identity alias cannot represent a biological Box."
+            )
         if self.ended_at is not None:
-            raise ValidationError("A new ownership episode starts as the current owner.")
-        previous = type(self).objects.filter(identity_id=self.identity_id).order_by("-sequence").first()
+            raise ValidationError(
+                "A new ownership episode starts as the current owner."
+            )
+        previous = (
+            type(self)
+            .objects.filter(identity_id=self.identity_id)
+            .order_by("-sequence")
+            .first()
+        )
         expected = 1 if previous is None else previous.sequence + 1
         if self.sequence != expected:
-            raise ValidationError("Ownership episodes must extend the chain without gaps.")
+            raise ValidationError(
+                "Ownership episodes must extend the chain without gaps."
+            )
         if previous is None:
             return
         if previous.organization_id == self.organization_id:
             raise ValidationError("An ownership transfer must change institution.")
         if previous.ended_at is None or previous.ended_at != self.started_at:
-            raise ValidationError("The previous owner must end exactly when the next owner starts.")
+            raise ValidationError(
+                "The previous owner must end exactly when the next owner starts."
+            )
 
     def _validate_closing(self, update_fields):
         current = type(self).objects.select_for_update().get(pk=self.pk)
         if update_fields is None or set(update_fields) - self._closable_fields:
-            raise ValidationError("Only the end of an ownership episode can be recorded.")
+            raise ValidationError(
+                "Only the end of an ownership episode can be recorded."
+            )
         if current.ended_at is not None:
             raise ValidationError("An ended ownership episode is immutable.")
         if self.ended_at is None:
@@ -1172,7 +1467,9 @@ class BoxOwnershipEpisode(models.Model):
 
 class ProtectedDonationProposalQuerySet(models.QuerySet):
     def update(self, **kwargs):
-        raise ValidationError("Box donation proposals change only through validated saves.")
+        raise ValidationError(
+            "Box donation proposals change only through validated saves."
+        )
 
     def delete(self):
         raise ValidationError("Box donation proposals are protected.")
@@ -1194,25 +1491,36 @@ class BoxDonationProposal(models.Model):
 
     proposal_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     source_organization = models.ForeignKey(
-        "organizations.Organization", on_delete=models.PROTECT,
-        related_name="outgoing_box_donation_proposals", editable=False,
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="outgoing_box_donation_proposals",
+        editable=False,
     )
     destination_organization = models.ForeignKey(
-        "organizations.Organization", on_delete=models.PROTECT,
-        related_name="incoming_box_donation_proposals", editable=False,
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="incoming_box_donation_proposals",
+        editable=False,
     )
     source_box = models.ForeignKey(
-        Box, on_delete=models.PROTECT, related_name="donation_proposals", editable=False,
+        Box,
+        on_delete=models.PROTECT,
+        related_name="donation_proposals",
+        editable=False,
     )
     identity = models.ForeignKey(
-        GlobalBoxIdentity, on_delete=models.PROTECT,
-        related_name="donation_proposals", editable=False,
+        GlobalBoxIdentity,
+        on_delete=models.PROTECT,
+        related_name="donation_proposals",
+        editable=False,
     )
     # The current ownership episode at issue time. Acceptance must find it
     # still current (stale/replay control), as for a future protocol item.
     source_episode = models.ForeignKey(
-        BoxOwnershipEpisode, on_delete=models.PROTECT,
-        related_name="donation_proposals", editable=False,
+        BoxOwnershipEpisode,
+        on_delete=models.PROTECT,
+        related_name="donation_proposals",
+        editable=False,
     )
     source_ownership_sequence = models.PositiveIntegerField(editable=False)
     source_institution_name = models.CharField(max_length=150, editable=False)
@@ -1225,37 +1533,50 @@ class BoxDonationProposal(models.Model):
     # the SHA-256 of the scientific snapshot it described. It is not proof
     # that the measurements are scientifically correct.
     history_verified_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="verified_box_donation_histories", editable=False,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="verified_box_donation_histories",
+        editable=False,
     )
     history_verified_at = models.DateTimeField(editable=False)
     history_snapshot_version = models.CharField(max_length=20, editable=False)
     history_sha256 = models.CharField(max_length=64, editable=False)
     source_polyp_state_revision = models.PositiveBigIntegerField(editable=False)
-    state = models.CharField(max_length=20, choices=State.choices, default=State.PENDING, editable=False)
+    state = models.CharField(
+        max_length=20, choices=State.choices, default=State.PENDING, editable=False
+    )
     revision = models.PositiveIntegerField(default=1, editable=False)
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="created_box_donation_proposals", editable=False,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_box_donation_proposals",
+        editable=False,
     )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     # Server-side idempotency: one request key per source institution and actor.
     request_id = models.UUIDField(editable=False)
     request_fingerprint = models.CharField(max_length=64, editable=False)
     cancelled_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
-        related_name="cancelled_box_donation_proposals", editable=False,
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="cancelled_box_donation_proposals",
+        editable=False,
     )
     cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     objects = ProtectedDonationProposalQuerySet.as_manager()
 
-    _cancellation_fields = frozenset({"state", "revision", "cancelled_by", "cancelled_at"})
+    _cancellation_fields = frozenset(
+        {"state", "revision", "cancelled_by", "cancelled_at"}
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["identity"], condition=Q(state="pending"),
+                fields=["identity"],
+                condition=Q(state="pending"),
                 name="box_donation_single_pending",
             ),
             models.UniqueConstraint(
@@ -1272,9 +1593,17 @@ class BoxDonationProposal(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(state="pending", cancelled_by__isnull=True, cancelled_at__isnull=True)
-                    | Q(state="cancelled", cancelled_by__isnull=False,
-                        cancelled_at__isnull=False, revision__gte=2)
+                    Q(
+                        state="pending",
+                        cancelled_by__isnull=True,
+                        cancelled_at__isnull=True,
+                    )
+                    | Q(
+                        state="cancelled",
+                        cancelled_by__isnull=False,
+                        cancelled_at__isnull=False,
+                        revision__gte=2,
+                    )
                 ),
                 name="box_donation_coherent_state",
             ),
@@ -1288,16 +1617,27 @@ class BoxDonationProposal(models.Model):
         with transaction.atomic(using=kwargs.get("using")):
             if self._state.adding:
                 if self.state != self.State.PENDING or self.revision != 1:
-                    raise ValidationError("A donation proposal is issued pending at revision 1.")
+                    raise ValidationError(
+                        "A donation proposal is issued pending at revision 1."
+                    )
                 return super().save(*args, **kwargs)
             update_fields = kwargs.get("update_fields")
             if update_fields is None or set(update_fields) - self._cancellation_fields:
-                raise ValidationError("Only the cancellation of a donation proposal can be recorded.")
+                raise ValidationError(
+                    "Only the cancellation of a donation proposal can be recorded."
+                )
             current = type(self).objects.select_for_update().get(pk=self.pk)
-            if current.state != self.State.PENDING or self.state != self.State.CANCELLED:
-                raise ValidationError("Only a pending donation proposal can be cancelled.")
+            if (
+                current.state != self.State.PENDING
+                or self.state != self.State.CANCELLED
+            ):
+                raise ValidationError(
+                    "Only a pending donation proposal can be cancelled."
+                )
             if self.revision != current.revision + 1:
-                raise ValidationError("A cancellation must advance the proposal revision by one.")
+                raise ValidationError(
+                    "A cancellation must advance the proposal revision by one."
+                )
             return super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -1332,7 +1672,11 @@ class BoxTransferImport(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["format_version", "source_organization_name", "source_transfer_id"],
+                fields=[
+                    "format_version",
+                    "source_organization_name",
+                    "source_transfer_id",
+                ],
                 name="unique_imported_box_transfer",
             )
         ]
@@ -1341,4 +1685,4 @@ class BoxTransferImport(models.Model):
         return f"{self.source_global_code} -> {self.created_box.global_code}"
 
 
-from .history_revision_models import BoxHistoryEventIdentity, BoxHistoryRevision, BoxHistoryStream  # noqa: E402, F401
+from .history_revision_models import BoxHistoryEventIdentity, BoxHistoryRevision, BoxHistoryStream  # noqa: E402, F401  # fmt: skip
