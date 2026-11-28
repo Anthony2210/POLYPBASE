@@ -60,12 +60,13 @@ class BoxAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         # The current location changes only through the movement services, and
-        # the planned weekday only through its audited service.
-        readonly_fields = tuple(super().get_readonly_fields(request, obj))
+        # the planned weekday only through its audited service, on both forms.
+        # Box.save() also never writes it from a full save of a stale instance.
+        readonly_fields = tuple(super().get_readonly_fields(request, obj)) + (
+            "planned_weekday",
+        )
         return (
-            readonly_fields + ("thermal_zone", "planned_weekday")
-            if obj is not None
-            else readonly_fields
+            readonly_fields + ("thermal_zone",) if obj is not None else readonly_fields
         )
 
 

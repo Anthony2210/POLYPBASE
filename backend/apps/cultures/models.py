@@ -308,12 +308,19 @@ class Box(models.Model):
                     )
             update_fields = kwargs.get("update_fields")
             if not adding and update_fields is None:
-                # A stale instance must never clear or replace a Global ID.
+                # A stale instance must never clear or replace a Global ID, nor
+                # restore an older planned weekday: that field changes only
+                # through set_box_planned_weekday, with explicit update_fields.
                 update_fields = {
                     field.name
                     for field in self._meta.concrete_fields
                     if not field.primary_key
-                    and field.name not in {"polyp_state_revision", "global_identity"}
+                    and field.name
+                    not in {
+                        "polyp_state_revision",
+                        "global_identity",
+                        "planned_weekday",
+                    }
                 }
                 kwargs["update_fields"] = update_fields
             if not adding and {"global_identity", "global_identity_id"}.intersection(

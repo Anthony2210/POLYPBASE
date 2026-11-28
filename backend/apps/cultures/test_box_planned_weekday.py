@@ -1,9 +1,10 @@
 """Planned weekday of a Box: constraint, admin-only edits, audit, payloads, transplant."""
 
+from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -16,6 +17,7 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
+from .admin import BoxAdmin
 from .models import Box, ThermalZone
 from .polyp_state import resolve_current_polyp_state
 from .services import create_subculture, set_box_planned_weekday
@@ -379,3 +381,72 @@ class PlannedWeekdayTransplantTests(PlannedWeekdayTestBase):
         )
         child.refresh_from_db()
         self.assertIsNone(child.planned_weekday)
+
+
+class PlannedWeekdayDjangoAdminTests(PlannedWeekdayTestBase):
+    """The generic admin never writes the planned weekday; only the audited service does."""
+
+    def setUp(self):
+        super().setUp()
+        self.superuser = get_user_model().objects.create_superuser(
+            username="weekday_superuser",
+            email="weekday_superuser@example.org",
+            password="secret",
+        )
+        self.request = RequestFactory().get("/")
+        self.request.user = self.superuser
+        self.box_admin = BoxAdmin(Box, AdminSite())
+
+    def test_field_is_read_only_on_the_add_and_change_forms(self):
+        for obj in (None, self.box):
+            with self.subTest(form="change" if obj else "add"):
+                self.assertIn(
+                    "planned_weekday",
+                    self.box_admin.get_readonly_fields(self.request, obj),
+                )
+                form_class = self.box_admin.get_form(self.request, obj)
+                self.assertNotIn("planned_weekday", form_class.base_fields)
+
+    def test_add_form_cannot_set_the_planned_weekday(self):
+        # The admin is not routed in config/urls.py: drive its own add form and save.
+        form = self.box_admin.get_form(self.request, None)(
+            data={
+                "organization": self.org.pk,
+                "global_code": "AWD-QA-1.009",
+                "local_code": "",
+                "box_number": "009",
+                "strain": self.strain.pk,
+                "status": Box.Status.ACTIVE,
+                "stop_reason": "",
+                "notes": "",
+                "planned_weekday": "3",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        created = form.save(commit=False)
+        self.box_admin.save_model(self.request, created, form, change=False)
+        created.refresh_from_db()
+        self.assertIsNone(created.planned_weekday)
+        self.assertFalse(
+            AuditLog.objects.filter(
+                metadata__event="box_planned_weekday_updated"
+            ).exists()
+        )
+
+    def test_stale_change_form_save_keeps_the_newer_audited_value(self):
+        set_box_planned_weekday(box=self.box, planned_weekday=3, user=self.admin)
+        stale = Box.objects.get(
+            pk=self.box.pk
+        )  # Loaded by the admin while the value is 3.
+        set_box_planned_weekday(box=self.box, planned_weekday=5, user=self.admin)
+        stale.notes = "Edited in the Django admin"
+        self.box_admin.save_model(self.request, stale, form=None, change=True)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.planned_weekday, 5)
+        self.assertEqual(self.box.notes, "Edited in the Django admin")
+        self.assertEqual(
+            AuditLog.objects.filter(
+                metadata__event="box_planned_weekday_updated"
+            ).count(),
+            2,
+        )
