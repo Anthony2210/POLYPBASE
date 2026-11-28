@@ -44,6 +44,40 @@ SQLITE_ONLY = (
     "apps.cultures.test_history_audit_lookup.HistoryAuditLookupTests."
     "test_synthetic_before_after_sqlite_full_identity_index_plans"
 )
+# Migration 0026: constraint, rollback refusal and reversal, and the reverse
+# guard's isolation check and table lock (including a contended table).
+PLANNED_WEEKDAY_PREFLIGHT = (
+    "apps.cultures.test_rollback_plan_preflight.RollbackPlanPreflightTests"
+)
+PLANNED_WEEKDAY_GUARD = (
+    "apps.cultures.test_box_planned_weekday_migrations."
+    "BoxPlannedWeekdayRollbackGuardPostgresTests"
+)
+PLANNED_WEEKDAY_LABELS = (
+    "apps.cultures.test_box_planned_weekday_migrations",
+    "apps.cultures.test_box_planned_weekday.PlannedWeekdayConstraintTests",
+    f"{PLANNED_WEEKDAY_PREFLIGHT}.test_planned_weekday_rollback_is_refused_while_any_box_has_one",
+    f"{PLANNED_WEEKDAY_PREFLIGHT}.test_planned_weekday_rollback_reverses_when_every_value_is_null",
+)
+PLANNED_WEEKDAY_REQUIRED = {
+    *PLANNED_WEEKDAY_LABELS[2:],
+    (
+        "apps.cultures.test_box_planned_weekday_migrations.BoxPlannedWeekdayMigrationTests."
+        "test_applies_without_data_changes_enforces_range_and_reverses"
+    ),
+    (
+        "apps.cultures.test_box_planned_weekday.PlannedWeekdayConstraintTests."
+        "test_database_never_stores_a_fractional_weekday"
+    ),
+    *(
+        f"{PLANNED_WEEKDAY_GUARD}.{method}"
+        for method in (
+            "test_guard_requires_an_atomic_read_committed_migration",
+            "test_empty_guard_keeps_box_writers_out_until_the_rollback_ends",
+            "test_busy_box_table_is_refused_at_once_without_any_downgrade",
+        )
+    ),
+}
 
 
 def prepare_environment():
@@ -251,6 +285,13 @@ def run(service, evidence_dir):
                     template=template,
                     suffix="revisions",
                     required=REQUIRED_TEST_IDS,
+                )
+                test_suite(
+                    service,
+                    PLANNED_WEEKDAY_LABELS,
+                    template=template,
+                    suffix="planned_weekday",
+                    required=PLANNED_WEEKDAY_REQUIRED,
                 )
             service.drop_roles()
             service.use_django_database(bootstrap)
