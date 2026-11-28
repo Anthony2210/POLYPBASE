@@ -118,6 +118,38 @@ class PlannedWeekdayConstraintTests(PlannedWeekdayTestBase):
             ).exists()
         )
 
+    def raw_update(self, value):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE cultures_box SET planned_weekday = %s WHERE id = %s",
+                [value, self.box.pk],
+            )
+        return Box.objects.values_list("planned_weekday", flat=True).get(pk=self.box.pk)
+
+    def test_database_never_stores_a_fractional_weekday(self):
+        # SQLite keeps 1.5 as REAL, so only a membership check rejects it. A
+        # PostgreSQL smallint rounds the assignment first (1.5 -> 2, 7.5 -> 8).
+        if connection.vendor == "postgresql":
+            rejected, stored = (7.5, 0.4), {1.5: 2, 6.6: 7}
+        else:
+            rejected, stored = (1.5, 6.6, 7.5, 0.4), {}
+        for value in rejected:
+            with (
+                self.subTest(value=value),
+                transaction.atomic(),
+                self.assertRaises(IntegrityError),
+            ):
+                self.raw_update(value)
+        for value, expected in stored.items():
+            with self.subTest(value=value):
+                self.assertEqual(self.raw_update(value), expected)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM cultures_box WHERE planned_weekday IS NOT NULL "
+                "AND planned_weekday NOT IN (1, 2, 3, 4, 5, 6, 7)"
+            )
+            self.assertEqual(cursor.fetchone()[0], 0)
+
 
 class PlannedWeekdayEditTests(PlannedWeekdayTestBase):
     def audits(self):

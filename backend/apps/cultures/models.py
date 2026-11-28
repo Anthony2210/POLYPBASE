@@ -419,9 +419,10 @@ class Box(models.Model):
                 ),
                 name="merged_box_is_retired",
             ),
+            # Explicit membership, not a range: SQLite would keep 1.5 as REAL.
             models.CheckConstraint(
                 condition=Q(planned_weekday__isnull=True)
-                | Q(planned_weekday__gte=1, planned_weekday__lte=7),
+                | Q(planned_weekday__in=[1, 2, 3, 4, 5, 6, 7]),
                 name="box_planned_weekday_iso_range",
             ),
             # One live record per physical Box within an institution; retired

@@ -15,9 +15,10 @@ import django.core.validators
 from django.db import NotSupportedError, migrations, models
 from django.db.migrations.exceptions import IrreversibleError
 
+# Explicit membership, not a range: SQLite would keep a fractional REAL value.
 CONSTRAINT = models.CheckConstraint(
     condition=models.Q(planned_weekday__isnull=True)
-    | models.Q(planned_weekday__gte=1, planned_weekday__lte=7),
+    | models.Q(planned_weekday__in=[1, 2, 3, 4, 5, 6, 7]),
     name="box_planned_weekday_iso_range",
 )
 
@@ -67,10 +68,19 @@ class AddPlannedWeekdayField(migrations.AddField):
         column_sql, params = schema_editor.column_sql(
             model, field, include_default=False
         )
+        column = schema_editor.quote_name(field.column)
+        # Same rule as CONSTRAINT, written without commas: Django's SQLite
+        # introspection splits the stored column definitions on commas, so an
+        # inline IN (1, 2, ...) would break every later schema read. typeof()
+        # rejects a REAL such as 1.5, as the membership check does.
+        check = (
+            f"CONSTRAINT {schema_editor.quote_name(CONSTRAINT.name)} CHECK "
+            f"({column} IS NULL OR ({column} BETWEEN 1 AND 7 "
+            f"AND typeof({column}) = 'integer'))"
+        )
         schema_editor.execute(
             f"ALTER TABLE {schema_editor.quote_name(model._meta.db_table)} "
-            f"ADD COLUMN {schema_editor.quote_name(field.column)} {column_sql} "
-            f"{CONSTRAINT.constraint_sql(model, schema_editor)}",
+            f"ADD COLUMN {column} {column_sql} {check}",
             params,
         )
 
