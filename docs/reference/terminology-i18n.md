@@ -103,7 +103,7 @@ Edit the key in its owning `frontend/src/i18n/sections/<section>.ts` file and it
 
 A source change makes the old digest stale. `npm run i18n:find --` marks it `(stale source)` and the section checker warns without failing on that mismatch alone. The warning does not change the rendered value or status. Recheck the translation with the appropriate reviewer rather than refreshing an approval hash without review.
 
-If an authorized edit changes a previously `validated` translation value, set it back to `ai`, remove `reviewer`, and hash its exact current source. Do not remove a previously validated value. The delta check rejects removal and rejects changed validated values that do not go back to `ai`, using the merge base with `origin/main`.
+If an authorized edit changes a previously `validated` translation value, set it back to `ai`, remove `reviewer`, and hash its exact current source. Do not remove a previously validated value. The delta check rejects removal and rejects changed validated values that do not go back to `ai`, using the merge base with `origin/main`. The 2026-11-27 product approval is an exact-match exception for five reviewer-supplied JA revisions: the checker binds the previous JA, replacement JA, and unchanged EN source. It does not approve future edits to those keys.
 
 ## Usage checks
 

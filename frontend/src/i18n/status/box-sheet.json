@@ -59,6 +59,17 @@
       "reviewer": "japanese-reviewer"
     }
   },
+  "boxRecordsTrend": {
+    "en": {
+      "status": "ai",
+      "source_sha256": "adae4da0dfc4a84ea8b1b395623f431f928aa14824dd2058962034f1aa052d9f"
+    },
+    "ja": {
+      "status": "validated",
+      "source_sha256": "07bb24cbc7fd5bb65cc4b8c70990760bec24d1b4277b96cba4b85e5a80cfc6a9",
+      "reviewer": "japanese-reviewer"
+    }
+  },
   "boxSalinityShort": {
     "en": {
       "status": "validated",

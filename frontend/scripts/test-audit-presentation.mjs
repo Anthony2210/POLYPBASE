@@ -148,7 +148,7 @@ function readSource(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 }
 
-const { fr, en } = loadI18n().translations;
+const { fr, en, ja } = loadI18n().translations;
 
 function translator(catalog) {
   return (key) => catalog[key] ?? key;
@@ -298,100 +298,93 @@ test('account summaries reject inherited actions and descriptions while retainin
   }
 });
 
-const ccaEobReason =
-  'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. ' +
-  "Environmental context now resolves through the target box under the product owner's approved product decision. " +
-  'No location or movement history is modified.';
-const ccaEobSummary = {
+const legacyCorrection = 'cca_eob_v2_20261016_v3';
+const correctionImport = {
   action: 'import',
   object_type: 'historical_correction',
-  object_id: 'cca_eob_v2_20261016_v3',
-  description: ccaEobReason,
-  metadata: {
-    operation: 'cca_eob_v2_20261016_v3',
-    moved: 72,
-    plan_hash: 'unchanged-evidence',
-  },
+  object_id: legacyCorrection,
+  description: 'Original import description',
 };
-const ccaEobEnglish =
-  '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.';
-const ccaEobFrench =
-  '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.';
+const correctionCopy = [
+  [
+    tEn,
+    'Records were reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.',
+  ],
+  [
+    tFr,
+    'Les relevés ont été réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.',
+  ],
+  [
+    translator(ja),
+    '測定記録を正しい容器に再割り当てしました。環境情報は割り当て先の容器に基づきます。設置場所と移動履歴は変更されていません。',
+  ],
+];
 
-test('CCA-EOB V3 summary uses the exact EN message and FR localization without mutating evidence', () => {
-  const before = JSON.stringify(ccaEobSummary);
-  for (const [t, expected] of [
-    [tEn, ccaEobEnglish],
-    [tFr, ccaEobFrench],
-  ]) {
-    assert.equal(audit.getAuditDescriptionLabel(ccaEobSummary, t), expected);
-    assert.equal(audit.getAuditBusinessSummary(ccaEobSummary, t), expected);
-    assert.ok(renderBusinessRow(ccaEobSummary, t).includes(expected));
-  }
-  assert.equal(JSON.stringify(ccaEobSummary), before);
-});
-
-test('CCA-EOB V3 personal action summary uses its resource identity without raw metadata', () => {
-  const personalEntry = {
-    action: 'import',
-    description: ccaEobReason,
-    resource: {
-      type: 'historical_correction',
-      identifier: 'cca_eob_v2_20261016_v3',
-    },
-    business_details: { type: 'reference', values: {} },
-  };
-  assert.equal(
-    audit.getAuditBusinessSummary(personalEntry, tEn),
-    ccaEobEnglish,
-  );
-  assert.equal(audit.getAuditBusinessSummary(personalEntry, tFr), ccaEobFrench);
-});
-
-test('CCA-EOB individual audits retain source/target boxes and ISO week in both languages', () => {
-  const entry = {
-    action: 'update',
-    object_type: 'box',
-    object_id: 'CCA-EOB-2.005',
-    description: `${ccaEobReason} CCA-EOB-2.004 -> CCA-EOB-2.005; 2026-W08.`,
-    metadata: { operation: 'cca_eob_v2_20261016_v3', measurement_id: 123 },
-  };
+test('historical correction summary is generic in every language and preserves evidence', () => {
+  const entry = { ...correctionImport, metadata: { moved: 3 } };
   const before = JSON.stringify(entry);
-  for (const t of [tFr, tEn]) {
-    assert.equal(audit.getAuditDescriptionLabel(entry, t), entry.description);
-    assert.equal(audit.getAuditBusinessSummary(entry, t), entry.description);
-    const html = renderBusinessRow(entry, t);
-    assert.ok(html.includes('CCA-EOB-2.004'));
-    assert.ok(html.includes('CCA-EOB-2.005'));
-    assert.ok(html.includes('2026-W08'));
+  for (const [t, expected] of correctionCopy) {
+    assert.equal(audit.getAuditDescriptionLabel(entry, t), expected);
+    assert.equal(audit.getAuditBusinessSummary(entry, t), expected);
+    assert.ok(renderBusinessRow(entry, t).includes(expected));
   }
   assert.equal(JSON.stringify(entry), before);
 });
 
-test('other operations and unrelated audits never receive the CCA-EOB V3 summary', () => {
+test('personal action uses the historical correction resource identity without metadata', () => {
+  const entry = {
+    action: 'import',
+    description: correctionImport.description,
+    resource: { type: 'historical_correction', identifier: legacyCorrection },
+    business_details: { type: 'reference', values: {} },
+  };
+  for (const [t, expected] of correctionCopy) {
+    assert.equal(audit.getAuditBusinessSummary(entry, t), expected);
+  }
+});
+
+test('individual correction audits retain the source and target boxes and ISO week', () => {
+  const entry = {
+    action: 'update',
+    object_type: 'box',
+    object_id: 'DEMO-BOX-2',
+    description: 'Record moved from DEMO-BOX-1 to DEMO-BOX-2; 2024-W08.',
+    metadata: { operation: legacyCorrection, measurement_id: 123 },
+  };
+  const before = JSON.stringify(entry);
+  for (const [t] of correctionCopy) {
+    assert.equal(audit.getAuditDescriptionLabel(entry, t), entry.description);
+    assert.equal(audit.getAuditBusinessSummary(entry, t), entry.description);
+    const html = renderBusinessRow(entry, t);
+    assert.ok(html.includes('DEMO-BOX-1'));
+    assert.ok(html.includes('DEMO-BOX-2'));
+    assert.ok(html.includes('2024-W08'));
+  }
+  assert.equal(JSON.stringify(entry), before);
+});
+
+test('other historical corrections and unrelated audits retain their original descriptions', () => {
   const entries = [
-    { ...ccaEobSummary, object_id: 'cca_eob_v2_20261016_v2' },
-    { ...ccaEobSummary, object_id: 'other_historical_correction' },
-    { ...ccaEobSummary, object_id: undefined },
-    { ...ccaEobSummary, object_type: 'box' },
-    { ...ccaEobSummary, action: 'update' },
-    { action: 'import', description: ccaEobReason },
+    { ...correctionImport, object_id: 'other_historical_correction' },
+    { ...correctionImport, object_id: undefined },
+    { ...correctionImport, object_type: 'box' },
+    { ...correctionImport, action: 'update' },
     {
-      action: 'import',
-      description: 'Unrelated audit',
-      metadata: ccaEobSummary.metadata,
+      ...correctionImport,
+      object_id: undefined,
+      metadata: { operation: legacyCorrection },
     },
     {
       action: 'import',
-      description: ccaEobReason,
+      description: correctionImport.description,
       resource: {
         type: 'historical_correction',
-        identifier: 'cca_eob_v2_20261016_v2',
+        identifier: 'other_historical_correction',
       },
     },
   ];
   for (const entry of entries) {
-    for (const t of [tFr, tEn]) {
+    for (const [t] of correctionCopy) {
       assert.equal(audit.getAuditDescriptionLabel(entry, t), entry.description);
       assert.equal(audit.getAuditBusinessSummary(entry, t), entry.description);
     }

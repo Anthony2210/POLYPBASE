@@ -74,10 +74,12 @@ export default function LabelsView({
 }) {
   const [isPreparing, setIsPreparing] = useState(false);
   const preparingRef = useRef(false);
-  const [printFailure, setPrintFailure] = useState<Extract<
-    QrLabelPreparationResult,
-    { status: 'failed' }
-  > | null>(null);
+  const [printFailure, setPrintFailure] = useState<
+    | (Extract<QrLabelPreparationResult, { status: 'failed' }> & {
+        batch: boolean;
+      })
+    | null
+  >(null);
   const [labelSearch, setLabelSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [expandedSpecies, setExpandedSpecies] = useState<Set<number>>(
@@ -151,7 +153,11 @@ export default function LabelsView({
     setIsPreparing(true);
     setPrintFailure(null);
     const result = await printQrLabels(selectedLabels, printSettings);
-    setPrintFailure(result.status === 'failed' ? result : null);
+    setPrintFailure(
+      result.status === 'failed'
+        ? { ...result, batch: selectedLabels.length > 1 }
+        : null,
+    );
     preparingRef.current = false;
     setIsPreparing(false);
   }
@@ -253,8 +259,13 @@ export default function LabelsView({
           {printFailure ? (
             <div>
               <p className="inline-error" role="alert">
-                {getQrLabelPreparationMessage(printFailure.reason, labels)}
-                {printFailure.boxCode ? (
+                {getQrLabelPreparationMessage(
+                  printFailure,
+                  labels,
+                  printFailure.batch,
+                )}
+                {printFailure.reason !== 'text-overflow' &&
+                printFailure.boxCode ? (
                   <>
                     {' '}
                     <strong>{printFailure.boxCode}</strong>

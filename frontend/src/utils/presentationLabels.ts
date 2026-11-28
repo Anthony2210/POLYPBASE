@@ -3,15 +3,17 @@ import type { Translator } from '../i18n';
 export function getBoxInsightsLabels(t: Translator) {
   return {
     chartEmpty: t('chartEmpty'),
-    chartTitle: t('chartTitle'),
+    chartTitle: t('boxRecordsTrend'),
     children: t('children'),
     close: t('close'),
-    ephyraeFull: t('ephyraeFull'),
+    ephyraeFull: t('ephyraeCountLabel'),
     events: t('events'),
     historyButton: t('historyButton'),
     historyAllYears: t('historyAllYears'),
-    historyVisibleCount: (visible: number, total: number) => t('historyVisibleCount')
-      .replace('{visible}', String(visible)).replace('{total}', String(total)),
+    historyVisibleCount: (visible: number, total: number) =>
+      t('historyVisibleCount')
+        .replace('{visible}', String(visible))
+        .replace('{total}', String(total)),
     historyYearFilter: t('historyYearFilter'),
     historyEnteredBy: t('historyEnteredBy'),
     historyHideComment: t('historyHideComment'),
@@ -37,7 +39,7 @@ export function getBoxInsightsLabels(t: Translator) {
     oneMonth: t('oneMonth'),
     oneYear: t('oneYear'),
     parents: t('parents'),
-    polyps: t('polyps'),
+    polyps: t('polypCountLabel'),
     salinityFull: t('salinityFull'),
     sixMonths: t('sixMonths'),
     subcultureEvent: t('subcultureEvent'),
@@ -75,8 +77,10 @@ export function getLabelsViewLabels(t: Translator) {
   return {
     allZones: t('zoneFilterAll'),
     noZone: t('noZone'),
-    qrLabelAddResults: (count: number) => t('qrLabelAddResults').replace('{count}', String(count)),
-    qrLabelAddResultsCompact: (count: number) => t('qrLabelAddResultsCompact').replace('{count}', String(count)),
+    qrLabelAddResults: (count: number) =>
+      t('qrLabelAddResults').replace('{count}', String(count)),
+    qrLabelAddResultsCompact: (count: number) =>
+      t('qrLabelAddResultsCompact').replace('{count}', String(count)),
     qrLabelClearSelection: t('qrLabelClearSelection'),
     qrLabelPreparing: t('qrLabelPreparing'),
     qrLabelPopupBlocked: t('qrLabelPopupBlocked'),
@@ -84,20 +88,32 @@ export function getLabelsViewLabels(t: Translator) {
     qrLabelResourceUnavailable: t('qrLabelResourceUnavailable'),
     qrLabelImagePreparationFailed: t('qrLabelImagePreparationFailed'),
     qrLabelPreparationFailed: t('qrLabelPreparationFailed'),
+    qrLabelStrainNameTooLong: t('qrLabelStrainNameTooLong'),
+    qrLabelStrainNameTooLongBatch: t('qrLabelStrainNameTooLongBatch'),
     qrLabelRetry: t('qrLabelRetry'),
     qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
     qrLabelNoMatches: t('qrLabelNoMatches'),
-    qrLabelPrintCount: (count: number) => t('qrLabelPrintCount').replace('{count}', String(count)),
+    qrLabelPrintCount: (count: number) =>
+      t('qrLabelPrintCount').replace('{count}', String(count)),
     qrLabelSearchTitle: t('qrLabelSearchTitle'),
     qrLabelSelectedSingular: t('qrLabelSelectedSingular'),
     qrLabelSelectedPlural: t('qrLabelSelectedPlural'),
     pageTitle: t('labelsTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
-    qrLabelSpeciesCount: (count: number) => t('qrLabelSpeciesCount').replace('{count}', String(count)),
-    qrLabelSpeciesSelected: (count: number) => t('qrLabelSpeciesSelected').replace('{count}', String(count)),
-    qrLabelSpeciesSelectedCompact: (count: number) => t('qrLabelSpeciesSelectedCompact').replace('{count}', String(count)),
-    qrLabelSelectSpecies: (count: number, species: string) => t('qrLabelSelectSpecies').replace('{count}', String(count)).replace('{species}', species),
-    qrLabelDeselectSpecies: (count: number, species: string) => t('qrLabelDeselectSpecies').replace('{count}', String(count)).replace('{species}', species),
+    qrLabelSpeciesCount: (count: number) =>
+      t('qrLabelSpeciesCount').replace('{count}', String(count)),
+    qrLabelSpeciesSelected: (count: number) =>
+      t('qrLabelSpeciesSelected').replace('{count}', String(count)),
+    qrLabelSpeciesSelectedCompact: (count: number) =>
+      t('qrLabelSpeciesSelectedCompact').replace('{count}', String(count)),
+    qrLabelSelectSpecies: (count: number, species: string) =>
+      t('qrLabelSelectSpecies')
+        .replace('{count}', String(count))
+        .replace('{species}', species),
+    qrLabelDeselectSpecies: (count: number, species: string) =>
+      t('qrLabelDeselectSpecies')
+        .replace('{count}', String(count))
+        .replace('{species}', species),
     selectBox: t('boxInventoryBatchSelectBox'),
     zoneLabel: t('zoneLabel'),
   };

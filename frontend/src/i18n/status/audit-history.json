@@ -390,14 +390,14 @@
       "reviewer": "japanese-reviewer"
     }
   },
-  "auditDescriptionCcaEobV3Correction": {
+  "auditDescriptionHistoricalRecordReassignment": {
     "en": {
       "status": "ai",
-      "source_sha256": "364b2f04c74efd0c333ea50bfcdb2b7522cb2174b6669767f49cc750e5201324"
+      "source_sha256": "7df450ed52678eb78c2f5670a0fa3ee7af29fdd02bde9aed37c74ef73c17addd"
     },
     "ja": {
       "status": "ai",
-      "source_sha256": "abbf61951133714627dbede440a986987b9ca794c0e087a4780953583d44b847"
+      "source_sha256": "9bc3a0b30b3c377a327789e23b842dc1307b15a6769c2119a3eaefd625488981"
     }
   },
   "auditDescriptionInventoryInitialized": {

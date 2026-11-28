@@ -56,7 +56,7 @@ export const labResearch = {
   suggestions: { fr: 'Suggestions', en: 'Suggestions', ja: '候補' },
   weeklyDay: { fr: 'jour', en: 'day', ja: '日' },
   weeklyDays: { fr: 'jours', en: 'days', ja: '日間' },
-  weeklyDueNow: { fr: 'à relever', en: 'to record', ja: '記録待ち' },
+  weeklyDueNow: { fr: 'à relever', en: 'to record', ja: '未記録' },
   weeklyDueSoon: { fr: 'bientôt', en: 'soon', ja: 'まもなく' },
   weeklyLastReading: {
     fr: 'Dernier relevé',

@@ -245,8 +245,9 @@ export default function QrLabelModal({
             {failure ? (
               <div className="utility-qr-error">
                 <p className="inline-error" role="alert">
-                  {getQrLabelPreparationMessage(failure.result.reason, labels)}
-                  {failure.result.boxCode ? (
+                  {getQrLabelPreparationMessage(failure.result, labels)}
+                  {failure.result.reason !== 'text-overflow' &&
+                  failure.result.boxCode ? (
                     <>
                       {' '}
                       <strong>{failure.result.boxCode}</strong>

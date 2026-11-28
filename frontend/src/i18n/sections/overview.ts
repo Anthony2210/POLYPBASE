@@ -3,7 +3,7 @@ export const overview = {
   overviewByZone: {
     fr: 'Par emplacement',
     en: 'By location',
-    ja: '設置場所別',
+    ja: 'エリア別',
   },
   overviewChartTitle: {
     fr: 'Évolution des relevés',
@@ -81,5 +81,5 @@ export const overview = {
     en: 'left to record',
     ja: '記録待ち',
   },
-  overviewZoneUpToDate: { fr: 'à jour', en: 'up to date', ja: '最新の状態' },
+  overviewZoneUpToDate: { fr: 'à jour', en: 'up to date', ja: '記録完了' },
 };

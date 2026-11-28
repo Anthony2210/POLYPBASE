@@ -1,5 +1,5 @@
 export const boxSheet = {
-  analysisTabLineage: { fr: 'Parenté', en: 'Lineage', ja: '系譜' },
+  analysisTabLineage: { fr: 'Parenté', en: 'Lineage', ja: '系統' },
   analysisTabMeasurements: {
     fr: 'Relevés',
     en: 'Measurements',
@@ -15,6 +15,11 @@ export const boxSheet = {
     fr: 'Cette boîte n’existe pas dans les données chargées.',
     en: 'This box does not exist in the loaded data.',
     ja: '読み込んだデータに、この容器は見つかりません。',
+  },
+  boxRecordsTrend: {
+    fr: 'Évolution des relevés',
+    en: 'Records trend',
+    ja: '飼育データの推移',
   },
   boxSalinityShort: { fr: 'Sal. boîte', en: 'Box sal.', ja: '容器内の塩分' },
   boxSheet: { fr: 'Fiche de la boîte', en: 'Box details', ja: '容器情報' },
@@ -137,7 +142,7 @@ export const boxSheet = {
   lastMeasurement: {
     fr: 'Dernier relevé',
     en: 'Last measurement',
-    ja: '最終測定日',
+    ja: '前回の測定日',
   },
   lineageEmptyGraph: {
     fr: 'Le graphique de parenté sera affiché ici.',

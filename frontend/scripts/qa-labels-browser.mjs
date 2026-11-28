@@ -183,7 +183,13 @@ function boxDetail(box) {
 
 async function demoPage(
   t,
-  { language = 'en', width = 1440, height = 900, hasTouch = false } = {},
+  {
+    language = 'en',
+    width = 1440,
+    height = 900,
+    hasTouch = false,
+    boxes = catalogue,
+  } = {},
 ) {
   const context = await browser.newContext({
     viewport: { width, height },
@@ -277,10 +283,10 @@ async function demoPage(
         offsets.push(offset);
         const pageUrl = (start) => `${origin}${path}?limit=100&offset=${start}`;
         return json({
-          count: catalogue.length,
-          next: offset + 100 < catalogue.length ? pageUrl(offset + 100) : null,
+          count: boxes.length,
+          next: offset + 100 < boxes.length ? pageUrl(offset + 100) : null,
           previous: offset > 0 ? pageUrl(offset - 100) : null,
-          results: catalogue.slice(offset, offset + 100),
+          results: boxes.slice(offset, offset + 100),
         });
       }
       if (
@@ -321,8 +327,8 @@ function resultFor(page, box) {
   });
 }
 
-async function openPicker(t) {
-  const demo = await demoPage(t);
+async function openPicker(t, options) {
+  const demo = await demoPage(t, options);
   await demo.page.goto(`${origin}/labels`);
   const search = demo.page.locator('.labels-page').getByRole('searchbox');
   await search.waitFor();
@@ -521,6 +527,37 @@ test('batch print hands off two complete, escaped labels and produces two PDF pa
   );
 });
 
+test('Labels refuses the whole batch and names the overflowing box', async (t) => {
+  const { page, search } = await openPicker(t, {
+    boxes: [named, overflow],
+    width: 960,
+    height: 600,
+    hasTouch: true,
+  });
+  await interceptPrint(page);
+  for (const box of [named, overflow]) {
+    await search.fill(box.global_code);
+    await resultFor(page, box).check();
+  }
+  await page.getByRole('button', { name: 'Print 2', exact: true }).click();
+  const alert = page
+    .getByRole('alert')
+    .filter({ hasText: overflow.global_code });
+  await alert.waitFor();
+  assert.equal(
+    await alert.textContent(),
+    `${overflow.global_code}: The strain name is too long for this label format. No labels were printed or downloaded.`,
+  );
+  assert.deepEqual(
+    await page.evaluate(() => [window.qaPrints, window.qaDownloads]),
+    [0, 0],
+  );
+  assert.equal(
+    await page.getByRole('button', { name: 'Retry', exact: true }).count(),
+    0,
+  );
+});
+
 for (const box of [named, longName, japanese, unnamed]) {
   test(`download and browser print preserve the SVG text for ${box.global_code}`, async (t) => {
     const { page, dialog } = await openQrModal(t, box);
@@ -621,6 +658,13 @@ for (const action of ['Print', 'Download']) {
       'An overflowing label must not reach the browser',
     );
     const alert = dialog.getByRole('alert');
-    assert.ok((await alert.textContent())?.includes(overflow.global_code));
+    assert.equal(
+      await alert.textContent(),
+      `${overflow.global_code}: The strain name is too long for this label format.`,
+    );
+    assert.equal(
+      await dialog.getByRole('button', { name: 'Retry', exact: true }).count(),
+      0,
+    );
   });
 }

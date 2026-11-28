@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { loadI18n } from './i18n-runtime-test-helper.mjs';
 import { resourceClient } from './resource-test-harness.mjs';
 
 const origin = 'https://polypbase.test';
@@ -70,6 +71,7 @@ function preparationHarness(options = {}) {
         calls.push(['write', html]);
       },
       close() {},
+      ...options.printDocument,
     },
     focus() {
       calls.push(['focus']);
@@ -162,7 +164,14 @@ function preparationHarness(options = {}) {
     },
     document: {
       body: { appendChild() {} },
-      createElement: () => ({
+      createElement: (tag) => ({
+        ...(tag === 'canvas'
+          ? {
+              getContext: () => ({
+                measureText: (text) => ({ width: text.length * 8 }),
+              }),
+            }
+          : {}),
         click() {
           calls.push(['download']);
           if (options.downloadThrows) throw new Error('download');
@@ -663,6 +672,62 @@ test('download validates its image and preserves self-contained vector geometry 
   assert.doesNotMatch(svg, /<canvas|image\/png/);
 });
 
+const longStrainLabel = {
+  ...label,
+  id: 171,
+  globalCode: 'DEMO-BOX-171',
+  strainName: 'Synthetic long strain name '.repeat(25),
+};
+const { en: overflowFeedback } = loadI18n().translations;
+
+test('an overflowing single label is not downloaded and names the box', async () => {
+  const { api, calls } = preparationHarness();
+  const result = await api.downloadQrLabel(longStrainLabel);
+  expectStatus(result, 'failed', 'text-overflow');
+  assert.equal(result.boxCode, longStrainLabel.globalCode);
+  assert.equal(
+    calls.some(([name]) => name === 'download'),
+    false,
+  );
+  assert.equal(
+    api.getQrLabelPreparationMessage(result, overflowFeedback),
+    'DEMO-BOX-171: The strain name is too long for this label format.',
+  );
+});
+
+test('one overflowing label blocks the entire batch and the message says so', async () => {
+  const band = { left: 0, right: 10, top: 0, bottom: 10 };
+  const { api, calls, popup } = preparationHarness({
+    images: [resourceImage(), resourceImage()],
+    printDocument: {
+      fonts: { ready: Promise.resolve() },
+      querySelectorAll: () => [
+        null,
+        {
+          getBoundingClientRect: () => band,
+          querySelectorAll: () => [{}],
+        },
+      ],
+      createRange: () => ({
+        selectNodeContents() {},
+        getClientRects: () => [{ ...band, bottom: 12 }],
+      }),
+    },
+  });
+  const result = await api.printQrLabels([label, longStrainLabel]);
+  expectStatus(result, 'failed', 'text-overflow');
+  assert.equal(result.boxCode, longStrainLabel.globalCode);
+  assert.equal(popup.closed, true);
+  assert.equal(
+    calls.some(([name]) => name === 'print' || name === 'download'),
+    false,
+  );
+  assert.equal(
+    api.getQrLabelPreparationMessage(result, overflowFeedback, true),
+    'DEMO-BOX-171: The strain name is too long for this label format. No labels were printed or downloaded.',
+  );
+});
+
 test('unexpected preparation exceptions settle and clean up resources', async () => {
   const popup = preparationHarness({ openThrows: true });
   expectStatus(await popup.api.printQrLabels([label]), 'failed', 'preparation');
@@ -686,7 +751,7 @@ test('every failure maps to a translated, factual preparation message', () => {
     preparation: 'qrLabelPreparationFailed',
   })) {
     assert.equal(
-      api.getQrLabelPreparationMessage(reason, feedback),
+      api.getQrLabelPreparationMessage({ reason }, feedback),
       feedback[key],
     );
   }

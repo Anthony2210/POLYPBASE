@@ -54,6 +54,7 @@ export const appNavigation = {
   confirmDetailSpecies: { fr: 'Espèce', en: 'Species', ja: '種' },
   demoModeBanner: { fr: 'Mode démonstration', en: 'Demonstration mode' },
   ephyrae: { fr: 'Éphyr.', en: 'Ephyrae', ja: 'エフィラ' },
+  ephyraeCountLabel: { fr: 'Éphyrules', en: 'Ephyrae', ja: 'エフィラ数' },
   ephyraeFull: { fr: 'Éphyrules', en: 'Ephyrae', ja: 'エフィラ' },
   events: { fr: 'Événements', en: 'Events', ja: 'イベント' },
   historicalUser: {
@@ -116,6 +117,7 @@ export const appNavigation = {
   },
   phoneLocations: { fr: 'Emplacements', en: 'Locations', ja: '設置場所一覧' },
   phoneQrAction: { fr: 'QR', en: 'QR', ja: 'QRコード' },
+  polypCountLabel: { fr: 'Polypes', en: 'Polyps', ja: 'ポリプ数' },
   polyps: { fr: 'Polypes', en: 'Polyps', ja: 'ポリプ' },
   reloadAction: { fr: 'Recharger', en: 'Reload', ja: '再読み込み' },
   saving: { fr: 'Enregistrement...', en: 'Saving...', ja: '保存中…' },
