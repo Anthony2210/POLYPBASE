@@ -1466,7 +1466,9 @@ class HistoricalMovementsTests(TestCase):
             "apps.cultures.services.timezone.now",
             return_value=start + timedelta(hours=1),
         ):
-            set_box_planned_weekday(box=self.box, planned_weekday=3, user=self.admin)
+            set_box_planned_weekday(
+                box=self.box, organization=self.org, planned_weekday=3, user=self.admin
+            )
         with patch(
             "apps.cultures.services.timezone.now",
             return_value=start + timedelta(hours=2),

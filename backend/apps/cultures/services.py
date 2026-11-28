@@ -79,14 +79,21 @@ def check_ordinary_movement_week(*, box, moved_at, movement=None):
         )
 
 
-def _locked_box(box):
+def _locked_box(box, *, organization=None):
+    """Lock and reload the box; with an organization, only within it.
+
+    Raise Box.DoesNotExist when the box no longer belongs to that organization.
+    """
     lock_local_id_registry()
-    box = (
+    rows = (
         # Lock the box, not the nullable location side of the outer join.
-        Box.objects.select_for_update(of=("self",))
-        .select_related("organization", "thermal_zone")
-        .get(pk=box.pk)
+        Box.objects.select_for_update(of=("self",)).select_related(
+            "organization", "thermal_zone"
+        )
     )
+    if organization is not None:
+        rows = rows.filter(organization=organization)
+    box = rows.get(pk=box.pk)
     if box.merged_into_id is not None:
         raise ValidationError(
             "A merged identity is read-only. Reload the canonical culture."
@@ -356,13 +363,15 @@ def reactivate_box(*, box, thermal_zone, user, notes=""):
 
 
 @transaction.atomic
-def set_box_planned_weekday(*, box, planned_weekday, user):
+def set_box_planned_weekday(*, box, organization, planned_weekday, user):
     """Set or clear the planned ISO weekday under the Box lock and audit the change.
 
-    The caller authorizes the actor. An unchanged value writes nothing, so the
-    audit log only records real before/after transitions.
+    The caller authorizes the actor in ``organization``. The locked lookup is
+    scoped to it, so a box that left it meanwhile raises Box.DoesNotExist with
+    nothing written. An unchanged value writes nothing, so the audit log only
+    records real before/after transitions.
     """
-    box = _locked_box(box)
+    box = _locked_box(box, organization=organization)
     before = box.planned_weekday
     if before == planned_weekday:
         return box

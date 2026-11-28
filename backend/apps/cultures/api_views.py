@@ -1676,11 +1676,15 @@ class BoxPlannedWeekdayAPIView(APIView):
         serializer = BoxPlannedWeekdaySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
+            # SECURITY: The write is scoped to the institution authorized above.
             set_box_planned_weekday(
                 box=box,
+                organization=box.organization,
                 planned_weekday=serializer.validated_data["planned_weekday"],
                 user=request.user,
             )
+        except Box.DoesNotExist as exc:
+            raise Http404 from exc
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages) from exc
 

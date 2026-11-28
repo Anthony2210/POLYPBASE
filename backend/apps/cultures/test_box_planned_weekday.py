@@ -1,5 +1,7 @@
 """Planned weekday of a Box: constraint, admin-only edits, audit, payloads, transplant."""
 
+from unittest.mock import patch
+
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -17,6 +19,7 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
+from . import api_views
 from .admin import BoxAdmin
 from .models import Box, ThermalZone
 from .polyp_state import resolve_current_polyp_state
@@ -102,7 +105,10 @@ class PlannedWeekdayConstraintTests(PlannedWeekdayTestBase):
         for value in (0, 8):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 set_box_planned_weekday(
-                    box=self.box, planned_weekday=value, user=self.admin
+                    box=self.box,
+                    organization=self.org,
+                    planned_weekday=value,
+                    user=self.admin,
                 )
         self.box.refresh_from_db()
         self.assertIsNone(self.box.planned_weekday)
@@ -241,6 +247,40 @@ class PlannedWeekdayEditTests(PlannedWeekdayTestBase):
             merged_into=target, status=Box.Status.INACTIVE, thermal_zone=None
         )
         self.assertEqual(self.patch(self.admin, 1).status_code, 404)
+        self.assertEqual(self.audits(), [])
+
+    def move_to_other_institution(self):
+        Box.objects.filter(pk=self.box.pk).update(organization=self.other_org)
+
+    def test_box_moved_after_authorization_is_a_404_without_write_or_audit(self):
+        real_check = api_views.get_active_admin_organization_ids
+
+        def authorize_then_move(request):
+            # Authorization succeeds, then the box leaves the institution before the write.
+            authorized = real_check(request)
+            self.move_to_other_institution()
+            return authorized
+
+        with patch.object(
+            api_views, "get_active_admin_organization_ids", authorize_then_move
+        ):
+            response = self.patch(self.admin, 4)
+        self.assertEqual(response.status_code, 404)
+        self.box.refresh_from_db()
+        self.assertEqual(
+            (self.box.organization_id, self.box.planned_weekday),
+            (self.other_org.pk, None),
+        )
+        self.assertEqual(self.audits(), [])
+
+    def test_service_locks_the_box_within_the_authorized_institution(self):
+        self.move_to_other_institution()
+        with self.assertRaises(Box.DoesNotExist):
+            set_box_planned_weekday(
+                box=self.box, organization=self.org, planned_weekday=4, user=self.admin
+            )
+        self.box.refresh_from_db()
+        self.assertIsNone(self.box.planned_weekday)
         self.assertEqual(self.audits(), [])
 
 
@@ -434,11 +474,15 @@ class PlannedWeekdayDjangoAdminTests(PlannedWeekdayTestBase):
         )
 
     def test_stale_change_form_save_keeps_the_newer_audited_value(self):
-        set_box_planned_weekday(box=self.box, planned_weekday=3, user=self.admin)
+        set_box_planned_weekday(
+            box=self.box, organization=self.org, planned_weekday=3, user=self.admin
+        )
         stale = Box.objects.get(
             pk=self.box.pk
         )  # Loaded by the admin while the value is 3.
-        set_box_planned_weekday(box=self.box, planned_weekday=5, user=self.admin)
+        set_box_planned_weekday(
+            box=self.box, organization=self.org, planned_weekday=5, user=self.admin
+        )
         stale.notes = "Edited in the Django admin"
         self.box_admin.save_model(self.request, stale, form=None, change=True)
         self.box.refresh_from_db()
