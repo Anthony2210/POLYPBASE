@@ -31,8 +31,9 @@ from .movement_corrections import correct_box_movement
 from .services import (
     deactivate_box,
     move_box_to_thermal_zone,
-    reactivate_box,
     qualify_pending_box,
+    reactivate_box,
+    set_box_planned_weekday,
 )
 
 
@@ -1454,6 +1455,64 @@ class HistoricalMovementsTests(TestCase):
         self.assertTrue(interval["masking_eligible"])
         self.assertFalse(interval["measurement_overlap_possible"])
         self.assertEqual(before, self.snapshot())
+
+    def test_planned_weekday_edit_inside_the_gap_keeps_the_pairing(self):
+        start = paris(2026, 1, 7, 12)
+        with patch("apps.cultures.services.timezone.now", return_value=start):
+            deactivate_box(
+                box=self.box, user=self.admin, reason="Synthetic inactive interval"
+            )
+        with patch(
+            "apps.cultures.services.timezone.now",
+            return_value=start + timedelta(hours=1),
+        ):
+            set_box_planned_weekday(box=self.box, planned_weekday=3, user=self.admin)
+        with patch(
+            "apps.cultures.services.timezone.now",
+            return_value=start + timedelta(hours=2),
+        ):
+            reactivate_box(box=self.box, user=self.admin, thermal_zone=self.a)
+        events = self.inactive_events()
+        self.assertEqual(
+            [event["evidence"]["inactive_pairing_reliable"] for event in events],
+            [True, True],
+        )
+        self.assertEqual(
+            events[0]["evidence"]["inactive_interval"]["duration_seconds"], 7200
+        )
+        # The weekday edit stays in the box audit journal; it is only not a lifecycle barrier.
+        self.assertEqual(
+            AuditLog.objects.filter(
+                organization=self.org,
+                metadata__event="box_planned_weekday_updated",
+                metadata__box_id=self.box.pk,
+            ).count(),
+            1,
+        )
+
+    def test_audit_labelled_as_weekday_edit_but_carrying_more_is_still_a_barrier(self):
+        self.inactive_cycle()
+        between = AuditLog.objects.get(
+            metadata__transition="active->inactive"
+        ).created_at + timedelta(minutes=30)
+        audit = AuditLog.objects.create(
+            organization=self.org,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Synthetic",
+            metadata={
+                "event": "box_planned_weekday_updated",
+                "box_id": self.box.pk,
+                "modifications": {
+                    "planned_weekday": {"avant": None, "apres": 2},
+                    "statut": {"avant": "inactive", "apres": "active"},
+                },
+            },
+        )
+        AuditLog.objects.filter(pk=audit.pk).update(created_at=between)
+        self.assert_no_inactive_pair()
 
     def test_short_active_period_is_not_the_inactive_gap(self):
         movement = move_box_to_thermal_zone(

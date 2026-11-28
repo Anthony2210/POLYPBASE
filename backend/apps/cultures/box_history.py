@@ -630,6 +630,21 @@ def _measurement_overlap_possible(measurements, start, end):
     return False
 
 
+def _is_planned_weekday_only_audit(audit, *, box):
+    """Match exactly the audit set_box_planned_weekday writes, and nothing broader."""
+    metadata = audit.metadata
+    return (
+        audit.action == AuditLog.Action.UPDATE
+        and isinstance(metadata, dict)
+        and set(metadata) == {"event", "box_id", "modifications"}
+        and metadata["event"] == "box_planned_weekday_updated"
+        and type(metadata["box_id"]) is int
+        and metadata["box_id"] == box.pk
+        and isinstance(metadata["modifications"], dict)
+        and set(metadata["modifications"]) == {"planned_weekday"}
+    )
+
+
 def _pair_inactive_intervals(*, box, events, audits, periods, by_period, movements):
     """Pair only proven recorded inactive gaps, not short active location periods."""
     lifecycle = [
@@ -745,7 +760,8 @@ def _pair_inactive_intervals(*, box, events, audits, periods, by_period, movemen
             for period in periods
         ):
             continue
-        # Exact-ID reactivation's own movement audit is part of that same action.
+        # Exact-ID reactivation's own movement audit is part of that same action,
+        # and a weekday-only planning edit changes neither status nor location.
         # Every other intervening scoped audit remains a conservative barrier.
         between = [
             audit
@@ -753,6 +769,7 @@ def _pair_inactive_intervals(*, box, events, audits, periods, by_period, movemen
             if (deactivation.created_at, deactivation.pk)
             < (audit.created_at, audit.pk)
             < (reactivation.created_at, reactivation.pk)
+            and not _is_planned_weekday_only_audit(audit, box=box)
         ]
         if any(
             not (
